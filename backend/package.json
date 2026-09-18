@@ -1,0 +1,25 @@
+{
+  "name": "pealsync-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PealSync AWS serverless backend (API Gateway + Lambda + DynamoDB + EventBridge)",
+  "type": "commonjs",
+  "scripts": {
+    "build": "sam build",
+    "deploy": "sam deploy --guided",
+    "local:api": "sam local start-api",
+    "lint": "eslint src",
+    "test": "node --test src/**/*.test.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.632.0",
+    "@aws-sdk/lib-dynamodb": "^3.632.0",
+    "@aws-sdk/client-eventbridge": "^3.632.0",
+    "google-auth-library": "^9.14.0",
+    "googleapis": "^140.0.1",
+    "ulid": "^2.3.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.9.0"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "manifest": {
+    "publishingInformation": {
+      "locales": {
+        "en-US": {
+          "name": "PealSync",
+          "summary": "Family tasks, schedule, and grocery cart, hands-free.",
+          "description": "PealSync brings your family's tasks, schedule, and grocery cart to your Echo Show. Ask what's on today's schedule, add a task, or check the grocery cart — with a calm, olive-toned visual card on screen.",
+          "examplePhrases": [
+            "Alexa, open PealSync",
+            "Alexa, ask PealSync what's on today's schedule",
+            "Alexa, tell PealSync to add pack soccer bag to the tasks"
+          ]
+        }
+      }
+    },
+    "apis": {
+      "custom": {
+        "endpoint": {
+          "sourceDir": "lambda"
+        },
+        "interfaces": [
+          { "type": "ALEXA_PRESENTATION_APL" }
+        ]
+      }
+    },
+    "manifestVersion": "1.0"
+  }
+}

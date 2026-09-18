@@ -1,0 +1,43 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "peal sync",
+      "intents": [
+        { "name": "AMAZON.CancelIntent", "samples": [] },
+        { "name": "AMAZON.HelpIntent", "samples": [] },
+        { "name": "AMAZON.StopIntent", "samples": [] },
+        { "name": "AMAZON.NavigateHomeIntent", "samples": [] },
+        {
+          "name": "GetScheduleIntent",
+          "slots": [],
+          "samples": [
+            "what's on today's schedule",
+            "what's the schedule",
+            "what's happening today",
+            "what do we have going on today"
+          ]
+        },
+        {
+          "name": "GetTasksIntent",
+          "slots": [],
+          "samples": [
+            "what are the tasks",
+            "what's on the task list",
+            "what needs to get done"
+          ]
+        },
+        {
+          "name": "AddTaskIntent",
+          "slots": [
+            { "name": "taskTitle", "type": "AMAZON.SearchQuery" }
+          ],
+          "samples": [
+            "add {taskTitle} to the tasks",
+            "add a task to {taskTitle}",
+            "remind us to {taskTitle}"
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,219 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  PealSync backend — API Gateway + Lambda + single-table DynamoDB + EventBridge
+  sync jobs for the family management / Echo Show dashboard.
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Architectures: [arm64]
+    MemorySize: 256
+    Timeout: 10
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref PealSyncTable
+        STAGE: !Ref Stage
+    Tracing: Active
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+
+Resources:
+  # ---------------------------------------------------------------------
+  # Data layer — single-table DynamoDB design (see backend/models/schema.md)
+  # ---------------------------------------------------------------------
+  PealSyncTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub PealSync-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: GSI1PK
+          AttributeType: S
+        - AttributeName: GSI1SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: GSI1PK
+              KeyType: HASH
+            - AttributeName: GSI1SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  # ---------------------------------------------------------------------
+  # API Gateway (HTTP API) — routes mobile + Echo Show requests
+  # ---------------------------------------------------------------------
+  PealSyncHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Stage
+      CorsConfiguration:
+        AllowOrigins: ["*"]
+        AllowHeaders: ["Content-Type", "Authorization"]
+        AllowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+
+  TasksFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/tasks.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PealSyncTable
+      Events:
+        List:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PealSyncHttpApi
+            Path: /families/{familyId}/tasks
+            Method: GET
+        Create:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PealSyncHttpApi
+            Path: /families/{familyId}/tasks
+            Method: POST
+        Update:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PealSyncHttpApi
+            Path: /families/{familyId}/tasks/{taskId}
+            Method: PUT
+        Delete:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PealSyncHttpApi
+            Path: /families/{familyId}/tasks/{taskId}
+            Method: DELETE
+
+  SchedulesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/schedules.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PealSyncTable
+      Events:
+        List:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PealSyncHttpApi
+            Path: /families/{familyId}/schedules
+            Method: GET
+        Create:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PealSyncHttpApi
+            Path: /families/{familyId}/schedules
+            Method: POST
+        Update:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PealSyncHttpApi
+            Path: /families/{familyId}/schedules/{scheduleId}
+            Method: PUT
+        Delete:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PealSyncHttpApi
+            Path: /families/{familyId}/schedules/{scheduleId}
+            Method: DELETE
+
+  PreferencesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/preferences.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PealSyncTable
+      Events:
+        Get:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PealSyncHttpApi
+            Path: /families/{familyId}/members/{memberId}/preferences
+            Method: GET
+        Put:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PealSyncHttpApi
+            Path: /families/{familyId}/members/{memberId}/preferences
+            Method: PUT
+
+  GroceryCartFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/groceryCart.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PealSyncTable
+      Environment:
+        Variables:
+          KROGER_CLIENT_ID: "{{resolve:ssm:/pealsync/kroger/client-id}}"
+          KROGER_CLIENT_SECRET: "{{resolve:ssm-secure:/pealsync/kroger/client-secret}}"
+      Events:
+        Get:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PealSyncHttpApi
+            Path: /families/{familyId}/grocery-cart
+            Method: GET
+        AddItem:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PealSyncHttpApi
+            Path: /families/{familyId}/grocery-cart/items
+            Method: POST
+
+  # ---------------------------------------------------------------------
+  # Background sync — EventBridge scheduled trigger, decoupled from API
+  # ---------------------------------------------------------------------
+  CalendarSyncFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/calendarSync.handler
+      CodeUri: .
+      Timeout: 30
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PealSyncTable
+      Environment:
+        Variables:
+          GOOGLE_CLIENT_ID: "{{resolve:ssm:/pealsync/google/client-id}}"
+          GOOGLE_CLIENT_SECRET: "{{resolve:ssm-secure:/pealsync/google/client-secret}}"
+      Events:
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(15 minutes)
+            Name: !Sub PealSync-CalendarSync-${Stage}
+            Description: Periodic Google Calendar sync for all connected families
+            Enabled: true
+
+Outputs:
+  ApiUrl:
+    Description: Base URL for the PealSync HTTP API
+    Value: !Sub https://${PealSyncHttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}
+  TableName:
+    Description: DynamoDB single-table name
+    Value: !Ref PealSyncTable
