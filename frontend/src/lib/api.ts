@@ -1,0 +1,25 @@
+import type { Task, ScheduleEntry, CartItem } from "../types";
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status} ${path}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+export const api = {
+  listTasks: (familyId: string) => request<Task[]>(`/families/${familyId}/tasks`),
+  createTask: (familyId: string, task: Pick<Task, "title"> & Partial<Task>) =>
+    request<Task>(`/families/${familyId}/tasks`, { method: "POST", body: JSON.stringify(task) }),
+  listSchedules: (familyId: string, start?: string, end?: string) =>
+    request<ScheduleEntry[]>(`/families/${familyId}/schedules?start=${start ?? ""}&end=${end ?? ""}`),
+  listCartItems: (familyId: string) => request<CartItem[]>(`/families/${familyId}/grocery-cart`),
+};

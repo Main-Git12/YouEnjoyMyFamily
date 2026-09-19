@@ -1,4 +1,12 @@
-export default function FamilyCard({ title, children, accent = false }) {
+import type { ReactNode } from "react";
+
+interface FamilyCardProps {
+  title: string;
+  children: ReactNode;
+  accent?: boolean;
+}
+
+export default function FamilyCard({ title, children, accent = false }: FamilyCardProps) {
   return (
     <section
       className={`rounded-card shadow-[var(--shadow-card)] p-6 ${

@@ -1,17 +1,31 @@
-const Alexa = require("ask-sdk-core");
-const fetch = require("node-fetch");
-const dashboardCard = require("./apl/dashboardCard.json");
+import * as Alexa from "ask-sdk-core";
+import type { Response } from "ask-sdk-model";
 
-const API_BASE_URL = process.env.PEALSYNC_API_BASE_URL;
+// JSON lives outside tsconfig's rootDir, so a TS `import` would fail; require() sidesteps that.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const dashboardCard = require("../apl/dashboardCard.json") as Record<string, unknown>;
+
+const API_BASE_URL = process.env.YOUENJOYMYFAMILY_API_BASE_URL;
 // TODO: resolve from the authenticated Alexa household account linking flow
 // instead of a fixed id once account linking is implemented.
-const FAMILY_ID = process.env.PEALSYNC_FAMILY_ID ?? "fam_demo";
+const FAMILY_ID = process.env.YOUENJOYMYFAMILY_FAMILY_ID ?? "fam_demo";
 
-function supportsApl(handlerInput) {
-  return !!handlerInput.requestEnvelope.context.System.device?.supportedInterfaces["Alexa.Presentation.APL"];
+interface TaskItem {
+  taskId: string;
+  title: string;
 }
 
-function renderDashboard(handlerInput, heading, items) {
+interface ScheduleEntry {
+  scheduleId: string;
+  title: string;
+}
+
+function supportsApl(handlerInput: Alexa.HandlerInput): boolean {
+  const supportedInterfaces = handlerInput.requestEnvelope.context.System.device?.supportedInterfaces;
+  return Boolean(supportedInterfaces?.["Alexa.Presentation.APL"]);
+}
+
+function renderDashboard(handlerInput: Alexa.HandlerInput, heading: string, items: string[]): void {
   if (!supportsApl(handlerInput)) return;
 
   handlerInput.responseBuilder.addDirective({
@@ -21,34 +35,35 @@ function renderDashboard(handlerInput, heading, items) {
   });
 }
 
-async function fetchJson(path) {
+async function fetchJson<T>(path: string): Promise<T> {
+  if (!API_BASE_URL) throw new Error("YOUENJOYMYFAMILY_API_BASE_URL is not configured");
   const response = await fetch(`${API_BASE_URL}${path}`);
-  if (!response.ok) throw new Error(`PealSync API error: ${response.status}`);
-  return response.json();
+  if (!response.ok) throw new Error(`YouEnjoyMyFamily API error: ${response.status}`);
+  return response.json() as Promise<T>;
 }
 
-const LaunchRequestHandler = {
+export const LaunchRequestHandler: Alexa.RequestHandler = {
   canHandle(handlerInput) {
     return Alexa.getRequestType(handlerInput.requestEnvelope) === "LaunchRequest";
   },
-  handle(handlerInput) {
-    const speakOutput = "Welcome to Peal Sync. You can ask what's on today's schedule, or what the tasks are.";
-    renderDashboard(handlerInput, "PealSync", ["Ask me about today's schedule or tasks"]);
+  handle(handlerInput): Response {
+    const speakOutput = "Welcome to You Enjoy My Family. You can ask what's on today's schedule, or what the tasks are.";
+    renderDashboard(handlerInput, "YouEnjoyMyFamily", ["Ask me about today's schedule or tasks"]);
     return handlerInput.responseBuilder.speak(speakOutput).reprompt(speakOutput).getResponse();
   },
 };
 
-const GetScheduleIntentHandler = {
+export const GetScheduleIntentHandler: Alexa.RequestHandler = {
   canHandle(handlerInput) {
     return (
       Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
       Alexa.getIntentName(handlerInput.requestEnvelope) === "GetScheduleIntent"
     );
   },
-  async handle(handlerInput) {
+  async handle(handlerInput): Promise<Response> {
     try {
       const today = new Date().toISOString().slice(0, 10);
-      const entries = await fetchJson(`/families/${FAMILY_ID}/schedules?start=${today}&end=${today}`);
+      const entries = await fetchJson<ScheduleEntry[]>(`/families/${FAMILY_ID}/schedules?start=${today}&end=${today}`);
 
       const speakOutput = entries.length
         ? `Today you have ${entries.map((e) => e.title).join(", ")}.`
@@ -63,16 +78,16 @@ const GetScheduleIntentHandler = {
   },
 };
 
-const GetTasksIntentHandler = {
+export const GetTasksIntentHandler: Alexa.RequestHandler = {
   canHandle(handlerInput) {
     return (
       Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
       Alexa.getIntentName(handlerInput.requestEnvelope) === "GetTasksIntent"
     );
   },
-  async handle(handlerInput) {
+  async handle(handlerInput): Promise<Response> {
     try {
-      const tasks = await fetchJson(`/families/${FAMILY_ID}/tasks`);
+      const tasks = await fetchJson<TaskItem[]>(`/families/${FAMILY_ID}/tasks`);
       const speakOutput = tasks.length
         ? `You have ${tasks.length} task${tasks.length === 1 ? "" : "s"}: ${tasks.map((t) => t.title).join(", ")}.`
         : "There are no tasks right now.";
@@ -86,26 +101,28 @@ const GetTasksIntentHandler = {
   },
 };
 
-const AddTaskIntentHandler = {
+export const AddTaskIntentHandler: Alexa.RequestHandler = {
   canHandle(handlerInput) {
     return (
       Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
       Alexa.getIntentName(handlerInput.requestEnvelope) === "AddTaskIntent"
     );
   },
-  async handle(handlerInput) {
+  async handle(handlerInput): Promise<Response> {
     const title = Alexa.getSlotValue(handlerInput.requestEnvelope, "taskTitle");
     if (!title) {
       return handlerInput.responseBuilder.speak("What should I add to the tasks?").reprompt("What's the task?").getResponse();
     }
 
     try {
+      if (!API_BASE_URL) throw new Error("YOUENJOYMYFAMILY_API_BASE_URL is not configured");
+
       const response = await fetch(`${API_BASE_URL}/families/${FAMILY_ID}/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title }),
       });
-      if (!response.ok) throw new Error(`PealSync API error: ${response.status}`);
+      if (!response.ok) throw new Error(`YouEnjoyMyFamily API error: ${response.status}`);
 
       return handlerInput.responseBuilder.speak(`Added "${title}" to the tasks.`).getResponse();
     } catch (err) {
@@ -115,20 +132,20 @@ const AddTaskIntentHandler = {
   },
 };
 
-const HelpIntentHandler = {
+export const HelpIntentHandler: Alexa.RequestHandler = {
   canHandle(handlerInput) {
     return (
       Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
       Alexa.getIntentName(handlerInput.requestEnvelope) === "AMAZON.HelpIntent"
     );
   },
-  handle(handlerInput) {
+  handle(handlerInput): Response {
     const speakOutput = "You can ask what's on today's schedule, what the tasks are, or add a task.";
     return handlerInput.responseBuilder.speak(speakOutput).reprompt(speakOutput).getResponse();
   },
 };
 
-const CancelAndStopIntentHandler = {
+export const CancelAndStopIntentHandler: Alexa.RequestHandler = {
   canHandle(handlerInput) {
     return (
       Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
@@ -136,31 +153,31 @@ const CancelAndStopIntentHandler = {
         Alexa.getIntentName(handlerInput.requestEnvelope) === "AMAZON.StopIntent")
     );
   },
-  handle(handlerInput) {
+  handle(handlerInput): Response {
     return handlerInput.responseBuilder.speak("Goodbye!").getResponse();
   },
 };
 
-const SessionEndedRequestHandler = {
+export const SessionEndedRequestHandler: Alexa.RequestHandler = {
   canHandle(handlerInput) {
     return Alexa.getRequestType(handlerInput.requestEnvelope) === "SessionEndedRequest";
   },
-  handle(handlerInput) {
+  handle(handlerInput): Response {
     return handlerInput.responseBuilder.getResponse();
   },
 };
 
-const ErrorHandler = {
-  canHandle() {
+export const ErrorHandler: Alexa.ErrorHandler = {
+  canHandle(): boolean {
     return true;
   },
-  handle(handlerInput, error) {
+  handle(handlerInput, error): Response {
     console.error(error);
     return handlerInput.responseBuilder.speak("Sorry, something went wrong. Please try again.").getResponse();
   },
 };
 
-exports.handler = Alexa.SkillBuilders.custom()
+export const handler = Alexa.SkillBuilders.custom()
   .addRequestHandlers(
     LaunchRequestHandler,
     GetScheduleIntentHandler,

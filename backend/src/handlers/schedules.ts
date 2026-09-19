@@ -1,14 +1,17 @@
-const { ulid } = require("ulid");
-const { PutCommand, QueryCommand, DeleteCommand } = require("@aws-sdk/lib-dynamodb");
-const { docClient, TABLE_NAME } = require("../lib/dynamoClient");
-const { ok, created, badRequest, serverError } = require("../lib/response");
+import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
+import { ulid } from "ulid";
+import { PutCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { docClient, TABLE_NAME } from "../lib/dynamoClient";
+import { ok, created, badRequest, serverError } from "../lib/response";
+import { parseBody, ValidationError } from "../lib/validation";
+import { ScheduleInput, type ScheduleItem } from "../types";
 
-const scheduleKey = (familyId, isoDate, entryId) => ({
+const scheduleKey = (familyId: string, isoDate: string, entryId: string) => ({
   PK: `FAMILY#${familyId}`,
   SK: `SCHEDULE#${isoDate}#${entryId}`,
 });
 
-async function listSchedules(familyId, start, end) {
+async function listSchedules(familyId: string, start?: string, end?: string): Promise<ScheduleItem[]> {
   const result = await docClient.send(
     new QueryCommand({
       TableName: TABLE_NAME,
@@ -20,24 +23,22 @@ async function listSchedules(familyId, start, end) {
       },
     })
   );
-  return result.Items ?? [];
+  return (result.Items ?? []) as ScheduleItem[];
 }
 
-async function createSchedule(familyId, body) {
-  if (!body?.date || !body?.title) throw new Error("BAD_REQUEST:date and title are required");
-
+async function createSchedule(familyId: string, input: ScheduleInput): Promise<ScheduleItem> {
   const entryId = ulid();
   const now = new Date().toISOString();
-  const item = {
-    ...scheduleKey(familyId, body.date, entryId),
+  const item: ScheduleItem = {
+    ...scheduleKey(familyId, input.date, entryId),
     entityType: "SCHEDULE",
     familyId,
     scheduleId: entryId,
-    date: body.date,
-    startTime: body.startTime ?? null,
-    endTime: body.endTime ?? null,
-    title: body.title,
-    memberIds: body.memberIds ?? [],
+    date: input.date,
+    startTime: input.startTime ?? null,
+    endTime: input.endTime ?? null,
+    title: input.title,
+    memberIds: input.memberIds ?? [],
     createdAt: now,
     updatedAt: now,
   };
@@ -46,9 +47,9 @@ async function createSchedule(familyId, body) {
   return item;
 }
 
-exports.handler = async (event) => {
+export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> => {
   const { familyId, scheduleId } = event.pathParameters ?? {};
-  const method = event.requestContext?.http?.method;
+  const method = event.requestContext.http.method;
   const query = event.queryStringParameters ?? {};
 
   try {
@@ -58,7 +59,7 @@ exports.handler = async (event) => {
       case "GET":
         return ok(await listSchedules(familyId, query.start, query.end));
       case "POST":
-        return created(await createSchedule(familyId, JSON.parse(event.body ?? "{}")));
+        return created(await createSchedule(familyId, parseBody(ScheduleInput, event.body)));
       case "DELETE": {
         if (!scheduleId || !query.date) return badRequest("scheduleId and date query param are required");
         await docClient.send(
@@ -70,7 +71,7 @@ exports.handler = async (event) => {
         return badRequest(`Unsupported method: ${method}`);
     }
   } catch (err) {
-    if (err.message?.startsWith("BAD_REQUEST:")) return badRequest(err.message.split(":")[1]);
+    if (err instanceof ValidationError) return badRequest(err.message);
     return serverError(err);
   }
 };

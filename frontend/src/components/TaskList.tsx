@@ -1,4 +1,10 @@
-export default function TaskList({ tasks }) {
+import type { Task } from "../types";
+
+interface TaskListProps {
+  tasks: Task[];
+}
+
+export default function TaskList({ tasks }: TaskListProps) {
   if (!tasks.length) {
     return <p className="text-olive-700 italic">No tasks yet — nice and calm.</p>;
   }

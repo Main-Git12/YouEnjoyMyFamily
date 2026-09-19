@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  PealSync backend — API Gateway + Lambda + single-table DynamoDB + EventBridge
+  YouEnjoyMyFamily backend — API Gateway + Lambda + single-table DynamoDB + EventBridge
   sync jobs for the family management / Echo Show dashboard.
 
 Globals:
@@ -12,7 +12,7 @@ Globals:
     Timeout: 10
     Environment:
       Variables:
-        TABLE_NAME: !Ref PealSyncTable
+        TABLE_NAME: !Ref YouEnjoyMyFamilyTable
         STAGE: !Ref Stage
     Tracing: Active
 
@@ -26,10 +26,10 @@ Resources:
   # ---------------------------------------------------------------------
   # Data layer — single-table DynamoDB design (see backend/models/schema.md)
   # ---------------------------------------------------------------------
-  PealSyncTable:
+  YouEnjoyMyFamilyTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Sub PealSync-${Stage}
+      TableName: !Sub YouEnjoyMyFamily-${Stage}
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: PK
@@ -60,7 +60,7 @@ Resources:
   # ---------------------------------------------------------------------
   # API Gateway (HTTP API) — routes mobile + Echo Show requests
   # ---------------------------------------------------------------------
-  PealSyncHttpApi:
+  YouEnjoyMyFamilyHttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
       StageName: !Ref Stage
@@ -71,117 +71,145 @@ Resources:
 
   TasksFunction:
     Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/tasks.ts]
     Properties:
       Handler: src/handlers/tasks.handler
       CodeUri: .
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref PealSyncTable
+            TableName: !Ref YouEnjoyMyFamilyTable
       Events:
         List:
           Type: HttpApi
           Properties:
-            ApiId: !Ref PealSyncHttpApi
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}/tasks
             Method: GET
         Create:
           Type: HttpApi
           Properties:
-            ApiId: !Ref PealSyncHttpApi
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}/tasks
             Method: POST
         Update:
           Type: HttpApi
           Properties:
-            ApiId: !Ref PealSyncHttpApi
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}/tasks/{taskId}
             Method: PUT
         Delete:
           Type: HttpApi
           Properties:
-            ApiId: !Ref PealSyncHttpApi
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}/tasks/{taskId}
             Method: DELETE
 
   SchedulesFunction:
     Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/schedules.ts]
     Properties:
       Handler: src/handlers/schedules.handler
       CodeUri: .
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref PealSyncTable
+            TableName: !Ref YouEnjoyMyFamilyTable
       Events:
         List:
           Type: HttpApi
           Properties:
-            ApiId: !Ref PealSyncHttpApi
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}/schedules
             Method: GET
         Create:
           Type: HttpApi
           Properties:
-            ApiId: !Ref PealSyncHttpApi
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}/schedules
             Method: POST
         Update:
           Type: HttpApi
           Properties:
-            ApiId: !Ref PealSyncHttpApi
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}/schedules/{scheduleId}
             Method: PUT
         Delete:
           Type: HttpApi
           Properties:
-            ApiId: !Ref PealSyncHttpApi
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}/schedules/{scheduleId}
             Method: DELETE
 
   PreferencesFunction:
     Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/preferences.ts]
     Properties:
       Handler: src/handlers/preferences.handler
       CodeUri: .
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref PealSyncTable
+            TableName: !Ref YouEnjoyMyFamilyTable
       Events:
         Get:
           Type: HttpApi
           Properties:
-            ApiId: !Ref PealSyncHttpApi
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}/members/{memberId}/preferences
             Method: GET
         Put:
           Type: HttpApi
           Properties:
-            ApiId: !Ref PealSyncHttpApi
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}/members/{memberId}/preferences
             Method: PUT
 
   GroceryCartFunction:
     Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/groceryCart.ts]
     Properties:
       Handler: src/handlers/groceryCart.handler
       CodeUri: .
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref PealSyncTable
+            TableName: !Ref YouEnjoyMyFamilyTable
       Environment:
         Variables:
-          KROGER_CLIENT_ID: "{{resolve:ssm:/pealsync/kroger/client-id}}"
-          KROGER_CLIENT_SECRET: "{{resolve:ssm-secure:/pealsync/kroger/client-secret}}"
+          KROGER_CLIENT_ID: "{{resolve:ssm:/youenjoymyfamily/kroger/client-id}}"
+          KROGER_CLIENT_SECRET: "{{resolve:ssm-secure:/youenjoymyfamily/kroger/client-secret}}"
       Events:
         Get:
           Type: HttpApi
           Properties:
-            ApiId: !Ref PealSyncHttpApi
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}/grocery-cart
             Method: GET
         AddItem:
           Type: HttpApi
           Properties:
-            ApiId: !Ref PealSyncHttpApi
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}/grocery-cart/items
             Method: POST
 
@@ -190,30 +218,37 @@ Resources:
   # ---------------------------------------------------------------------
   CalendarSyncFunction:
     Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/calendarSync.ts]
     Properties:
       Handler: src/handlers/calendarSync.handler
       CodeUri: .
       Timeout: 30
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref PealSyncTable
+            TableName: !Ref YouEnjoyMyFamilyTable
       Environment:
         Variables:
-          GOOGLE_CLIENT_ID: "{{resolve:ssm:/pealsync/google/client-id}}"
-          GOOGLE_CLIENT_SECRET: "{{resolve:ssm-secure:/pealsync/google/client-secret}}"
+          GOOGLE_CLIENT_ID: "{{resolve:ssm:/youenjoymyfamily/google/client-id}}"
+          GOOGLE_CLIENT_SECRET: "{{resolve:ssm-secure:/youenjoymyfamily/google/client-secret}}"
       Events:
         Schedule:
           Type: Schedule
           Properties:
             Schedule: rate(15 minutes)
-            Name: !Sub PealSync-CalendarSync-${Stage}
+            Name: !Sub YouEnjoyMyFamily-CalendarSync-${Stage}
             Description: Periodic Google Calendar sync for all connected families
             Enabled: true
 
 Outputs:
   ApiUrl:
-    Description: Base URL for the PealSync HTTP API
-    Value: !Sub https://${PealSyncHttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}
+    Description: Base URL for the YouEnjoyMyFamily HTTP API
+    Value: !Sub https://${YouEnjoyMyFamilyHttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}
   TableName:
     Description: DynamoDB single-table name
-    Value: !Ref PealSyncTable
+    Value: !Ref YouEnjoyMyFamilyTable

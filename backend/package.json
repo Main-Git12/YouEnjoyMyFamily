@@ -1,15 +1,16 @@
 {
-  "name": "pealsync-backend",
+  "name": "youenjoymyfamily-backend",
   "version": "0.1.0",
   "private": true,
-  "description": "PealSync AWS serverless backend (API Gateway + Lambda + DynamoDB + EventBridge)",
+  "description": "YouEnjoyMyFamily AWS serverless backend (API Gateway + Lambda + DynamoDB + EventBridge)",
   "type": "commonjs",
   "scripts": {
+    "typecheck": "tsc --noEmit",
     "build": "sam build",
     "deploy": "sam deploy --guided",
     "local:api": "sam local start-api",
     "lint": "eslint src",
-    "test": "node --test src/**/*.test.js"
+    "test": "TABLE_NAME=YouEnjoyMyFamily-test node --import tsx --test $(find src -name '*.test.ts')"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.632.0",
@@ -17,9 +18,18 @@
     "@aws-sdk/client-eventbridge": "^3.632.0",
     "google-auth-library": "^9.14.0",
     "googleapis": "^140.0.1",
-    "ulid": "^2.3.0"
+    "ulid": "^2.3.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
-    "eslint": "^9.9.0"
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^22.5.4",
+    "@eslint/js": "^9.9.0",
+    "aws-sdk-client-mock": "^4.0.1",
+    "esbuild": "^0.23.1",
+    "eslint": "^9.9.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4",
+    "typescript-eslint": "^8.4.0"
   }
 }
