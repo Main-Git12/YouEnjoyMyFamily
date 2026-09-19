@@ -42,6 +42,7 @@ items returned from a `Query` without a second read.
   "assignedTo": "member_456",
   "dueDate": "2025-01-15",
   "status": "pending",
+  "gemsAwarded": 0, // bumped by GEMS_PER_COMPLETED_TASK the first time status becomes "done"
   "createdAt": "2025-01-10T12:00:00Z",
   "updatedAt": "2025-01-10T12:00:00Z"
 }

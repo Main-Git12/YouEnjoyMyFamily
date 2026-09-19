@@ -32,6 +32,15 @@ describe("api client", () => {
     );
   });
 
+  it("completeTask PUTs a done status to the task's own endpoint", async () => {
+    await api.completeTask("fam_1", "t1");
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/families/fam_1/tasks/t1"),
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ status: "done" }) })
+    );
+  });
+
   it("throws with the status code when the response is not ok", async () => {
     vi.stubGlobal(
       "fetch",

@@ -19,6 +19,11 @@ export const api = {
   listTasks: (familyId: string) => request<Task[]>(`/families/${familyId}/tasks`),
   createTask: (familyId: string, task: Pick<Task, "title"> & Partial<Task>) =>
     request<Task>(`/families/${familyId}/tasks`, { method: "POST", body: JSON.stringify(task) }),
+  completeTask: (familyId: string, taskId: string) =>
+    request<Task>(`/families/${familyId}/tasks/${taskId}`, {
+      method: "PUT",
+      body: JSON.stringify({ status: "done" }),
+    }),
   listSchedules: (familyId: string, start?: string, end?: string) =>
     request<ScheduleEntry[]>(`/families/${familyId}/schedules?start=${start ?? ""}&end=${end ?? ""}`),
   listCartItems: (familyId: string) => request<CartItem[]>(`/families/${familyId}/grocery-cart`),

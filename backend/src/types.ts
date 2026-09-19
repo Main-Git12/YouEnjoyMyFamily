@@ -28,6 +28,7 @@ export interface TaskItem {
   assignedTo: string | null;
   dueDate: string | null;
   status: "pending" | "in_progress" | "done";
+  gemsAwarded: number;
   createdAt: string;
   updatedAt: string;
 }

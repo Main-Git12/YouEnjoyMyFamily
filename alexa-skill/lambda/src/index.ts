@@ -4,6 +4,8 @@ import type { Response } from "ask-sdk-model";
 // JSON lives outside tsconfig's rootDir, so a TS `import` would fail; require() sidesteps that.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const dashboardCard = require("../apl/dashboardCard.json") as Record<string, unknown>;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const choreBattleCard = require("../apl/choreBattleCard.json") as Record<string, unknown>;
 
 const API_BASE_URL = process.env.YOUENJOYMYFAMILY_API_BASE_URL;
 // TODO: resolve from the authenticated Alexa household account linking flow
@@ -13,6 +15,8 @@ const FAMILY_ID = process.env.YOUENJOYMYFAMILY_FAMILY_ID ?? "fam_demo";
 interface TaskItem {
   taskId: string;
   title: string;
+  status: "pending" | "in_progress" | "done";
+  gemsAwarded: number;
 }
 
 interface ScheduleEntry {
@@ -32,6 +36,16 @@ function renderDashboard(handlerInput: Alexa.HandlerInput, heading: string, item
     type: "Alexa.Presentation.APL.RenderDocument",
     document: dashboardCard,
     datasources: { dashboard: { heading, items } },
+  });
+}
+
+function renderChoreBattle(handlerInput: Alexa.HandlerInput, memberName: string, taskTitle: string, gems: number): void {
+  if (!supportsApl(handlerInput)) return;
+
+  handlerInput.responseBuilder.addDirective({
+    type: "Alexa.Presentation.APL.RenderDocument",
+    document: choreBattleCard,
+    datasources: { battle: { memberName, taskTitle, gems } },
   });
 }
 
@@ -132,6 +146,56 @@ export const AddTaskIntentHandler: Alexa.RequestHandler = {
   },
 };
 
+export const CompleteChoreIntentHandler: Alexa.RequestHandler = {
+  canHandle(handlerInput) {
+    return (
+      Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
+      Alexa.getIntentName(handlerInput.requestEnvelope) === "CompleteChoreIntent"
+    );
+  },
+  async handle(handlerInput): Promise<Response> {
+    const taskTitle = Alexa.getSlotValue(handlerInput.requestEnvelope, "taskTitle");
+    const memberName = Alexa.getSlotValue(handlerInput.requestEnvelope, "memberName") || "You";
+
+    if (!taskTitle) {
+      return handlerInput.responseBuilder
+        .speak("Which chore did you finish?")
+        .reprompt("Which chore did you finish?")
+        .getResponse();
+    }
+
+    try {
+      if (!API_BASE_URL) throw new Error("YOUENJOYMYFAMILY_API_BASE_URL is not configured");
+
+      const tasks = await fetchJson<TaskItem[]>(`/families/${FAMILY_ID}/tasks`);
+      const match = tasks.find(
+        (task) => task.status !== "done" && task.title.toLowerCase().includes(taskTitle.toLowerCase())
+      );
+
+      if (!match) {
+        return handlerInput.responseBuilder
+          .speak(`I couldn't find an open chore called "${taskTitle}".`)
+          .getResponse();
+      }
+
+      const response = await fetch(`${API_BASE_URL}/families/${FAMILY_ID}/tasks/${match.taskId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "done" }),
+      });
+      if (!response.ok) throw new Error(`YouEnjoyMyFamily API error: ${response.status}`);
+      const completed = (await response.json()) as TaskItem;
+
+      const speakOutput = `A dragon swooped in for "${match.title}", but ${memberName}'s knight chased it off and earned ${completed.gemsAwarded} gems!`;
+      renderChoreBattle(handlerInput, memberName, match.title, completed.gemsAwarded);
+      return handlerInput.responseBuilder.speak(speakOutput).getResponse();
+    } catch (err) {
+      console.error(err);
+      return handlerInput.responseBuilder.speak("I couldn't mark that chore done right now.").getResponse();
+    }
+  },
+};
+
 export const HelpIntentHandler: Alexa.RequestHandler = {
   canHandle(handlerInput) {
     return (
@@ -140,7 +204,8 @@ export const HelpIntentHandler: Alexa.RequestHandler = {
     );
   },
   handle(handlerInput): Response {
-    const speakOutput = "You can ask what's on today's schedule, what the tasks are, or add a task.";
+    const speakOutput =
+      "You can ask what's on today's schedule, what the tasks are, add a task, or say you finished a chore to battle for gems.";
     return handlerInput.responseBuilder.speak(speakOutput).reprompt(speakOutput).getResponse();
   },
 };
@@ -183,6 +248,7 @@ export const handler = Alexa.SkillBuilders.custom()
     GetScheduleIntentHandler,
     GetTasksIntentHandler,
     AddTaskIntentHandler,
+    CompleteChoreIntentHandler,
     HelpIntentHandler,
     CancelAndStopIntentHandler,
     SessionEndedRequestHandler

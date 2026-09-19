@@ -21,6 +21,12 @@
 
   --color-bark: #2b241c;
 
+  /* Jewel tones for gem rewards / celebration confetti only. */
+  --color-gem-emerald: #3f8f6d;
+  --color-gem-ruby: #a8434f;
+  --color-gem-amber: #d19a3d;
+  --color-gem-sapphire: #3f6f8f;
+
   --shadow-card: 0 4px 14px rgba(31, 32, 19, 0.12);
   --radius-card: 1rem;
 }

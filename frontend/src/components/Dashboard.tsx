@@ -4,6 +4,7 @@ import type { Task, ScheduleEntry } from "../types";
 import FamilyCard from "./FamilyCard";
 import TaskList from "./TaskList";
 import Calendar from "./Calendar";
+import Celebration from "./Celebration";
 
 // Placeholder until family selection / auth is wired up.
 const DEMO_FAMILY_ID = "fam_demo";
@@ -12,6 +13,7 @@ export default function Dashboard() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [schedule, setSchedule] = useState<ScheduleEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [celebration, setCelebration] = useState<{ gemsEarned: number } | null>(null);
 
   useEffect(() => {
     Promise.all([api.listTasks(DEMO_FAMILY_ID), api.listSchedules(DEMO_FAMILY_ID)])
@@ -22,11 +24,26 @@ export default function Dashboard() {
       .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
 
+  const totalGems = tasks.reduce((sum, task) => sum + task.gemsAwarded, 0);
+
+  async function handleComplete(task: Task) {
+    try {
+      const updated = await api.completeTask(DEMO_FAMILY_ID, task.taskId);
+      setTasks((prev) => prev.map((t) => (t.taskId === updated.taskId ? updated : t)));
+      setCelebration({ gemsEarned: updated.gemsAwarded - task.gemsAwarded });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   return (
     <main className="min-h-screen bg-olive-100 p-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-      <header className="md:col-span-2">
-        <h1 className="font-display text-3xl text-olive-900">YouEnjoyMyFamily</h1>
-        <p className="text-olive-700">Today at a glance</p>
+      <header className="md:col-span-2 flex items-center justify-between">
+        <div>
+          <h1 className="font-display text-3xl text-olive-900">YouEnjoyMyFamily</h1>
+          <p className="text-olive-700">Today at a glance</p>
+        </div>
+        <p className="text-lg text-clay-700 font-semibold">{totalGems} gems collected</p>
       </header>
 
       {error && (
@@ -36,12 +53,20 @@ export default function Dashboard() {
       )}
 
       <FamilyCard title="Today's tasks">
-        <TaskList tasks={tasks} />
+        <TaskList tasks={tasks} onComplete={handleComplete} />
       </FamilyCard>
 
       <FamilyCard title="Today's schedule" accent>
         <Calendar entries={schedule} />
       </FamilyCard>
+
+      {celebration && (
+        <Celebration
+          gemsEarned={celebration.gemsEarned}
+          totalGems={totalGems}
+          onDismiss={() => setCelebration(null)}
+        />
+      )}
     </main>
   );
 }

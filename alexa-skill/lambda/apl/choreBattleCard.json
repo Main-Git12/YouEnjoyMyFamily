@@ -1,0 +1,316 @@
+{
+  "type": "APL",
+  "version": "2023.3",
+  "theme": "dark",
+  "mainTemplate": {
+    "parameters": ["payload"],
+    "items": [
+      {
+        "type": "Container",
+        "id": "battleStage",
+        "width": "100%",
+        "height": "100%",
+        "backgroundColor": "#1f2013",
+        "items": [
+          {
+            "type": "Text",
+            "id": "battleHeading",
+            "text": "${payload.battle.memberName}'s quest: ${payload.battle.taskTitle}",
+            "fontSize": "40dp",
+            "fontWeight": "bold",
+            "color": "#f3ecdd",
+            "textAlign": "center",
+            "width": "100%",
+            "paddingTop": "24dp",
+            "opacity": 0
+          },
+          {
+            "type": "Container",
+            "width": "100%",
+            "height": "100%",
+            "position": "absolute",
+            "items": [
+              {
+                "comment": "-- dragon, swoops in from the top-right --",
+                "type": "Container",
+                "id": "dragonActor",
+                "position": "absolute",
+                "top": "10%",
+                "right": "8%",
+                "width": "260dp",
+                "height": "220dp",
+                "opacity": 0,
+                "transform": [{ "translateY": -400 }],
+                "items": [
+                  {
+                    "type": "Frame",
+                    "position": "absolute",
+                    "top": "70dp",
+                    "left": "10dp",
+                    "width": "150dp",
+                    "height": "60dp",
+                    "cornerRadius": "60dp",
+                    "backgroundColor": "#dcb98f",
+                    "transform": [{ "rotate": -18 }]
+                  },
+                  {
+                    "type": "Frame",
+                    "position": "absolute",
+                    "top": "40dp",
+                    "left": "60dp",
+                    "width": "150dp",
+                    "height": "130dp",
+                    "cornerRadius": "70dp",
+                    "backgroundColor": "#b9814f",
+                    "borderColor": "#1f2013",
+                    "borderWidth": "3dp"
+                  },
+                  {
+                    "type": "Frame",
+                    "position": "absolute",
+                    "top": "95dp",
+                    "left": "95dp",
+                    "width": "80dp",
+                    "height": "65dp",
+                    "cornerRadius": "40dp",
+                    "backgroundColor": "#9fa262"
+                  },
+                  {
+                    "type": "Frame",
+                    "position": "absolute",
+                    "top": "18dp",
+                    "left": "80dp",
+                    "width": "18dp",
+                    "height": "18dp",
+                    "backgroundColor": "#f3ecdd",
+                    "transform": [{ "rotate": 45 }]
+                  },
+                  {
+                    "type": "Frame",
+                    "position": "absolute",
+                    "top": "18dp",
+                    "left": "150dp",
+                    "width": "18dp",
+                    "height": "18dp",
+                    "backgroundColor": "#f3ecdd",
+                    "transform": [{ "rotate": 45 }]
+                  },
+                  {
+                    "type": "Frame",
+                    "position": "absolute",
+                    "top": "72dp",
+                    "left": "110dp",
+                    "width": "10dp",
+                    "height": "10dp",
+                    "cornerRadius": "5dp",
+                    "backgroundColor": "#1f2013"
+                  },
+                  {
+                    "type": "Frame",
+                    "position": "absolute",
+                    "top": "72dp",
+                    "left": "155dp",
+                    "width": "10dp",
+                    "height": "10dp",
+                    "cornerRadius": "5dp",
+                    "backgroundColor": "#1f2013"
+                  }
+                ]
+              },
+              {
+                "comment": "-- fire breath puff, flashes once the dragon is in place --",
+                "type": "Frame",
+                "id": "fireBreath",
+                "position": "absolute",
+                "top": "26%",
+                "right": "22%",
+                "width": "120dp",
+                "height": "70dp",
+                "cornerRadius": "50dp",
+                "backgroundColor": "#d19a3d",
+                "opacity": 0,
+                "transform": [{ "scale": 0.5 }]
+              },
+              {
+                "comment": "-- knight, pops up from the bottom-left with shield and sword --",
+                "type": "Container",
+                "id": "knightActor",
+                "position": "absolute",
+                "bottom": "6%",
+                "left": "8%",
+                "width": "220dp",
+                "height": "240dp",
+                "opacity": 0,
+                "transform": [{ "translateX": -400 }],
+                "items": [
+                  {
+                    "type": "Frame",
+                    "position": "absolute",
+                    "top": "70dp",
+                    "left": "-20dp",
+                    "width": "70dp",
+                    "height": "90dp",
+                    "cornerRadius": "35dp",
+                    "backgroundColor": "#f3ecdd",
+                    "borderColor": "#8a5c33",
+                    "borderWidth": "4dp"
+                  },
+                  {
+                    "type": "Frame",
+                    "position": "absolute",
+                    "top": "90dp",
+                    "left": "50dp",
+                    "width": "110dp",
+                    "height": "100dp",
+                    "cornerRadius": "30dp",
+                    "backgroundColor": "#b9814f",
+                    "borderColor": "#1f2013",
+                    "borderWidth": "3dp"
+                  },
+                  {
+                    "type": "Frame",
+                    "position": "absolute",
+                    "top": "20dp",
+                    "left": "55dp",
+                    "width": "100dp",
+                    "height": "100dp",
+                    "cornerRadius": "50dp",
+                    "backgroundColor": "#7d7f45",
+                    "borderColor": "#1f2013",
+                    "borderWidth": "3dp"
+                  },
+                  {
+                    "type": "Frame",
+                    "position": "absolute",
+                    "top": "0dp",
+                    "left": "95dp",
+                    "width": "24dp",
+                    "height": "36dp",
+                    "cornerRadius": "12dp",
+                    "backgroundColor": "#f3ecdd",
+                    "transform": [{ "rotate": -20 }]
+                  },
+                  {
+                    "comment": "-- sword, swings up on impact --",
+                    "type": "Frame",
+                    "id": "swordSwing",
+                    "position": "absolute",
+                    "top": "40dp",
+                    "left": "150dp",
+                    "width": "16dp",
+                    "height": "110dp",
+                    "cornerRadius": "6dp",
+                    "backgroundColor": "#f3ecdd",
+                    "borderColor": "#8a5c33",
+                    "borderWidth": "2dp",
+                    "transform": [{ "rotate": -70 }]
+                  }
+                ]
+              },
+              {
+                "comment": "-- victory burst: gem count, bounces in once the chore is won --",
+                "type": "Container",
+                "id": "victoryBurst",
+                "position": "absolute",
+                "top": "40%",
+                "width": "100%",
+                "alignItems": "center",
+                "opacity": 0,
+                "transform": [{ "scale": 0.4 }],
+                "items": [
+                  {
+                    "type": "Frame",
+                    "backgroundColor": "#4a4b2b",
+                    "cornerRadius": "24dp",
+                    "paddingLeft": "32dp",
+                    "paddingRight": "32dp",
+                    "paddingTop": "16dp",
+                    "paddingBottom": "16dp",
+                    "item": {
+                      "type": "Text",
+                      "text": "+${payload.battle.gems} gems for ${payload.battle.memberName}! ✨",
+                      "fontSize": "36dp",
+                      "fontWeight": "bold",
+                      "color": "#d19a3d",
+                      "textAlign": "center"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "onMount": [
+    {
+      "type": "Sequential",
+      "commands": [
+        {
+          "type": "AnimateItem",
+          "componentId": "battleHeading",
+          "duration": 400,
+          "value": [{ "property": "opacity", "from": 0, "to": 1 }]
+        },
+        {
+          "type": "AnimateItem",
+          "componentId": "dragonActor",
+          "duration": 900,
+          "easing": "ease-out",
+          "value": [
+            { "property": "transform", "from": [{ "translateY": -400 }], "to": [{ "translateY": 0 }] },
+            { "property": "opacity", "from": 0, "to": 1 }
+          ]
+        },
+        {
+          "type": "Parallel",
+          "commands": [
+            {
+              "type": "AnimateItem",
+              "componentId": "fireBreath",
+              "duration": 350,
+              "value": [
+                { "property": "opacity", "from": 0, "to": 0.9 },
+                { "property": "transform", "from": [{ "scale": 0.5 }], "to": [{ "scale": 1.1 }] }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "AnimateItem",
+          "componentId": "fireBreath",
+          "duration": 250,
+          "value": [{ "property": "opacity", "from": 0.9, "to": 0 }]
+        },
+        {
+          "type": "AnimateItem",
+          "componentId": "knightActor",
+          "duration": 700,
+          "easing": "ease-out",
+          "value": [
+            { "property": "transform", "from": [{ "translateX": -400 }], "to": [{ "translateX": 0 }] },
+            { "property": "opacity", "from": 0, "to": 1 }
+          ]
+        },
+        {
+          "type": "AnimateItem",
+          "componentId": "swordSwing",
+          "duration": 350,
+          "easing": "ease-in-out",
+          "value": [{ "property": "transform", "from": [{ "rotate": -70 }], "to": [{ "rotate": 25 }] }]
+        },
+        {
+          "type": "AnimateItem",
+          "componentId": "victoryBurst",
+          "duration": 500,
+          "easing": "ease-out",
+          "value": [
+            { "property": "opacity", "from": 0, "to": 1 },
+            { "property": "transform", "from": [{ "scale": 0.4 }], "to": [{ "scale": 1 }] }
+          ]
+        }
+      ]
+    }
+  ]
+}

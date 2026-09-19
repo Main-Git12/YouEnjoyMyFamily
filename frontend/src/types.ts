@@ -8,6 +8,7 @@ export interface Task {
   assignedTo: string | null;
   dueDate: string | null;
   status: "pending" | "in_progress" | "done";
+  gemsAwarded: number;
 }
 
 export interface ScheduleEntry {
