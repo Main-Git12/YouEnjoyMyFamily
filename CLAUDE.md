@@ -1,4 +1,4 @@
-# PealSync — project conventions
+# YouEnjoyMyFamily — project conventions
 
 ## Architecture
 

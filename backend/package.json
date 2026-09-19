@@ -1,8 +1,8 @@
 {
-  "name": "pealsync-backend",
+  "name": "youenjoymyfamily-backend",
   "version": "0.1.0",
   "private": true,
-  "description": "PealSync AWS serverless backend (API Gateway + Lambda + DynamoDB + EventBridge)",
+  "description": "YouEnjoyMyFamily AWS serverless backend (API Gateway + Lambda + DynamoDB + EventBridge)",
   "type": "commonjs",
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -10,7 +10,7 @@
     "deploy": "sam deploy --guided",
     "local:api": "sam local start-api",
     "lint": "eslint src",
-    "test": "TABLE_NAME=PealSync-test node --import tsx --test src/**/*.test.ts"
+    "test": "TABLE_NAME=YouEnjoyMyFamily-test node --import tsx --test $(find src -name '*.test.ts')"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.632.0",

@@ -25,7 +25,7 @@ export default function Dashboard() {
   return (
     <main className="min-h-screen bg-olive-100 p-8 grid grid-cols-1 md:grid-cols-2 gap-6">
       <header className="md:col-span-2">
-        <h1 className="font-display text-3xl text-olive-900">PealSync</h1>
+        <h1 className="font-display text-3xl text-olive-900">YouEnjoyMyFamily</h1>
         <p className="text-olive-700">Today at a glance</p>
       </header>
 

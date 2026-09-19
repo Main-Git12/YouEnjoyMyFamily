@@ -1,4 +1,4 @@
-# PealSync backend
+# YouEnjoyMyFamily backend
 
 AWS SAM application: HTTP API Gateway → Lambda handlers → single-table
 DynamoDB, plus an EventBridge-scheduled Lambda for Google Calendar sync.
@@ -29,7 +29,7 @@ src/handlers/                (every handler below has a matching *.test.ts)
 
 - AWS SAM CLI, Node.js 20+, an AWS account/credentials configured locally.
 - Google OAuth client (Calendar API scope) and Kroger developer app credentials,
-  stored in SSM Parameter Store under `/pealsync/google/*` and `/pealsync/kroger/*`
+  stored in SSM Parameter Store under `/youenjoymyfamily/google/*` and `/youenjoymyfamily/kroger/*`
   (see the `{{resolve:ssm:...}}` references in `template.yaml`).
 
 ## Checks

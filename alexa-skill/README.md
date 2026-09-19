@@ -1,4 +1,4 @@
-# PealSync Alexa skill
+# YouEnjoyMyFamily Alexa skill
 
 Custom Alexa Skills Kit skill with an APL visual card (olive/earthy theme,
 matching the frontend dashboard) for Echo Show devices.
@@ -10,7 +10,7 @@ skill-package/
   skill.json                             Skill manifest (publishing info, APL interface)
   interactionModels/custom/en-US.json     Invocation name + intents (GetSchedule, GetTasks, AddTask)
 lambda/
-  src/index.ts                            ask-sdk-core request handlers (TypeScript), calls the PealSync backend API
+  src/index.ts                            ask-sdk-core request handlers (TypeScript), calls the YouEnjoyMyFamily backend API
   src/index.test.ts                        node:test unit tests for every handler (mocked fetch, no network)
   src/testSupport.ts                       Fake HandlerInput/ResponseBuilder builders for the tests above
   apl/dashboardCard.json                  APL document rendered on Echo Show for schedule/task responses
@@ -23,8 +23,8 @@ lambda/
 
 The Lambda handler reads:
 
-- `PEALSYNC_API_BASE_URL` — the deployed backend's API Gateway URL (see `backend/template.yaml` outputs).
-- `PEALSYNC_FAMILY_ID` — placeholder until account linking resolves the family from the Alexa user; defaults to `fam_demo`.
+- `YOUENJOYMYFAMILY_API_BASE_URL` — the deployed backend's API Gateway URL (see `backend/template.yaml` outputs).
+- `YOUENJOYMYFAMILY_FAMILY_ID` — placeholder until account linking resolves the family from the Alexa user; defaults to `fam_demo`.
 
 ## Checks
 

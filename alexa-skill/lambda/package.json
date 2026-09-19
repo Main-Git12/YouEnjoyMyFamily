@@ -1,5 +1,5 @@
 {
-  "name": "pealsync-alexa-skill",
+  "name": "youenjoymyfamily-alexa-skill",
   "version": "0.1.0",
   "private": true,
   "main": "dist/index.js",
@@ -7,7 +7,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "PEALSYNC_API_BASE_URL=http://localhost:3000 node --import tsx --test src/**/*.test.ts"
+    "test": "YOUENJOYMYFAMILY_API_BASE_URL=http://localhost:3000 node --import tsx --test $(find src -name '*.test.ts')"
   },
   "dependencies": {
     "ask-sdk-core": "^2.14.0",

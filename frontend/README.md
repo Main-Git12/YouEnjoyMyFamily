@@ -1,4 +1,4 @@
-# PealSync frontend
+# YouEnjoyMyFamily frontend
 
 React + Vite + TypeScript dashboard SPA, styled with Tailwind using an
 olive/earthy palette (`tailwind.config.js`, `src/theme.css`) tuned for
@@ -14,7 +14,7 @@ src/
   theme.css                Tailwind entrypoint + CSS custom properties for the palette
   types.ts                 Task/ScheduleEntry/CartItem shapes returned by the backend
   lib/
-    api.ts                   Thin, typed fetch client for the PealSync backend
+    api.ts                   Thin, typed fetch client for the YouEnjoyMyFamily backend
     api.test.ts              Vitest tests (mocked global fetch)
   components/                (every component below has a matching *.test.tsx)
     Dashboard.tsx            Fetches tasks/schedule and lays out the two-panel view;

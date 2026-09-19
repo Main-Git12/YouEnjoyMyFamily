@@ -29,7 +29,7 @@ test("LaunchRequestHandler welcomes the user and renders the APL card when suppo
   const handlerInput = makeHandlerInput({ type: "LaunchRequest" }, { supportsApl: true });
   const response = LaunchRequestHandler.handle(handlerInput) as FakeResponse;
 
-  assert.match(speechOf(response), /Welcome to Peal Sync/);
+  assert.match(speechOf(response), /Welcome to You Enjoy My Family/);
   assert.equal(response.directives.length, 1);
 });
 

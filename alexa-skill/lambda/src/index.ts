@@ -5,10 +5,10 @@ import type { Response } from "ask-sdk-model";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const dashboardCard = require("../apl/dashboardCard.json") as Record<string, unknown>;
 
-const API_BASE_URL = process.env.PEALSYNC_API_BASE_URL;
+const API_BASE_URL = process.env.YOUENJOYMYFAMILY_API_BASE_URL;
 // TODO: resolve from the authenticated Alexa household account linking flow
 // instead of a fixed id once account linking is implemented.
-const FAMILY_ID = process.env.PEALSYNC_FAMILY_ID ?? "fam_demo";
+const FAMILY_ID = process.env.YOUENJOYMYFAMILY_FAMILY_ID ?? "fam_demo";
 
 interface TaskItem {
   taskId: string;
@@ -36,9 +36,9 @@ function renderDashboard(handlerInput: Alexa.HandlerInput, heading: string, item
 }
 
 async function fetchJson<T>(path: string): Promise<T> {
-  if (!API_BASE_URL) throw new Error("PEALSYNC_API_BASE_URL is not configured");
+  if (!API_BASE_URL) throw new Error("YOUENJOYMYFAMILY_API_BASE_URL is not configured");
   const response = await fetch(`${API_BASE_URL}${path}`);
-  if (!response.ok) throw new Error(`PealSync API error: ${response.status}`);
+  if (!response.ok) throw new Error(`YouEnjoyMyFamily API error: ${response.status}`);
   return response.json() as Promise<T>;
 }
 
@@ -47,8 +47,8 @@ export const LaunchRequestHandler: Alexa.RequestHandler = {
     return Alexa.getRequestType(handlerInput.requestEnvelope) === "LaunchRequest";
   },
   handle(handlerInput): Response {
-    const speakOutput = "Welcome to Peal Sync. You can ask what's on today's schedule, or what the tasks are.";
-    renderDashboard(handlerInput, "PealSync", ["Ask me about today's schedule or tasks"]);
+    const speakOutput = "Welcome to You Enjoy My Family. You can ask what's on today's schedule, or what the tasks are.";
+    renderDashboard(handlerInput, "YouEnjoyMyFamily", ["Ask me about today's schedule or tasks"]);
     return handlerInput.responseBuilder.speak(speakOutput).reprompt(speakOutput).getResponse();
   },
 };
@@ -115,14 +115,14 @@ export const AddTaskIntentHandler: Alexa.RequestHandler = {
     }
 
     try {
-      if (!API_BASE_URL) throw new Error("PEALSYNC_API_BASE_URL is not configured");
+      if (!API_BASE_URL) throw new Error("YOUENJOYMYFAMILY_API_BASE_URL is not configured");
 
       const response = await fetch(`${API_BASE_URL}/families/${FAMILY_ID}/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title }),
       });
-      if (!response.ok) throw new Error(`PealSync API error: ${response.status}`);
+      if (!response.ok) throw new Error(`YouEnjoyMyFamily API error: ${response.status}`);
 
       return handlerInput.responseBuilder.speak(`Added "${title}" to the tasks.`).getResponse();
     } catch (err) {

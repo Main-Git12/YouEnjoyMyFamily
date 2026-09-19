@@ -1,6 +1,6 @@
-# PealSync DynamoDB single-table design
+# YouEnjoyMyFamily DynamoDB single-table design
 
-Table: `PealSync-{stage}` — on-demand billing, one GSI (`GSI1`) for
+Table: `YouEnjoyMyFamily-{stage}` — on-demand billing, one GSI (`GSI1`) for
 lookups that don't fit the primary `PK`/`SK` access pattern.
 
 Every item carries an `entityType` attribute so handlers can discriminate

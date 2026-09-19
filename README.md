@@ -1,4 +1,4 @@
-# PealSync — Family Management & Echo Show Hub
+# YouEnjoyMyFamily — Family Management & Echo Show Hub
 
 A multi-agent family management system that runs locally, syncs with external
 calendars and grocery APIs, and surfaces a calm, readable dashboard on
