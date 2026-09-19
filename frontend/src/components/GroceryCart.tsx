@@ -50,7 +50,8 @@ export default function GroceryCart({ familyId, items, onItemsChange }: GroceryC
       const { item } = await api.substituteCartItem(familyId, itemId, newDescription);
       replaceItem(item);
       setSuggestionsByItem((prev) => {
-        const { [itemId]: _removed, ...rest } = prev;
+        const rest = { ...prev };
+        delete rest[itemId];
         return rest;
       });
     } catch (err) {

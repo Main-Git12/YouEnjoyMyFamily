@@ -1,4 +1,4 @@
-# PealSync backend
+# YouEnjoyMyFamily backend
 
 AWS SAM application: HTTP API Gateway → Lambda handlers → single-table
 DynamoDB, plus an EventBridge-scheduled Lambda for Google Calendar sync.
@@ -30,7 +30,7 @@ src/handlers/                (every handler below has a matching *.test.ts)
 
 - AWS SAM CLI, Node.js 20+, an AWS account/credentials configured locally.
 - Google OAuth client (Calendar API scope), stored in SSM Parameter Store
-  under `/pealsync/google/*` (see the `{{resolve:ssm:...}}` references in
+  under `/youenjoymyfamily/google/*` (see the `{{resolve:ssm:...}}` references in
   `template.yaml`). The grocery cart has no external credential: Giant Eagle
   and Aldi don't expose a public product/stock API, so it's a plain
   store-tagged list plus a self-learned substitution log (see

@@ -1,4 +1,4 @@
-# PealSync Alexa skill
+# YouEnjoyMyFamily Alexa skill
 
 Custom Alexa Skills Kit skill with an APL visual card (olive/earthy theme,
 matching the frontend dashboard) for Echo Show devices.
@@ -10,25 +10,31 @@ skill-package/
   skill.json                             Skill manifest (publishing info, APL interface)
   interactionModels/custom/en-US.json     Invocation name + intents (GetSchedule, GetTasks, AddTask)
 lambda/
-  src/index.ts                            ask-sdk-core request handlers (TypeScript), calls the PealSync backend API
+  src/index.ts                            ask-sdk-core request handlers (TypeScript), calls the YouEnjoyMyFamily backend API
+  src/index.test.ts                        node:test unit tests for every handler (mocked fetch, no network)
+  src/testSupport.ts                       Fake HandlerInput/ResponseBuilder builders for the tests above
   apl/dashboardCard.json                  APL document rendered on Echo Show for schedule/task responses
-  tsconfig.json                            Strict compiler options; compiles src/ to dist/
+  tsconfig.json                            Strict compiler options (typechecks src/ including tests)
+  tsconfig.build.json                      Extends tsconfig.json, excludes test files — used by `npm run build`
+  eslint.config.js                         typescript-eslint flat config
 ```
 
 ## Configuration
 
 The Lambda handler reads:
 
-- `PEALSYNC_API_BASE_URL` — the deployed backend's API Gateway URL (see `backend/template.yaml` outputs).
-- `PEALSYNC_FAMILY_ID` — placeholder until account linking resolves the family from the Alexa user; defaults to `fam_demo`.
+- `YOUENJOYMYFAMILY_API_BASE_URL` — the deployed backend's API Gateway URL (see `backend/template.yaml` outputs).
+- `YOUENJOYMYFAMILY_FAMILY_ID` — placeholder until account linking resolves the family from the Alexa user; defaults to `fam_demo`.
 
 ## Checks
 
 ```bash
 cd lambda
 npm install
-npm run typecheck   # tsc --noEmit
-npm run build         # tsc -> dist/index.js
+npm run typecheck   # tsc --noEmit (includes test files)
+npm run lint          # eslint src
+npm test               # node --test (mocked fetch, no AWS/Alexa credentials needed)
+npm run build           # tsc -p tsconfig.build.json -> dist/index.js (test files excluded)
 ```
 
 ## Deploy

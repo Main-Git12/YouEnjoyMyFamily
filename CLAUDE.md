@@ -1,4 +1,4 @@
-# PealSync — project conventions
+# YouEnjoyMyFamily — project conventions
 
 ## Architecture
 
@@ -61,6 +61,22 @@ first when an entity changes, and let the handlers follow.
   real invocation would silently overwrite it; export a separate
   orchestration function (see `runCalendarSync`) for tests to call instead.
 - **Run the checks before considering a change done:** `npm run typecheck`,
-  `npm run lint`, and `npm test` (backend) / `npm run build` (frontend)
-  all need to pass — this repo has registry access, so there's no excuse
-  to skip actually running them.
+  `npm run lint`, `npm test`, and `npm run build` (where each applies) all
+  need to pass in `backend`, `frontend`, and `alexa-skill/lambda` — this
+  repo has registry access, so there's no excuse to skip actually running
+  them. All three subprojects now have equal footing here (typecheck +
+  lint + test + build); keep it that way when adding a fourth. Frontend
+  component tests use Vitest + `@testing-library/react` (see
+  `Dashboard.test.tsx` for the pattern: mock `../lib/api`, don't hit a
+  real network in tests). The Alexa skill's tests build fake
+  `HandlerInput`/`ResponseBuilder` objects (`testSupport.ts`) rather than
+  fighting `ask-sdk-core`'s full types — that file's `build` script uses
+  `tsconfig.build.json` (excludes `*.test.ts`/`testSupport.ts`) so test
+  code never ships in the deployed Lambda zip; `tsconfig.json` itself
+  still typechecks everything.
+- **Check `npm audit` after adding or bumping a dependency.** Don't force
+  a major-version bump to silence it reflexively — check whether the
+  flagged CVE's fixed-version range actually requires the major bump, or
+  just a later version within the current major (see the vitest 3.2.7 fix
+  in `frontend/package.json`, which closed a critical CVE without the
+  vite 6+ bump a naive `npm audit fix --force` would have forced).
