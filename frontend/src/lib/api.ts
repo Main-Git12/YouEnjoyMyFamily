@@ -1,4 +1,4 @@
-import type { Task, ScheduleEntry, CartItem } from "../types";
+import type { Task, ScheduleEntry, CartItem, StatedPreference } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 
@@ -27,4 +27,15 @@ export const api = {
   listSchedules: (familyId: string, start?: string, end?: string) =>
     request<ScheduleEntry[]>(`/families/${familyId}/schedules?start=${start ?? ""}&end=${end ?? ""}`),
   listCartItems: (familyId: string) => request<CartItem[]>(`/families/${familyId}/grocery-cart`),
+  listStatedPreferences: (familyId: string) => request<StatedPreference[]>(`/families/${familyId}/stated-preferences`),
+  addStatedPreference: (familyId: string, preference: Omit<StatedPreference, "preferenceId">) =>
+    request<StatedPreference>(`/families/${familyId}/stated-preferences`, {
+      method: "POST",
+      body: JSON.stringify(preference),
+    }),
+  removeStatedPreference: (familyId: string, preferenceId: string, memberId: string) =>
+    request<{ deleted: string }>(
+      `/families/${familyId}/stated-preferences/${preferenceId}?memberId=${encodeURIComponent(memberId)}`,
+      { method: "DELETE" }
+    ),
 };

@@ -81,6 +81,31 @@ export interface PreferencesItem {
   updatedAt: string;
 }
 
+// Explicit, family-stated preferences only — e.g. "Isla picked penne over
+// spaghetti" or "Parker prefers soccer over baseball", entered when a family
+// member actually says so. Never populated from passive tracking/inference;
+// see backend/models/schema.md.
+export const STATED_PREFERENCE_CATEGORIES = ["meal", "activity", "chore"] as const;
+
+export const StatedPreferenceInput = z.object({
+  memberId: z.string().min(1),
+  category: z.enum(STATED_PREFERENCE_CATEGORIES),
+  statement: z.string().min(1).max(200),
+});
+export type StatedPreferenceInput = z.infer<typeof StatedPreferenceInput>;
+
+export interface StatedPreferenceItem {
+  PK: string;
+  SK: string;
+  entityType: "STATED_PREFERENCE";
+  familyId: string;
+  preferenceId: string;
+  memberId: string;
+  category: (typeof STATED_PREFERENCE_CATEGORIES)[number];
+  statement: string;
+  createdAt: string;
+}
+
 export const CartItemInput = z.object({
   krogerProductId: z.string().min(1),
   description: z.string().min(1).max(300),

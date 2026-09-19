@@ -26,3 +26,15 @@ export interface CartItem {
   description: string;
   quantity: number;
 }
+
+export type StatedPreferenceCategory = "meal" | "activity" | "chore";
+
+// Something a family member explicitly said (a chosen meal, a stated
+// activity preference, a chore they picked) — never inferred or passively
+// tracked. See backend/models/schema.md.
+export interface StatedPreference {
+  preferenceId: string;
+  memberId: string;
+  category: StatedPreferenceCategory;
+  statement: string;
+}

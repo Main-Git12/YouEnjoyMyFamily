@@ -41,6 +41,36 @@ describe("api client", () => {
     );
   });
 
+  it("listStatedPreferences calls the family's stated-preferences endpoint", async () => {
+    await api.listStatedPreferences("fam_1");
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/families/fam_1/stated-preferences"),
+      expect.anything()
+    );
+  });
+
+  it("addStatedPreference POSTs the member id, category, and statement", async () => {
+    await api.addStatedPreference("fam_1", { memberId: "member_1", category: "meal", statement: "Prefers penne" });
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/families/fam_1/stated-preferences"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ memberId: "member_1", category: "meal", statement: "Prefers penne" }),
+      })
+    );
+  });
+
+  it("removeStatedPreference DELETEs with the memberId as a query param", async () => {
+    await api.removeStatedPreference("fam_1", "p1", "member_1");
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/families/fam_1/stated-preferences/p1?memberId=member_1"),
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
   it("throws with the status code when the response is not ok", async () => {
     vi.stubGlobal(
       "fetch",

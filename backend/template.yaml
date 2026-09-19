@@ -180,6 +180,41 @@ Resources:
             Path: /families/{familyId}/members/{memberId}/preferences
             Method: PUT
 
+  StatedPreferencesFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/statedPreferences.ts]
+    Properties:
+      Handler: src/handlers/statedPreferences.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref YouEnjoyMyFamilyTable
+      Events:
+        List:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/stated-preferences
+            Method: GET
+        Create:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/stated-preferences
+            Method: POST
+        Delete:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/stated-preferences/{preferenceId}
+            Method: DELETE
+
   GroceryCartFunction:
     Type: AWS::Serverless::Function
     Metadata:
