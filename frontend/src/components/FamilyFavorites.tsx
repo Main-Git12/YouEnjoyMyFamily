@@ -48,7 +48,7 @@ export default function FamilyFavorites({ preferences, onAdd, onRemove }: Family
               className="flex items-center justify-between bg-olive-50 rounded-lg px-4 py-2"
             >
               <span>
-                <span className="text-xs uppercase tracking-wide text-clay-700 font-semibold mr-2">
+                <span className="text-xs uppercase tracking-wide text-olive-700 font-semibold mr-2">
                   {CATEGORY_LABELS[preference.category]}
                 </span>
                 <span className="font-medium">{preference.memberId}</span>: {preference.statement}

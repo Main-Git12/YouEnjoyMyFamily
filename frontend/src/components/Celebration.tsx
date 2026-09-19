@@ -51,10 +51,10 @@ export default function Celebration({ gemsEarned, totalGems, onDismiss }: Celebr
         />
       ))}
 
-      <div className="relative bg-sand-50 rounded-card shadow-[var(--shadow-card)] px-10 py-8 text-center animate-pop-in">
+      <div className="relative bg-white rounded-card shadow-[var(--shadow-card)] px-10 py-8 text-center animate-pop-in">
         <Mascot size={120} className="mx-auto" />
-        <p className="font-display text-2xl text-olive-900 mt-3">{mascot.name} cheers you on!</p>
-        <p className="text-xl text-clay-700 font-semibold mt-1">+{gemsEarned} gems</p>
+        <p className="font-display text-2xl text-olive-700 mt-3">{mascot.name} cheers you on!</p>
+        <p className="text-xl text-olive-600 font-semibold mt-1">+{gemsEarned} gems</p>
         <p className="text-olive-700 mt-1">{totalGems} gems collected so far</p>
         <button
           type="button"

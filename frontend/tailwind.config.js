@@ -40,11 +40,14 @@ export default {
         },
       },
       fontFamily: {
-        display: ["Georgia", "serif"],
-        body: ["system-ui", "sans-serif"],
+        // Rounder, friendlier pairing than the old Georgia serif — reads as
+        // playful/kid-engaging rather than formal. See frontend/index.html
+        // for the Google Fonts <link>.
+        display: ["Baloo 2", "system-ui", "sans-serif"],
+        body: ["Quicksand", "system-ui", "sans-serif"],
       },
       borderRadius: {
-        card: "1rem",
+        card: "1.25rem",
       },
       keyframes: {
         "confetti-fall": {

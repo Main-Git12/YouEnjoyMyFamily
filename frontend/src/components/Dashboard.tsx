@@ -59,16 +59,18 @@ export default function Dashboard() {
   }
 
   return (
-    <main className="min-h-screen bg-olive-100 p-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+    <main className="min-h-screen bg-white p-8 grid grid-cols-1 md:grid-cols-2 gap-6">
       <header className="md:col-span-2 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <img src="/brand-mark.png" alt="" className="h-12 w-12 rounded-full" />
+          <img src="/brand-mark.png" alt="" className="h-14 w-14 rounded-full ring-4 ring-olive-100" />
           <div>
-            <h1 className="font-display text-3xl text-olive-900">YouEnjoyMyFamily</h1>
-            <p className="text-olive-700">Today at a glance</p>
+            <h1 className="font-display text-3xl text-olive-700">YouEnjoyMyFamily</h1>
+            <p className="text-olive-600 font-body">Today at a glance</p>
           </div>
         </div>
-        <p className="text-lg text-clay-700 font-semibold">{totalGems} gems collected</p>
+        <p className="font-display text-lg bg-olive-500 text-white rounded-full px-5 py-2 shadow-[var(--shadow-card)]">
+          {totalGems} gems collected
+        </p>
       </header>
 
       {error && (

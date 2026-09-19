@@ -28,7 +28,7 @@
   --color-gem-sapphire: #3f6f8f;
 
   --shadow-card: 0 4px 14px rgba(31, 32, 19, 0.12);
-  --radius-card: 1rem;
+  --radius-card: 1.25rem;
 }
 
 html,
@@ -38,6 +38,6 @@ body,
 }
 
 body {
-  background: var(--color-olive-50);
+  background: #ffffff;
   color: var(--color-bark);
 }
