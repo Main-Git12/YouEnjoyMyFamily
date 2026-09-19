@@ -28,10 +28,12 @@ first when an entity changes, and let the handlers follow.
   the zod schemas in `types.ts` via `parseBody()` (`backend/src/lib/validation.ts`).
   Don't hand-roll ad hoc `if (!body.x)` checks for new fields.
 - **Env vars, not hardcoded secrets:** OAuth client IDs/secrets for Google
-  Calendar and Kroger come from SSM Parameter Store in deployed
-  environments (see `template.yaml`) and `.env` locally (see
-  `backend/.env.example`, `frontend/.env.example`). Never commit real
-  credentials.
+  Calendar come from SSM Parameter Store in deployed environments (see
+  `template.yaml`) and `.env` locally (see `backend/.env.example`,
+  `frontend/.env.example`). Never commit real credentials. The grocery cart
+  has no external credential — Giant Eagle and Aldi don't have a public
+  product/stock API, so don't invent one; it's a store-tagged list with a
+  self-learned substitution log instead (see `models/schema.md`).
 - **Idempotent sync:** background sync jobs (`calendarSync.ts`) must be
   safe to re-run — upsert by external id via `GSI1`, don't assume a clean
   slate.
@@ -40,8 +42,7 @@ first when an entity changes, and let the handlers follow.
   in `backend/template.yaml`.
 - **Test new handler logic:** add a `*.test.ts` alongside new/changed
   backend handlers using `node:test` + `aws-sdk-client-mock` (see
-  `tasks.test.ts`, `groceryCart.test.ts`). Mind module-level caches (e.g.
-  the Kroger token cache) when ordering tests that need a fresh state.
+  `tasks.test.ts`, `groceryCart.test.ts`).
 - **Run the checks before considering a change done:** `npm run typecheck`,
   `npm run lint`, and `npm test` (backend) / `npm run build` (frontend)
   all need to pass — this repo has registry access, so there's no excuse

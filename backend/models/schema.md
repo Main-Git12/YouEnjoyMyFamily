@@ -15,6 +15,7 @@ items returned from a `Query` without a second read.
 | Schedule entry      | `FAMILY#<familyId>`   | `SCHEDULE#<isoDate>#<id>`   | —                       | —                          |
 | Synced calendar evt | `FAMILY#<familyId>`   | `CALEVENT#<isoDate>#<id>`   | `EXTID#<googleEventId>`| `FAMILY#<familyId>`        |
 | Grocery cart item   | `FAMILY#<familyId>`   | `CARTITEM#<itemId>`         | —                       | —                          |
+| Substitution log     | `FAMILY#<familyId>`   | `SUBLOG#<store>#<original>#<substitute>` | —          | —                          |
 | OAuth token set     | `FAMILY#<familyId>`   | `TOKEN#<provider>`          | —                       | —                          |
 
 ## Access patterns
@@ -24,7 +25,8 @@ items returned from a `Query` without a second read.
 - List a family's schedule for a date range: `Query PK = FAMILY#<familyId>, SK between SCHEDULE#<start> and SCHEDULE#<end>`.
 - Find a task by id across the table (e.g. Alexa deep link): `Query GSI1PK = TASK#<taskId>`.
 - Upsert a synced Google Calendar event idempotently by external id: `Query GSI1PK = EXTID#<googleEventId>`.
-- Look up a family's stored OAuth tokens for a provider (`google`, `kroger`): `GetItem PK = FAMILY#<familyId>, SK = TOKEN#<provider>`.
+- Look up a family's stored OAuth tokens for a provider (`google`): `GetItem PK = FAMILY#<familyId>, SK = TOKEN#<provider>`.
+- Rank past substitutes for an item at a store (most-chosen first, client-side sort): `Query PK = FAMILY#<familyId>, SK begins_with SUBLOG#<store>#<normalizedDescription>#`.
 
 ## Item shape examples
 
@@ -53,10 +55,27 @@ items returned from a `Query` without a second read.
   "entityType": "CART_ITEM",
   "familyId": "fam_123",
   "itemId": "01J...ULID",
-  "krogerProductId": "0001111041700",
+  "store": "giant_eagle",
   "description": "2% Milk, 1 Gallon",
   "quantity": 1,
+  "status": "needed",
   "addedBy": "member_456",
-  "addedAt": "2025-01-10T12:00:00Z"
+  "addedAt": "2025-01-10T12:00:00Z",
+  "updatedAt": "2025-01-10T12:00:00Z"
+}
+
+// Substitution log — one item per (store, original, substitute) triple;
+// timesChosen only grows when a family member actually picks that swap
+// after the original was marked unavailable, never from an external feed.
+{
+  "PK": "FAMILY#fam_123",
+  "SK": "SUBLOG#giant_eagle#2% milk, 1 gallon#oat milk, 1 gallon",
+  "entityType": "SUBSTITUTION_LOG",
+  "familyId": "fam_123",
+  "store": "giant_eagle",
+  "originalDescription": "2% milk, 1 gallon",
+  "substituteDescription": "Oat Milk, 1 Gallon",
+  "timesChosen": 4,
+  "lastChosenAt": "2025-01-10T12:00:00Z"
 }
 ```

@@ -19,17 +19,20 @@ src/handlers/
   tasks.test.ts          Unit tests (node:test + aws-sdk-client-mock)
   schedules.ts           CRUD: /families/{familyId}/schedules[/{scheduleId}]
   preferences.ts         GET/PUT: /families/{familyId}/members/{memberId}/preferences
-  groceryCart.ts          GET/POST: /families/{familyId}/grocery-cart[/items] (Kroger OAuth client-credentials)
-  groceryCart.test.ts     Unit tests, including the cached-token failure path
+  groceryCart.ts          GET/POST /families/{familyId}/grocery-cart[/items], PATCH .../items/{itemId} (store-tagged list; PATCH marks an item unavailable and returns/learns substitutes)
+  groceryCart.test.ts     Unit tests, including the substitution-suggestion and learning paths
   calendarSync.ts         EventBridge cron: refreshes Google Calendar events per connected family
 ```
 
 ## Prerequisites
 
 - AWS SAM CLI, Node.js 20+, an AWS account/credentials configured locally.
-- Google OAuth client (Calendar API scope) and Kroger developer app credentials,
-  stored in SSM Parameter Store under `/pealsync/google/*` and `/pealsync/kroger/*`
-  (see the `{{resolve:ssm:...}}` references in `template.yaml`).
+- Google OAuth client (Calendar API scope), stored in SSM Parameter Store
+  under `/pealsync/google/*` (see the `{{resolve:ssm:...}}` references in
+  `template.yaml`). The grocery cart has no external credential: Giant Eagle
+  and Aldi don't expose a public product/stock API, so it's a plain
+  store-tagged list plus a self-learned substitution log (see
+  `models/schema.md`).
 
 ## Checks
 

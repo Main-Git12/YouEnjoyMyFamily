@@ -80,13 +80,28 @@ export interface PreferencesItem {
   updatedAt: string;
 }
 
+export const GroceryStore = z.enum(["giant_eagle", "aldi"]);
+export type GroceryStore = z.infer<typeof GroceryStore>;
+
+export const CartItemStatus = z.enum(["needed", "unavailable"]);
+export type CartItemStatus = z.infer<typeof CartItemStatus>;
+
 export const CartItemInput = z.object({
-  krogerProductId: z.string().min(1),
+  store: GroceryStore,
   description: z.string().min(1).max(300),
   quantity: z.number().int().positive().optional(),
   addedBy: z.string().min(1).nullable().optional(),
 });
 export type CartItemInput = z.infer<typeof CartItemInput>;
+
+// PATCH /grocery-cart/items/{itemId}: the two moves in the "out of stock"
+// flow — flag an item so the family sees suggestions, then log whichever
+// substitute they actually went with (this is what the suggestions learn from).
+export const CartItemPatch = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("mark_unavailable") }),
+  z.object({ action: z.literal("substitute"), description: z.string().min(1).max(300) }),
+]);
+export type CartItemPatch = z.infer<typeof CartItemPatch>;
 
 export interface CartItem {
   PK: string;
@@ -94,11 +109,28 @@ export interface CartItem {
   entityType: "CART_ITEM";
   familyId: string;
   itemId: string;
-  krogerProductId: string;
+  store: GroceryStore;
   description: string;
   quantity: number;
+  status: CartItemStatus;
   addedBy: string | null;
   addedAt: string;
+  updatedAt: string;
+}
+
+// Keyed by (store, original description) so a suggestion for one store never
+// bleeds into the other's catalog. Counts only grow from substitutions a
+// family member actually chose — never inferred from any external stock feed.
+export interface SubstitutionLogItem {
+  PK: string;
+  SK: string;
+  entityType: "SUBSTITUTION_LOG";
+  familyId: string;
+  store: GroceryStore;
+  originalDescription: string;
+  substituteDescription: string;
+  timesChosen: number;
+  lastChosenAt: string;
 }
 
 export interface CalendarTokenRecord {

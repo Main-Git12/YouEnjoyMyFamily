@@ -1,13 +1,15 @@
-import { test, beforeEach, mock } from "node:test";
+import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { mockClient } from "aws-sdk-client-mock";
-import { DynamoDBDocumentClient, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
 import { handler } from "./groceryCart";
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
 
-function makeEvent(overrides: Partial<APIGatewayProxyEventV2> & { method: string }): APIGatewayProxyEventV2 {
+function makeEvent(
+  overrides: Partial<APIGatewayProxyEventV2> & { method: string }
+): APIGatewayProxyEventV2 {
   const { method, ...rest } = overrides;
   return {
     version: "2.0",
@@ -25,11 +27,6 @@ function makeEvent(overrides: Partial<APIGatewayProxyEventV2> & { method: string
 
 beforeEach(() => {
   ddbMock.reset();
-  process.env.KROGER_CLIENT_ID = "test-client-id";
-  process.env.KROGER_CLIENT_SECRET = "test-client-secret";
-  mock.method(globalThis, "fetch", async () =>
-    new Response(JSON.stringify({ access_token: "token-123", expires_in: 1800 }), { status: 200 })
-  );
 });
 
 test("GET lists cart items for a family", async () => {
@@ -40,7 +37,7 @@ test("GET lists cart items for a family", async () => {
   assert.deepEqual(JSON.parse(result.body ?? "[]"), [{ itemId: "i1", description: "Milk" }]);
 });
 
-test("POST rejects a body missing krogerProductId", async () => {
+test("POST rejects a body missing store", async () => {
   const result = await handler(
     makeEvent({
       method: "POST",
@@ -51,36 +48,120 @@ test("POST rejects a body missing krogerProductId", async () => {
   assert.equal(result.statusCode, 400);
 });
 
-// Runs before the "adds an item" test below: getKrogerAccessToken caches a
-// valid token in module state once a call succeeds, which would otherwise
-// make this 401 case unreachable for the rest of the process's lifetime.
-test("POST surfaces a 500 when Kroger credentials are rejected", async () => {
-  mock.method(globalThis, "fetch", async () => new Response("unauthorized", { status: 401 }));
-
+test("POST rejects a store outside giant_eagle/aldi", async () => {
   const result = await handler(
     makeEvent({
       method: "POST",
       pathParameters: { familyId: "fam_1" },
-      body: JSON.stringify({ krogerProductId: "0001111041700", description: "2% Milk, 1 Gallon" }),
+      body: JSON.stringify({ store: "kroger", description: "2% Milk, 1 Gallon" }),
     })
   );
-
-  assert.equal(result.statusCode, 500);
+  assert.equal(result.statusCode, 400);
 });
 
-test("POST adds an item after validating Kroger credentials", async () => {
+test("POST adds an item tagged to a store, defaulting quantity and status", async () => {
   ddbMock.on(PutCommand).resolves({});
 
   const result = await handler(
     makeEvent({
       method: "POST",
       pathParameters: { familyId: "fam_1" },
-      body: JSON.stringify({ krogerProductId: "0001111041700", description: "2% Milk, 1 Gallon" }),
+      body: JSON.stringify({ store: "giant_eagle", description: "2% Milk, 1 Gallon" }),
     })
   );
 
   assert.equal(result.statusCode, 201);
   const body = JSON.parse(result.body ?? "{}");
-  assert.equal(body.krogerProductId, "0001111041700");
+  assert.equal(body.store, "giant_eagle");
   assert.equal(body.quantity, 1);
+  assert.equal(body.status, "needed");
+});
+
+test("PATCH mark_unavailable 404s for an unknown item", async () => {
+  ddbMock.on(GetCommand).resolves({});
+
+  const result = await handler(
+    makeEvent({
+      method: "PATCH",
+      pathParameters: { familyId: "fam_1", itemId: "missing" },
+      body: JSON.stringify({ action: "mark_unavailable" }),
+    })
+  );
+  assert.equal(result.statusCode, 404);
+});
+
+test("PATCH mark_unavailable flags the item and returns ranked past substitutes", async () => {
+  ddbMock.on(GetCommand).resolves({
+    Item: { itemId: "i1", familyId: "fam_1", store: "aldi", description: "2% Milk", status: "needed" },
+  });
+  ddbMock.on(PutCommand).resolves({});
+  ddbMock.on(QueryCommand).resolves({
+    Items: [
+      { substituteDescription: "Whole Milk", timesChosen: 1 },
+      { substituteDescription: "Oat Milk", timesChosen: 4 },
+    ],
+  });
+
+  const result = await handler(
+    makeEvent({
+      method: "PATCH",
+      pathParameters: { familyId: "fam_1", itemId: "i1" },
+      body: JSON.stringify({ action: "mark_unavailable" }),
+    })
+  );
+
+  assert.equal(result.statusCode, 200);
+  const body = JSON.parse(result.body ?? "{}");
+  assert.equal(body.item.status, "unavailable");
+  assert.deepEqual(body.suggestions, [
+    { description: "Oat Milk", timesChosen: 4 },
+    { description: "Whole Milk", timesChosen: 1 },
+  ]);
+});
+
+test("PATCH mark_unavailable suggests nothing the first time (no prior substitution history)", async () => {
+  ddbMock.on(GetCommand).resolves({
+    Item: { itemId: "i1", familyId: "fam_1", store: "aldi", description: "Rye bread", status: "needed" },
+  });
+  ddbMock.on(PutCommand).resolves({});
+  ddbMock.on(QueryCommand).resolves({ Items: [] });
+
+  const result = await handler(
+    makeEvent({
+      method: "PATCH",
+      pathParameters: { familyId: "fam_1", itemId: "i1" },
+      body: JSON.stringify({ action: "mark_unavailable" }),
+    })
+  );
+
+  assert.equal(result.statusCode, 200);
+  assert.deepEqual(JSON.parse(result.body ?? "{}").suggestions, []);
+});
+
+test("PATCH substitute updates the item and logs the choice for future suggestions", async () => {
+  ddbMock.on(GetCommand).resolves({
+    Item: { itemId: "i1", familyId: "fam_1", store: "aldi", description: "2% Milk", status: "unavailable" },
+  });
+  ddbMock.on(PutCommand).resolves({});
+  ddbMock.on(UpdateCommand).resolves({});
+
+  const result = await handler(
+    makeEvent({
+      method: "PATCH",
+      pathParameters: { familyId: "fam_1", itemId: "i1" },
+      body: JSON.stringify({ action: "substitute", description: "Oat Milk" }),
+    })
+  );
+
+  assert.equal(result.statusCode, 200);
+  const body = JSON.parse(result.body ?? "{}");
+  assert.equal(body.item.description, "Oat Milk");
+  assert.equal(body.item.status, "needed");
+
+  const updateCalls = ddbMock.commandCalls(UpdateCommand);
+  assert.equal(updateCalls.length, 1);
+  const updateCall = updateCalls.at(0);
+  assert.ok(updateCall);
+  assert.equal(updateCall.args[0].input.Key?.SK, "SUBLOG#aldi#2% milk#oat milk");
+  assert.match(updateCall.args[0].input.UpdateExpression ?? "", /ADD timesChosen :one/);
 });

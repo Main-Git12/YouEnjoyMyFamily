@@ -19,9 +19,18 @@ export interface ScheduleEntry {
   memberIds: string[];
 }
 
+export type GroceryStore = "giant_eagle" | "aldi";
+export type CartItemStatus = "needed" | "unavailable";
+
 export interface CartItem {
   itemId: string;
-  krogerProductId: string;
+  store: GroceryStore;
   description: string;
   quantity: number;
+  status: CartItemStatus;
+}
+
+export interface SubstituteSuggestion {
+  description: string;
+  timesChosen: number;
 }

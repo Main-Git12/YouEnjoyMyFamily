@@ -1,4 +1,4 @@
-import type { Task, ScheduleEntry, CartItem } from "../types";
+import type { Task, ScheduleEntry, CartItem, GroceryStore, SubstituteSuggestion } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 
@@ -22,4 +22,16 @@ export const api = {
   listSchedules: (familyId: string, start?: string, end?: string) =>
     request<ScheduleEntry[]>(`/families/${familyId}/schedules?start=${start ?? ""}&end=${end ?? ""}`),
   listCartItems: (familyId: string) => request<CartItem[]>(`/families/${familyId}/grocery-cart`),
+  addCartItem: (familyId: string, item: { store: GroceryStore; description: string; quantity?: number; addedBy?: string | null }) =>
+    request<CartItem>(`/families/${familyId}/grocery-cart/items`, { method: "POST", body: JSON.stringify(item) }),
+  markCartItemUnavailable: (familyId: string, itemId: string) =>
+    request<{ item: CartItem; suggestions: SubstituteSuggestion[] }>(
+      `/families/${familyId}/grocery-cart/items/${itemId}`,
+      { method: "PATCH", body: JSON.stringify({ action: "mark_unavailable" }) }
+    ),
+  substituteCartItem: (familyId: string, itemId: string, description: string) =>
+    request<{ item: CartItem }>(`/families/${familyId}/grocery-cart/items/${itemId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ action: "substitute", description }),
+    }),
 };

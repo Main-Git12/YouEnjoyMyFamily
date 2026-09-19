@@ -67,7 +67,7 @@ Resources:
       CorsConfiguration:
         AllowOrigins: ["*"]
         AllowHeaders: ["Content-Type", "Authorization"]
-        AllowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+        AllowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 
   TasksFunction:
     Type: AWS::Serverless::Function
@@ -195,10 +195,6 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref PealSyncTable
-      Environment:
-        Variables:
-          KROGER_CLIENT_ID: "{{resolve:ssm:/pealsync/kroger/client-id}}"
-          KROGER_CLIENT_SECRET: "{{resolve:ssm-secure:/pealsync/kroger/client-secret}}"
       Events:
         Get:
           Type: HttpApi
@@ -212,6 +208,12 @@ Resources:
             ApiId: !Ref PealSyncHttpApi
             Path: /families/{familyId}/grocery-cart/items
             Method: POST
+        PatchItem:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PealSyncHttpApi
+            Path: /families/{familyId}/grocery-cart/items/{itemId}
+            Method: PATCH
 
   # ---------------------------------------------------------------------
   # Background sync — EventBridge scheduled trigger, decoupled from API
