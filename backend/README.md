@@ -59,10 +59,3 @@ npm run build
 npm run deploy          # sam deploy --guided (first run), then `sam deploy` after
 ```
 
-## Known issues
-
-- `googleapis` pulls in a transitively vulnerable `uuid` (moderate,
-  [GHSA-w5hq-g745-h8pq](https://github.com/advisories/GHSA-w5hq-g745-h8pq))
-  via `gaxios`. Not reachable from this codebase's usage, but fixing it
-  requires a major `googleapis` bump — left for a dedicated upgrade rather
-  than bundled into this change.
