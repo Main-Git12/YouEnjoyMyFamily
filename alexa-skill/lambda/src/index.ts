@@ -1,7 +1,8 @@
 import * as Alexa from "ask-sdk-core";
 import type { Response } from "ask-sdk-model";
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+// JSON lives outside tsconfig's rootDir, so a TS `import` would fail; require() sidesteps that.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const dashboardCard = require("../apl/dashboardCard.json") as Record<string, unknown>;
 
 const API_BASE_URL = process.env.PEALSYNC_API_BASE_URL;
@@ -41,7 +42,7 @@ async function fetchJson<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-const LaunchRequestHandler: Alexa.RequestHandler = {
+export const LaunchRequestHandler: Alexa.RequestHandler = {
   canHandle(handlerInput) {
     return Alexa.getRequestType(handlerInput.requestEnvelope) === "LaunchRequest";
   },
@@ -52,7 +53,7 @@ const LaunchRequestHandler: Alexa.RequestHandler = {
   },
 };
 
-const GetScheduleIntentHandler: Alexa.RequestHandler = {
+export const GetScheduleIntentHandler: Alexa.RequestHandler = {
   canHandle(handlerInput) {
     return (
       Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
@@ -77,7 +78,7 @@ const GetScheduleIntentHandler: Alexa.RequestHandler = {
   },
 };
 
-const GetTasksIntentHandler: Alexa.RequestHandler = {
+export const GetTasksIntentHandler: Alexa.RequestHandler = {
   canHandle(handlerInput) {
     return (
       Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
@@ -100,7 +101,7 @@ const GetTasksIntentHandler: Alexa.RequestHandler = {
   },
 };
 
-const AddTaskIntentHandler: Alexa.RequestHandler = {
+export const AddTaskIntentHandler: Alexa.RequestHandler = {
   canHandle(handlerInput) {
     return (
       Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
@@ -131,7 +132,7 @@ const AddTaskIntentHandler: Alexa.RequestHandler = {
   },
 };
 
-const HelpIntentHandler: Alexa.RequestHandler = {
+export const HelpIntentHandler: Alexa.RequestHandler = {
   canHandle(handlerInput) {
     return (
       Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
@@ -144,7 +145,7 @@ const HelpIntentHandler: Alexa.RequestHandler = {
   },
 };
 
-const CancelAndStopIntentHandler: Alexa.RequestHandler = {
+export const CancelAndStopIntentHandler: Alexa.RequestHandler = {
   canHandle(handlerInput) {
     return (
       Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
@@ -157,7 +158,7 @@ const CancelAndStopIntentHandler: Alexa.RequestHandler = {
   },
 };
 
-const SessionEndedRequestHandler: Alexa.RequestHandler = {
+export const SessionEndedRequestHandler: Alexa.RequestHandler = {
   canHandle(handlerInput) {
     return Alexa.getRequestType(handlerInput.requestEnvelope) === "SessionEndedRequest";
   },
@@ -166,7 +167,7 @@ const SessionEndedRequestHandler: Alexa.RequestHandler = {
   },
 };
 
-const ErrorHandler: Alexa.ErrorHandler = {
+export const ErrorHandler: Alexa.ErrorHandler = {
   canHandle(): boolean {
     return true;
   },
@@ -176,7 +177,7 @@ const ErrorHandler: Alexa.ErrorHandler = {
   },
 };
 
-exports.handler = Alexa.SkillBuilders.custom()
+export const handler = Alexa.SkillBuilders.custom()
   .addRequestHandlers(
     LaunchRequestHandler,
     GetScheduleIntentHandler,

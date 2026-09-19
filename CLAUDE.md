@@ -57,9 +57,16 @@ first when an entity changes, and let the handlers follow.
   `npm run lint`, `npm test`, and `npm run build` (where each applies) all
   need to pass in `backend`, `frontend`, and `alexa-skill/lambda` — this
   repo has registry access, so there's no excuse to skip actually running
-  them. Frontend component tests use Vitest + `@testing-library/react`
-  (see `Dashboard.test.tsx` for the pattern: mock `../lib/api`, don't hit
-  a real network in tests).
+  them. All three subprojects now have equal footing here (typecheck +
+  lint + test + build); keep it that way when adding a fourth. Frontend
+  component tests use Vitest + `@testing-library/react` (see
+  `Dashboard.test.tsx` for the pattern: mock `../lib/api`, don't hit a
+  real network in tests). The Alexa skill's tests build fake
+  `HandlerInput`/`ResponseBuilder` objects (`testSupport.ts`) rather than
+  fighting `ask-sdk-core`'s full types — that file's `build` script uses
+  `tsconfig.build.json` (excludes `*.test.ts`/`testSupport.ts`) so test
+  code never ships in the deployed Lambda zip; `tsconfig.json` itself
+  still typechecks everything.
 - **Check `npm audit` after adding or bumping a dependency.** Don't force
   a major-version bump to silence it reflexively — check whether the
   flagged CVE's fixed-version range actually requires the major bump, or
