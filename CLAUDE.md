@@ -14,6 +14,15 @@ first when an entity changes, and let the handlers follow.
 
 ## Working conventions
 
+- **State comes from GitHub, not conversation history:** when resuming a
+  session (including after context compaction), treat a carried-over
+  conversation summary as a claim to verify, never as ground truth. Before
+  acting on it, check the actual state — `git status`/`git log` on the
+  repo, `git remote -v` to confirm which repo you're even in, and open
+  PRs/issues/branches on GitHub — and reconcile any mismatch before doing
+  anything else. If a summary describes work, branches, or repos that
+  don't show up in git/GitHub, say so and ask rather than continuing as if
+  it happened.
 - **No guessing:** before adding a dependency, endpoint, or DynamoDB key
   pattern, check what's already used in the codebase (`schema.md`,
   existing handlers, `package.json`) rather than assuming a shape.
