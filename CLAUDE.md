@@ -42,7 +42,18 @@ first when an entity changes, and let the handlers follow.
   in `backend/template.yaml`.
 - **Test new handler logic:** add a `*.test.ts` alongside new/changed
   backend handlers using `node:test` + `aws-sdk-client-mock` (see
-  `tasks.test.ts`, `groceryCart.test.ts`).
+  `tasks.test.ts`, `groceryCart.test.ts`). Every backend handler currently
+  has one — keep it that way.
+- **Inject third-party SDK clients, don't mock the module:** when a
+  handler calls an external SDK that isn't just `fetch` (e.g. `googleapis`),
+  don't try to structurally fake the SDK's own types or reach for module
+  mocking — define a minimal interface for the one or two methods actually
+  used (see `MinimalCalendarClient`, `CalendarClientFactory` in
+  `calendarSync.ts`) and pass a factory with a real-SDK default. Also never
+  put an injectable dependency in a Lambda `handler`'s own parameter
+  list — Lambda always invokes `handler(event, context, callback)`, so a
+  real invocation would silently overwrite it; export a separate
+  orchestration function (see `runCalendarSync`) for tests to call instead.
 - **Run the checks before considering a change done:** `npm run typecheck`,
   `npm run lint`, and `npm test` (backend) / `npm run build` (frontend)
   all need to pass — this repo has registry access, so there's no excuse
