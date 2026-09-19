@@ -1,86 +1,214 @@
-import { test, beforeEach, mock } from "node:test";
+import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { mockClient } from "aws-sdk-client-mock";
-import { DynamoDBDocumentClient, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
-import { handler } from "./groceryCart";
+import { handler, routeGroceryCart, type InstacartClient } from "./groceryCart";
+import type { CartItem, LearnedSubstitutionItem } from "../types";
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
 
-function makeEvent(overrides: Partial<APIGatewayProxyEventV2> & { method: string }): APIGatewayProxyEventV2 {
-  const { method, ...rest } = overrides;
+beforeEach(() => {
+  ddbMock.reset();
+});
+
+function makeEvent(
+  overrides: Partial<APIGatewayProxyEventV2> & { method: string; path?: string }
+): APIGatewayProxyEventV2 {
+  const { method, path, ...rest } = overrides;
   return {
     version: "2.0",
     routeKey: "$default",
-    rawPath: "/",
+    rawPath: path ?? "/",
     rawQueryString: "",
     headers: {},
     requestContext: {
-      http: { method, path: "/", protocol: "HTTP/1.1", sourceIp: "127.0.0.1", userAgent: "test" },
+      http: { method, path: path ?? "/", protocol: "HTTP/1.1", sourceIp: "127.0.0.1", userAgent: "test" },
     } as APIGatewayProxyEventV2["requestContext"],
     isBase64Encoded: false,
     ...rest,
   } as APIGatewayProxyEventV2;
 }
 
-beforeEach(() => {
-  ddbMock.reset();
-  process.env.KROGER_CLIENT_ID = "test-client-id";
-  process.env.KROGER_CLIENT_SECRET = "test-client-secret";
-  mock.method(globalThis, "fetch", async () =>
-    new Response(JSON.stringify({ access_token: "token-123", expires_in: 1800 }), { status: 200 })
-  );
+const cartItem = (overrides: Partial<CartItem> = {}): CartItem => ({
+  PK: "FAMILY#fam_1",
+  SK: "CARTITEM#i1",
+  entityType: "CART_ITEM",
+  familyId: "fam_1",
+  itemId: "i1",
+  description: "Spaghetti",
+  quantity: 1,
+  status: "pending",
+  substituteDescription: null,
+  addedBy: null,
+  addedAt: "2025-01-01T00:00:00Z",
+  updatedAt: "2025-01-01T00:00:00Z",
+  ...overrides,
 });
 
 test("GET lists cart items for a family", async () => {
-  ddbMock.on(QueryCommand).resolves({ Items: [{ itemId: "i1", description: "Milk" }] });
+  const items = [cartItem()];
+  ddbMock.on(QueryCommand).resolves({ Items: items });
 
   const result = await handler(makeEvent({ method: "GET", pathParameters: { familyId: "fam_1" } }));
   assert.equal(result.statusCode, 200);
-  assert.deepEqual(JSON.parse(result.body ?? "[]"), [{ itemId: "i1", description: "Milk" }]);
+  assert.deepEqual(JSON.parse(result.body ?? "[]"), items);
 });
 
-test("POST rejects a body missing krogerProductId", async () => {
+test("POST rejects a missing description", async () => {
   const result = await handler(
-    makeEvent({
-      method: "POST",
-      pathParameters: { familyId: "fam_1" },
-      body: JSON.stringify({ description: "Milk" }),
-    })
+    makeEvent({ method: "POST", pathParameters: { familyId: "fam_1" }, body: JSON.stringify({}) })
   );
   assert.equal(result.statusCode, 400);
 });
 
-// Runs before the "adds an item" test below: getKrogerAccessToken caches a
-// valid token in module state once a call succeeds, which would otherwise
-// make this 401 case unreachable for the rest of the process's lifetime.
-test("POST surfaces a 500 when Kroger credentials are rejected", async () => {
-  mock.method(globalThis, "fetch", async () => new Response("unauthorized", { status: 401 }));
-
-  const result = await handler(
-    makeEvent({
-      method: "POST",
-      pathParameters: { familyId: "fam_1" },
-      body: JSON.stringify({ krogerProductId: "0001111041700", description: "2% Milk, 1 Gallon" }),
-    })
-  );
-
-  assert.equal(result.statusCode, 500);
-});
-
-test("POST adds an item after validating Kroger credentials", async () => {
+test("POST adds an item with pending status and no Instacart product id required", async () => {
   ddbMock.on(PutCommand).resolves({});
 
   const result = await handler(
     makeEvent({
       method: "POST",
       pathParameters: { familyId: "fam_1" },
-      body: JSON.stringify({ krogerProductId: "0001111041700", description: "2% Milk, 1 Gallon" }),
+      body: JSON.stringify({ description: "2% Milk, 1 Gallon" }),
     })
   );
 
   assert.equal(result.statusCode, 201);
   const body = JSON.parse(result.body ?? "{}");
-  assert.equal(body.krogerProductId, "0001111041700");
+  assert.equal(body.description, "2% Milk, 1 Gallon");
+  assert.equal(body.status, "pending");
   assert.equal(body.quantity, 1);
+});
+
+test("PUT on a missing item returns 404", async () => {
+  ddbMock.on(GetCommand).resolves({ Item: undefined });
+
+  const result = await handler(
+    makeEvent({ method: "PUT", pathParameters: { familyId: "fam_1", itemId: "missing" }, body: "{}" })
+  );
+  assert.equal(result.statusCode, 404);
+});
+
+test("PUT marks an item unavailable with no suggestion when nothing was ever confirmed", async () => {
+  ddbMock.on(GetCommand, { Key: { PK: "FAMILY#fam_1", SK: "CARTITEM#i1" } }).resolves({ Item: cartItem() });
+  ddbMock.on(GetCommand, { Key: { PK: "FAMILY#fam_1", SK: "SUBSTITUTION#spaghetti" } }).resolves({ Item: undefined });
+  ddbMock.on(PutCommand).resolves({});
+
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", itemId: "i1" },
+      body: JSON.stringify({ status: "unavailable" }),
+    })
+  );
+
+  assert.equal(result.statusCode, 200);
+  const body = JSON.parse(result.body ?? "{}");
+  assert.equal(body.item.status, "unavailable");
+  assert.equal(body.suggestedSubstitute, null);
+});
+
+test("PUT marking an item unavailable surfaces a previously confirmed substitute as a suggestion only", async () => {
+  ddbMock.on(GetCommand, { Key: { PK: "FAMILY#fam_1", SK: "CARTITEM#i1" } }).resolves({ Item: cartItem() });
+  const learned: LearnedSubstitutionItem = {
+    PK: "FAMILY#fam_1",
+    SK: "SUBSTITUTION#spaghetti",
+    entityType: "LEARNED_SUBSTITUTION",
+    familyId: "fam_1",
+    originalDescription: "spaghetti",
+    substituteDescription: "Penne",
+    timesConfirmed: 2,
+    updatedAt: "2025-01-01T00:00:00Z",
+  };
+  ddbMock.on(GetCommand, { Key: { PK: "FAMILY#fam_1", SK: "SUBSTITUTION#spaghetti" } }).resolves({ Item: learned });
+  ddbMock.on(PutCommand).resolves({});
+
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", itemId: "i1" },
+      body: JSON.stringify({ status: "unavailable" }),
+    })
+  );
+
+  const body = JSON.parse(result.body ?? "{}");
+  assert.equal(body.suggestedSubstitute, "Penne");
+  // Only ever a suggestion — the item itself isn't auto-substituted.
+  assert.equal(body.item.status, "unavailable");
+  assert.equal(body.item.substituteDescription, null);
+});
+
+test("PUT confirming a substitute records it as learned for next time", async () => {
+  ddbMock.on(GetCommand, { Key: { PK: "FAMILY#fam_1", SK: "CARTITEM#i1" } }).resolves({
+    Item: cartItem({ status: "unavailable" }),
+  });
+  ddbMock.on(GetCommand, { Key: { PK: "FAMILY#fam_1", SK: "SUBSTITUTION#spaghetti" } }).resolves({ Item: undefined });
+  ddbMock.on(PutCommand).resolves({});
+
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", itemId: "i1" },
+      body: JSON.stringify({ status: "substituted", substituteDescription: "Penne" }),
+    })
+  );
+
+  assert.equal(result.statusCode, 200);
+  const body = JSON.parse(result.body ?? "{}");
+  assert.equal(body.item.status, "substituted");
+  assert.equal(body.item.substituteDescription, "Penne");
+
+  const learnedPut = ddbMock
+    .commandCalls(PutCommand)
+    .map((call) => call.args[0].input.Item as Record<string, unknown>)
+    .find((item) => item.entityType === "LEARNED_SUBSTITUTION");
+  assert.equal(learnedPut?.originalDescription, "spaghetti");
+  assert.equal(learnedPut?.substituteDescription, "Penne");
+  assert.equal(learnedPut?.timesConfirmed, 1);
+});
+
+test("checkout builds Instacart line items, using the substitute description where confirmed", async () => {
+  ddbMock.on(QueryCommand).resolves({
+    Items: [
+      cartItem({ itemId: "i1", description: "Spaghetti", status: "substituted", substituteDescription: "Penne" }),
+      cartItem({ itemId: "i2", description: "Milk", status: "pending", quantity: 2 }),
+      cartItem({ itemId: "i3", description: "Rare cheese", status: "unavailable" }),
+    ],
+  });
+
+  const calls: unknown[] = [];
+  const fakeInstacart: InstacartClient = {
+    async createShoppingListLink(title, lineItems) {
+      calls.push({ title, lineItems });
+      return "https://instacart.example/list/abc";
+    },
+  };
+
+  const result = await routeGroceryCart(
+    makeEvent({ method: "POST", path: "/families/fam_1/grocery-cart/checkout", pathParameters: { familyId: "fam_1" } }),
+    fakeInstacart
+  );
+
+  assert.equal(result.statusCode, 200);
+  assert.deepEqual(JSON.parse(result.body ?? "{}"), { productsLinkUrl: "https://instacart.example/list/abc" });
+  assert.deepEqual(calls, [
+    {
+      title: "YouEnjoyMyFamily grocery list",
+      lineItems: [
+        { name: "Penne", quantity: 1 },
+        { name: "Milk", quantity: 2 },
+      ],
+    },
+  ]);
+});
+
+test("checkout rejects when every item is unavailable", async () => {
+  ddbMock.on(QueryCommand).resolves({ Items: [cartItem({ status: "unavailable" })] });
+
+  const result = await routeGroceryCart(
+    makeEvent({ method: "POST", path: "/families/fam_1/grocery-cart/checkout", pathParameters: { familyId: "fam_1" } }),
+    { createShoppingListLink: async () => "unused" }
+  );
+
+  assert.equal(result.statusCode, 400);
 });

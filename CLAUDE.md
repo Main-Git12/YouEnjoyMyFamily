@@ -27,9 +27,9 @@ first when an entity changes, and let the handlers follow.
 - **Validate at the boundary:** Lambda handlers parse request bodies with
   the zod schemas in `types.ts` via `parseBody()` (`backend/src/lib/validation.ts`).
   Don't hand-roll ad hoc `if (!body.x)` checks for new fields.
-- **Env vars, not hardcoded secrets:** OAuth client IDs/secrets for Google
-  Calendar and Kroger come from SSM Parameter Store in deployed
-  environments (see `template.yaml`) and `.env` locally (see
+- **Env vars, not hardcoded secrets:** the Google Calendar OAuth client and
+  the Instacart Developer Platform API key come from SSM Parameter Store in
+  deployed environments (see `template.yaml`) and `.env` locally (see
   `backend/.env.example`, `frontend/.env.example`). Never commit real
   credentials.
 - **Idempotent sync:** background sync jobs (`calendarSync.ts`) must be
@@ -40,9 +40,10 @@ first when an entity changes, and let the handlers follow.
   in `backend/template.yaml`.
 - **Test new handler logic:** add a `*.test.ts` alongside new/changed
   backend handlers using `node:test` + `aws-sdk-client-mock` (see
-  `tasks.test.ts`, `groceryCart.test.ts`). Mind module-level caches (e.g.
-  the Kroger token cache) when ordering tests that need a fresh state.
-  Every backend handler currently has one — keep it that way.
+  `tasks.test.ts`, `groceryCart.test.ts`). If a handler keeps module-level
+  state (a warm cache, etc.), account for it when ordering tests that need
+  a fresh start. Every backend handler currently has a test file — keep it
+  that way.
 - **Inject third-party SDK clients, don't mock the module:** when a
   handler calls an external SDK that isn't just `fetch` (e.g. `googleapis`),
   don't try to structurally fake the SDK's own types or reach for module

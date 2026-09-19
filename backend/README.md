@@ -18,8 +18,10 @@ src/handlers/                (every handler below has a matching *.test.ts)
   tasks.ts              CRUD: /families/{familyId}/tasks[/{taskId}]
   schedules.ts           CRUD: /families/{familyId}/schedules[/{scheduleId}]
   preferences.ts         GET/PUT: /families/{familyId}/members/{memberId}/preferences
-  groceryCart.ts          GET/POST: /families/{familyId}/grocery-cart[/items] (Kroger OAuth client-credentials);
-                           tests cover the cached-token failure path
+  groceryCart.ts          CRUD-ish: /families/{familyId}/grocery-cart[/items[/{itemId}]], /checkout;
+                           checkout calls the Instacart Developer Platform via an injectable
+                           `InstacartClient` (Giant Eagle/Aldi don't have their own developer APIs);
+                           tests cover the explicit "mark unavailable → confirm substitute" learning flow
   calendarSync.ts         EventBridge cron: refreshes Google Calendar events per connected family;
                            `runCalendarSync`/`syncFamilyCalendar` take an injectable `CalendarClientFactory`
                            so tests fake the Google API without network access — see `MinimalCalendarClient`
@@ -28,9 +30,10 @@ src/handlers/                (every handler below has a matching *.test.ts)
 ## Prerequisites
 
 - AWS SAM CLI, Node.js 20+, an AWS account/credentials configured locally.
-- Google OAuth client (Calendar API scope) and Kroger developer app credentials,
-  stored in SSM Parameter Store under `/youenjoymyfamily/google/*` and `/youenjoymyfamily/kroger/*`
-  (see the `{{resolve:ssm:...}}` references in `template.yaml`).
+- Google OAuth client (Calendar API scope) and an Instacart Developer Platform
+  API key, stored in SSM Parameter Store under `/youenjoymyfamily/google/*` and
+  `/youenjoymyfamily/instacart/*` (see the `{{resolve:ssm:...}}` references in
+  `template.yaml`).
 
 ## Checks
 

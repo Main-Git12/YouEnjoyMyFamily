@@ -107,12 +107,21 @@ export interface StatedPreferenceItem {
 }
 
 export const CartItemInput = z.object({
-  krogerProductId: z.string().min(1),
   description: z.string().min(1).max(300),
   quantity: z.number().int().positive().optional(),
   addedBy: z.string().min(1).nullable().optional(),
 });
 export type CartItemInput = z.infer<typeof CartItemInput>;
+
+// "unavailable" is set when a family member can't find the item while
+// shopping; "substituted" plus substituteDescription is set only when they
+// then explicitly say what they picked instead — never inferred. See
+// LearnedSubstitutionItem below, which is the only thing derived from that.
+export const CartItemPatch = z.object({
+  status: z.enum(["pending", "unavailable", "substituted"]).optional(),
+  substituteDescription: z.string().min(1).max(300).optional(),
+});
+export type CartItemPatch = z.infer<typeof CartItemPatch>;
 
 export interface CartItem {
   PK: string;
@@ -120,11 +129,28 @@ export interface CartItem {
   entityType: "CART_ITEM";
   familyId: string;
   itemId: string;
-  krogerProductId: string;
   description: string;
   quantity: number;
+  status: "pending" | "unavailable" | "substituted";
+  substituteDescription: string | null;
   addedBy: string | null;
   addedAt: string;
+  updatedAt: string;
+}
+
+// A suggestion for next time, built only from substitutions a family member
+// has explicitly confirmed for this exact item before — never a guess, and
+// always offered as a suggestion the family can accept or ignore, not
+// applied automatically. One item per family per original item description.
+export interface LearnedSubstitutionItem {
+  PK: string;
+  SK: string;
+  entityType: "LEARNED_SUBSTITUTION";
+  familyId: string;
+  originalDescription: string;
+  substituteDescription: string;
+  timesConfirmed: number;
+  updatedAt: string;
 }
 
 export interface CalendarTokenRecord {

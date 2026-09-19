@@ -22,9 +22,10 @@ export interface ScheduleEntry {
 
 export interface CartItem {
   itemId: string;
-  krogerProductId: string;
   description: string;
   quantity: number;
+  status: "pending" | "unavailable" | "substituted";
+  substituteDescription: string | null;
 }
 
 export type StatedPreferenceCategory = "meal" | "activity" | "chore";

@@ -20,9 +20,11 @@ Amazon Echo Show devices.
   preferences, synced calendar events, grocery cart items) lives in one
   table, keyed by entity-prefixed partition/sort keys. See
   `backend/models/schema.md`.
-- **Event-driven sync:** EventBridge schedules trigger Lambda handlers that
-  refresh Google Calendar and grocery delivery (Kroger) data in the
-  background, decoupled from user-facing API requests.
+- **Event-driven sync:** an EventBridge schedule triggers a Lambda handler
+  that refreshes Google Calendar data in the background, decoupled from
+  user-facing API requests. Grocery checkout is request-driven: it calls the
+  Instacart Developer Platform (Giant Eagle/Aldi don't have their own
+  developer APIs) to hand the family a shoppable link.
 
 ## Getting started
 

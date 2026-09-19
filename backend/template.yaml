@@ -232,8 +232,7 @@ Resources:
             TableName: !Ref YouEnjoyMyFamilyTable
       Environment:
         Variables:
-          KROGER_CLIENT_ID: "{{resolve:ssm:/youenjoymyfamily/kroger/client-id}}"
-          KROGER_CLIENT_SECRET: "{{resolve:ssm-secure:/youenjoymyfamily/kroger/client-secret}}"
+          INSTACART_API_KEY: "{{resolve:ssm-secure:/youenjoymyfamily/instacart/api-key}}"
       Events:
         Get:
           Type: HttpApi
@@ -246,6 +245,18 @@ Resources:
           Properties:
             ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}/grocery-cart/items
+            Method: POST
+        UpdateItem:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/grocery-cart/items/{itemId}
+            Method: PUT
+        Checkout:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/grocery-cart/checkout
             Method: POST
 
   # ---------------------------------------------------------------------
