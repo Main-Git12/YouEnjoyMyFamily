@@ -15,9 +15,10 @@ models/schema.md        Single-table DynamoDB entity/access-pattern design
 src/types.ts            Zod input schemas + persisted item interfaces (single source of truth)
 src/lib/                Dynamo client, typed API Gateway responses, request-body validation
 src/handlers/                (every handler below has a matching *.test.ts)
-  tasks.ts              CRUD: /families/{familyId}/tasks[/{taskId}]
+  tasks.ts              CRUD: /families/{familyId}/tasks[/{taskId}]; PUT to status "done" awards gems to the assignee (see memberStats.ts)
   schedules.ts           CRUD: /families/{familyId}/schedules[/{scheduleId}]
   preferences.ts         GET/PUT: /families/{familyId}/members/{memberId}/preferences
+  memberStats.ts          GET: /families/{familyId}/members/{memberId}/stats (gem total + tasks completed, defaults to zero)
   groceryCart.ts          GET/POST /families/{familyId}/grocery-cart[/items], PATCH .../items/{itemId} (store-tagged list; PATCH marks an item unavailable and returns/learns substitutes)
   groceryCart.test.ts     Unit tests, including the substitution-suggestion and learning paths
   calendarSync.ts         EventBridge cron: refreshes Google Calendar events per connected family;

@@ -32,6 +32,19 @@ export interface TaskItem {
   updatedAt: string;
 }
 
+// Awarded when a task transitions into "done" — see tasks.ts. Not a zod
+// input schema since nothing external ever sets this directly.
+export interface MemberStatsItem {
+  PK: string;
+  SK: string;
+  entityType: "MEMBER_STATS";
+  familyId: string;
+  memberId: string;
+  gems: number;
+  tasksCompleted: number;
+  updatedAt: string;
+}
+
 export const ScheduleInput = z.object({
   date: z.string().date(),
   title: z.string().min(1).max(200),

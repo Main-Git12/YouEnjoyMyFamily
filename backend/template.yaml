@@ -180,6 +180,29 @@ Resources:
             Path: /families/{familyId}/members/{memberId}/preferences
             Method: PUT
 
+  MemberStatsFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/memberStats.ts]
+    Properties:
+      Handler: src/handlers/memberStats.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PealSyncTable
+      Events:
+        Get:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PealSyncHttpApi
+            Path: /families/{familyId}/members/{memberId}/stats
+            Method: GET
+
   GroceryCartFunction:
     Type: AWS::Serverless::Function
     Metadata:

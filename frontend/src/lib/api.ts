@@ -1,4 +1,4 @@
-import type { Task, ScheduleEntry, CartItem, GroceryStore, SubstituteSuggestion } from "../types";
+import type { Task, ScheduleEntry, CartItem, GroceryStore, SubstituteSuggestion, MemberStats } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 
@@ -19,6 +19,10 @@ export const api = {
   listTasks: (familyId: string) => request<Task[]>(`/families/${familyId}/tasks`),
   createTask: (familyId: string, task: Pick<Task, "title"> & Partial<Task>) =>
     request<Task>(`/families/${familyId}/tasks`, { method: "POST", body: JSON.stringify(task) }),
+  updateTask: (familyId: string, taskId: string, patch: Partial<Pick<Task, "title" | "assignedTo" | "dueDate" | "status">>) =>
+    request<Task>(`/families/${familyId}/tasks/${taskId}`, { method: "PUT", body: JSON.stringify(patch) }),
+  getMemberStats: (familyId: string, memberId: string) =>
+    request<MemberStats>(`/families/${familyId}/members/${memberId}/stats`),
   listSchedules: (familyId: string, start?: string, end?: string) =>
     request<ScheduleEntry[]>(`/families/${familyId}/schedules?start=${start ?? ""}&end=${end ?? ""}`),
   listCartItems: (familyId: string) => request<CartItem[]>(`/families/${familyId}/grocery-cart`),

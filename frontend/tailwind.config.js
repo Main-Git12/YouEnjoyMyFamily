@@ -1,6 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: ["./index.html", "./src/**/*.{js,jsx}"],
+  content: ["./index.html", "./src/**/*.{js,jsx,ts,tsx}"],
   theme: {
     extend: {
       colors: {
@@ -37,6 +37,26 @@ export default {
       },
       borderRadius: {
         card: "1rem",
+      },
+      keyframes: {
+        "spirit-pop": {
+          "0%": { transform: "scale(0) rotate(-8deg)", opacity: "0" },
+          "60%": { transform: "scale(1.15) rotate(4deg)", opacity: "1" },
+          "100%": { transform: "scale(1) rotate(0deg)", opacity: "1" },
+        },
+        "confetti-fall": {
+          "0%": { transform: "translateY(-10px) rotate(0deg)", opacity: "1" },
+          "100%": { transform: "translateY(80vh) rotate(360deg)", opacity: "0" },
+        },
+        "gem-jar-bump": {
+          "0%, 100%": { transform: "scale(1)" },
+          "50%": { transform: "scale(1.15)" },
+        },
+      },
+      animation: {
+        "spirit-pop": "spirit-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards",
+        "confetti-fall": "confetti-fall 1.1s ease-in forwards",
+        "gem-jar-bump": "gem-jar-bump 0.4s ease-out",
       },
     },
   },

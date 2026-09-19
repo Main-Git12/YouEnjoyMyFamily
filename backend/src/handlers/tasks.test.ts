@@ -1,7 +1,7 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { mockClient } from "aws-sdk-client-mock";
-import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, DeleteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
 import { handler } from "./tasks";
 import type { TaskItem } from "../types";
@@ -128,6 +128,81 @@ test("PUT preserves existing fields not present in the patch", async () => {
   assert.equal(body.status, "done");
   assert.equal(body.title, "Pack bag");
   assert.equal(body.assignedTo, "member_1");
+});
+
+function makeTaskFixture(overrides: Partial<TaskItem> = {}): TaskItem {
+  return {
+    PK: "FAMILY#fam_1",
+    SK: "TASK#t1",
+    GSI1PK: "TASK#t1",
+    GSI1SK: "DUE#2025-01-01",
+    entityType: "TASK",
+    familyId: "fam_1",
+    taskId: "t1",
+    title: "Pack bag",
+    assignedTo: "member_1",
+    dueDate: "2025-01-01",
+    status: "pending",
+    createdAt: "2025-01-01T00:00:00Z",
+    updatedAt: "2025-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+test("PUT to done awards gems to the assigned member", async () => {
+  ddbMock.on(GetCommand).resolves({ Item: makeTaskFixture({ status: "pending", assignedTo: "member_1" }) });
+  ddbMock.on(PutCommand).resolves({});
+  ddbMock.on(UpdateCommand).resolves({});
+
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", taskId: "t1" },
+      body: JSON.stringify({ status: "done" }),
+    })
+  );
+
+  assert.equal(result.statusCode, 200);
+  const body = JSON.parse(result.body ?? "{}");
+  assert.equal(body.gemsAwarded, 5);
+  assert.equal(body.status, "done");
+
+  const updateCalls = ddbMock.commandCalls(UpdateCommand);
+  assert.equal(updateCalls.length, 1);
+  assert.equal(updateCalls[0]?.args[0].input.Key?.SK, "STATS#member_1");
+  assert.match(updateCalls[0]?.args[0].input.UpdateExpression ?? "", /ADD gems :gems, tasksCompleted :one/);
+});
+
+test("PUT to done with no assignee awards no gems", async () => {
+  ddbMock.on(GetCommand).resolves({ Item: makeTaskFixture({ status: "pending", assignedTo: null }) });
+  ddbMock.on(PutCommand).resolves({});
+
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", taskId: "t1" },
+      body: JSON.stringify({ status: "done" }),
+    })
+  );
+
+  assert.equal(JSON.parse(result.body ?? "{}").gemsAwarded, 0);
+  assert.equal(ddbMock.commandCalls(UpdateCommand).length, 0);
+});
+
+test("PUT re-saving an already-done task does not re-award gems", async () => {
+  ddbMock.on(GetCommand).resolves({ Item: makeTaskFixture({ status: "done", assignedTo: "member_1" }) });
+  ddbMock.on(PutCommand).resolves({});
+
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", taskId: "t1" },
+      body: JSON.stringify({ title: "Renamed" }),
+    })
+  );
+
+  assert.equal(JSON.parse(result.body ?? "{}").gemsAwarded, 0);
+  assert.equal(ddbMock.commandCalls(UpdateCommand).length, 0);
 });
 
 test("DELETE removes a task", async () => {

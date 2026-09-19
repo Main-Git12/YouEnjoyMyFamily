@@ -37,6 +37,12 @@ first when an entity changes, and let the handlers follow.
 - **Idempotent sync:** background sync jobs (`calendarSync.ts`) must be
   safe to re-run — upsert by external id via `GSI1`, don't assume a clean
   slate.
+- **Gems only ever come from a real status transition:** `tasks.ts` awards
+  gems by comparing the task's previous status to its new one (`pending`/
+  `in_progress` -> `done`), never just "status is done" — that's what stops
+  re-saving an already-done task, or any other write path, from awarding
+  twice. If you add another way to complete a task, route it through the
+  same transition check rather than incrementing gems directly.
 - **Keep handlers small:** one Lambda handler per resource family (tasks,
   schedules, preferences, grocery cart), CRUD-shaped, matching the routes
   in `backend/template.yaml`.

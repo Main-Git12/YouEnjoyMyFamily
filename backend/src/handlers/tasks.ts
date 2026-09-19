@@ -1,12 +1,15 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 import { ulid } from "ulid";
-import { GetCommand, PutCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, QueryCommand, DeleteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { docClient, TABLE_NAME } from "../lib/dynamoClient";
 import { ok, created, badRequest, notFound, serverError } from "../lib/response";
 import { parseBody, ValidationError } from "../lib/validation";
 import { TaskInput, TaskPatch, type TaskItem } from "../types";
 
+const GEMS_PER_TASK = 5;
+
 const taskKey = (familyId: string, taskId: string) => ({ PK: `FAMILY#${familyId}`, SK: `TASK#${taskId}` });
+const memberStatsKey = (familyId: string, memberId: string) => ({ PK: `FAMILY#${familyId}`, SK: `STATS#${memberId}` });
 
 async function listTasks(familyId: string): Promise<TaskItem[]> {
   const result = await docClient.send(
@@ -41,7 +44,36 @@ async function createTask(familyId: string, input: TaskInput): Promise<TaskItem>
   return item;
 }
 
-async function updateTask(familyId: string, taskId: string, patch: TaskPatch): Promise<TaskItem | null> {
+/** Awards gems exactly once per pending/in_progress -> done transition, to whoever the task is assigned to. */
+async function awardGemsIfJustCompleted(familyId: string, previous: TaskItem, updated: TaskItem): Promise<number> {
+  const justCompleted = updated.status === "done" && previous.status !== "done";
+  if (!justCompleted || !updated.assignedTo) return 0;
+
+  await docClient.send(
+    new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: memberStatsKey(familyId, updated.assignedTo),
+      UpdateExpression:
+        "SET entityType = :type, familyId = :familyId, memberId = :memberId, updatedAt = :now " +
+        "ADD gems :gems, tasksCompleted :one",
+      ExpressionAttributeValues: {
+        ":type": "MEMBER_STATS",
+        ":familyId": familyId,
+        ":memberId": updated.assignedTo,
+        ":now": updated.updatedAt,
+        ":gems": GEMS_PER_TASK,
+        ":one": 1,
+      },
+    })
+  );
+  return GEMS_PER_TASK;
+}
+
+async function updateTask(
+  familyId: string,
+  taskId: string,
+  patch: TaskPatch
+): Promise<{ task: TaskItem; gemsAwarded: number } | null> {
   const existing = await docClient.send(new GetCommand({ TableName: TABLE_NAME, Key: taskKey(familyId, taskId) }));
   if (!existing.Item) return null;
 
@@ -55,7 +87,9 @@ async function updateTask(familyId: string, taskId: string, patch: TaskPatch): P
     updatedAt: new Date().toISOString(),
   };
   await docClient.send(new PutCommand({ TableName: TABLE_NAME, Item: updated }));
-  return updated;
+
+  const gemsAwarded = await awardGemsIfJustCompleted(familyId, current, updated);
+  return { task: updated, gemsAwarded };
 }
 
 async function deleteTask(familyId: string, taskId: string): Promise<void> {
@@ -76,8 +110,8 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
         return created(await createTask(familyId, parseBody(TaskInput, event.body)));
       case "PUT": {
         if (!taskId) return badRequest("taskId is required");
-        const updated = await updateTask(familyId, taskId, parseBody(TaskPatch, event.body));
-        return updated ? ok(updated) : notFound("Task not found");
+        const result = await updateTask(familyId, taskId, parseBody(TaskPatch, event.body));
+        return result ? ok({ ...result.task, gemsAwarded: result.gemsAwarded }) : notFound("Task not found");
       }
       case "DELETE":
         if (!taskId) return badRequest("taskId is required");

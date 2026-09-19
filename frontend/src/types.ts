@@ -8,6 +8,13 @@ export interface Task {
   assignedTo: string | null;
   dueDate: string | null;
   status: "pending" | "in_progress" | "done";
+  // Only present on the PUT response for the request that completed it.
+  gemsAwarded?: number;
+}
+
+export interface MemberStats {
+  gems: number;
+  tasksCompleted: number;
 }
 
 export interface ScheduleEntry {

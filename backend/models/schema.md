@@ -11,6 +11,7 @@ items returned from a `Query` without a second read.
 | Family             | `FAMILY#<familyId>`   | `METADATA`                  | —                       | —                          |
 | Family member      | `FAMILY#<familyId>`   | `MEMBER#<memberId>`         | `MEMBER#<memberId>`    | `FAMILY#<familyId>`        |
 | Member preferences | `FAMILY#<familyId>`   | `PREFS#<memberId>`          | —                       | —                          |
+| Member gem stats    | `FAMILY#<familyId>`   | `STATS#<memberId>`          | —                       | —                          |
 | Task               | `FAMILY#<familyId>`   | `TASK#<taskId>`             | `TASK#<taskId>`        | `DUE#<isoDate>`            |
 | Schedule entry      | `FAMILY#<familyId>`   | `SCHEDULE#<isoDate>#<id>`   | —                       | —                          |
 | Synced calendar evt | `FAMILY#<familyId>`   | `CALEVENT#<isoDate>#<id>`   | `EXTID#<googleEventId>`| `FAMILY#<familyId>`        |
@@ -26,6 +27,7 @@ items returned from a `Query` without a second read.
 - Find a task by id across the table (e.g. Alexa deep link): `Query GSI1PK = TASK#<taskId>`.
 - Upsert a synced Google Calendar event idempotently by external id: `Query GSI1PK = EXTID#<googleEventId>`.
 - Look up a family's stored OAuth tokens for a provider (`google`): `GetItem PK = FAMILY#<familyId>, SK = TOKEN#<provider>`.
+- Look up a member's gem total: `GetItem PK = FAMILY#<familyId>, SK = STATS#<memberId>` (defaults to zero if never written — see `memberStats.ts`).
 - Rank past substitutes for an item at a store (most-chosen first, client-side sort): `Query PK = FAMILY#<familyId>, SK begins_with SUBLOG#<store>#<normalizedDescription>#`.
 
 ## Item shape examples
@@ -61,6 +63,19 @@ items returned from a `Query` without a second read.
   "status": "needed",
   "addedBy": "member_456",
   "addedAt": "2025-01-10T12:00:00Z",
+  "updatedAt": "2025-01-10T12:00:00Z"
+}
+
+// Member gem stats — created on first task completion; ADD'd to
+// atomically by tasks.ts so concurrent completions never lose a gem.
+{
+  "PK": "FAMILY#fam_123",
+  "SK": "STATS#member_456",
+  "entityType": "MEMBER_STATS",
+  "familyId": "fam_123",
+  "memberId": "member_456",
+  "gems": 15,
+  "tasksCompleted": 3,
   "updatedAt": "2025-01-10T12:00:00Z"
 }
 
