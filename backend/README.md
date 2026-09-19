@@ -14,14 +14,15 @@ eslint.config.js        typescript-eslint flat config
 models/schema.md        Single-table DynamoDB entity/access-pattern design
 src/types.ts            Zod input schemas + persisted item interfaces (single source of truth)
 src/lib/                Dynamo client, typed API Gateway responses, request-body validation
-src/handlers/
+src/handlers/                (every handler below has a matching *.test.ts)
   tasks.ts              CRUD: /families/{familyId}/tasks[/{taskId}]
-  tasks.test.ts          Unit tests (node:test + aws-sdk-client-mock)
   schedules.ts           CRUD: /families/{familyId}/schedules[/{scheduleId}]
   preferences.ts         GET/PUT: /families/{familyId}/members/{memberId}/preferences
-  groceryCart.ts          GET/POST: /families/{familyId}/grocery-cart[/items] (Kroger OAuth client-credentials)
-  groceryCart.test.ts     Unit tests, including the cached-token failure path
-  calendarSync.ts         EventBridge cron: refreshes Google Calendar events per connected family
+  groceryCart.ts          GET/POST: /families/{familyId}/grocery-cart[/items] (Kroger OAuth client-credentials);
+                           tests cover the cached-token failure path
+  calendarSync.ts         EventBridge cron: refreshes Google Calendar events per connected family;
+                           `runCalendarSync`/`syncFamilyCalendar` take an injectable `CalendarClientFactory`
+                           so tests fake the Google API without network access — see `MinimalCalendarClient`
 ```
 
 ## Prerequisites
