@@ -71,6 +71,13 @@ Resources:
 
   TasksFunction:
     Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/tasks.ts]
     Properties:
       Handler: src/handlers/tasks.handler
       CodeUri: .
@@ -105,6 +112,13 @@ Resources:
 
   SchedulesFunction:
     Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/schedules.ts]
     Properties:
       Handler: src/handlers/schedules.handler
       CodeUri: .
@@ -139,6 +153,13 @@ Resources:
 
   PreferencesFunction:
     Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/preferences.ts]
     Properties:
       Handler: src/handlers/preferences.handler
       CodeUri: .
@@ -161,6 +182,13 @@ Resources:
 
   GroceryCartFunction:
     Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/groceryCart.ts]
     Properties:
       Handler: src/handlers/groceryCart.handler
       CodeUri: .
@@ -190,6 +218,13 @@ Resources:
   # ---------------------------------------------------------------------
   CalendarSyncFunction:
     Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/calendarSync.ts]
     Properties:
       Handler: src/handlers/calendarSync.handler
       CodeUri: .

@@ -2,13 +2,17 @@
   "name": "pealsync-alexa-skill",
   "version": "0.1.0",
   "private": true,
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
-    "test": "node --test *.test.js"
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "ask-sdk-core": "^2.14.0",
-    "ask-sdk-model": "^1.42.0",
-    "node-fetch": "^2.7.0"
+    "ask-sdk-model": "^1.42.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.4",
+    "typescript": "^5.5.4"
   }
 }

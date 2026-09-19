@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
+import type { Task, ScheduleEntry } from "../types";
 import FamilyCard from "./FamilyCard";
 import TaskList from "./TaskList";
 import Calendar from "./Calendar";
@@ -8,9 +9,9 @@ import Calendar from "./Calendar";
 const DEMO_FAMILY_ID = "fam_demo";
 
 export default function Dashboard() {
-  const [tasks, setTasks] = useState([]);
-  const [schedule, setSchedule] = useState([]);
-  const [error, setError] = useState(null);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [schedule, setSchedule] = useState<ScheduleEntry[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([api.listTasks(DEMO_FAMILY_ID), api.listSchedules(DEMO_FAMILY_ID)])
@@ -18,7 +19,7 @@ export default function Dashboard() {
         setTasks(taskItems);
         setSchedule(scheduleItems);
       })
-      .catch((err) => setError(err.message));
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
 
   return (
