@@ -22,7 +22,14 @@ first when an entity changes, and let the handlers follow.
   PRs/issues/branches on GitHub — and reconcile any mismatch before doing
   anything else. If a summary describes work, branches, or repos that
   don't show up in git/GitHub, say so and ask rather than continuing as if
-  it happened.
+  it happened. Nothing else counts as synced either: an uploaded file, a
+  generated zip, or a particular device is not the repo — if it isn't
+  committed and pushed, treat it as not existing for the next session.
+  Never say code is "saved," "pushed," or "deployed" unless you actually
+  did that in this session and verified it landed. If you can't write to
+  the repo, say so plainly and leave a clearly labeled handoff (what
+  changed, why it's uncommitted, what's needed) instead of implying the
+  work is done.
 - **No guessing:** before adding a dependency, endpoint, or DynamoDB key
   pattern, check what's already used in the codebase (`schema.md`,
   existing handlers, `package.json`) rather than assuming a shape.
