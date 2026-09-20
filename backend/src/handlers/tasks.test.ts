@@ -5,6 +5,7 @@ import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, DeleteCom
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
 import { handler } from "./tasks";
 import type { TaskItem } from "../types";
+import { mockFamilyAuth } from "../lib/authTestSupport";
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
 
@@ -33,6 +34,19 @@ test("GET without familyId returns 400", async () => {
   assert.equal(result.statusCode, 400);
 });
 
+test("rejects a request with no Authorization header", async () => {
+  const result = await handler(makeEvent({ method: "GET", pathParameters: { familyId: "fam_1" } }));
+  assert.equal(result.statusCode, 401);
+});
+
+test("rejects a request with the wrong API key", async () => {
+  mockFamilyAuth(ddbMock, "fam_1");
+  const result = await handler(
+    makeEvent({ method: "GET", pathParameters: { familyId: "fam_1" }, headers: { authorization: "Bearer wrong" } })
+  );
+  assert.equal(result.statusCode, 401);
+});
+
 test("GET lists tasks for a family", async () => {
   const items: TaskItem[] = [
     {
@@ -47,24 +61,28 @@ test("GET lists tasks for a family", async () => {
       assignedTo: null,
       dueDate: "2025-01-01",
       status: "pending",
+      gemsAwarded: 0,
       createdAt: "2025-01-01T00:00:00Z",
       updatedAt: "2025-01-01T00:00:00Z",
     },
   ];
   ddbMock.on(QueryCommand).resolves({ Items: items });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
 
-  const result = await handler(makeEvent({ method: "GET", pathParameters: { familyId: "fam_1" } }));
+  const result = await handler(makeEvent({ method: "GET", pathParameters: { familyId: "fam_1" }, headers }));
   assert.equal(result.statusCode, 200);
   assert.deepEqual(JSON.parse(result.body ?? "[]"), items);
 });
 
 test("POST creates a task with a generated id", async () => {
   ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
 
   const result = await handler(
     makeEvent({
       method: "POST",
       pathParameters: { familyId: "fam_1" },
+      headers,
       body: JSON.stringify({ title: "Pack soccer bag", dueDate: "2025-01-15" }),
     })
   );
@@ -73,23 +91,27 @@ test("POST creates a task with a generated id", async () => {
   const body = JSON.parse(result.body ?? "{}");
   assert.equal(body.title, "Pack soccer bag");
   assert.equal(body.status, "pending");
+  assert.equal(body.gemsAwarded, 0);
   assert.ok(body.taskId);
 });
 
 test("POST rejects a missing title", async () => {
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
   const result = await handler(
-    makeEvent({ method: "POST", pathParameters: { familyId: "fam_1" }, body: JSON.stringify({}) })
+    makeEvent({ method: "POST", pathParameters: { familyId: "fam_1" }, headers, body: JSON.stringify({}) })
   );
   assert.equal(result.statusCode, 400);
 });
 
 test("PUT on a missing task returns 404", async () => {
   ddbMock.on(GetCommand).resolves({ Item: undefined });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
 
   const result = await handler(
     makeEvent({
       method: "PUT",
       pathParameters: { familyId: "fam_1", taskId: "missing" },
+      headers,
       body: JSON.stringify({ status: "done" }),
     })
   );
@@ -109,16 +131,19 @@ test("PUT preserves existing fields not present in the patch", async () => {
     assignedTo: "member_1",
     dueDate: "2025-01-01",
     status: "pending",
+    gemsAwarded: 0,
     createdAt: "2025-01-01T00:00:00Z",
     updatedAt: "2025-01-01T00:00:00Z",
   };
   ddbMock.on(GetCommand).resolves({ Item: existing });
   ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
 
   const result = await handler(
     makeEvent({
       method: "PUT",
       pathParameters: { familyId: "fam_1", taskId: "t1" },
+      headers,
       body: JSON.stringify({ status: "done" }),
     })
   );
@@ -130,11 +155,80 @@ test("PUT preserves existing fields not present in the patch", async () => {
   assert.equal(body.assignedTo, "member_1");
 });
 
-test("DELETE removes a task", async () => {
-  ddbMock.on(DeleteCommand).resolves({});
+test("PUT awards gems the first time a task is completed", async () => {
+  const existing: TaskItem = {
+    PK: "FAMILY#fam_1",
+    SK: "TASK#t1",
+    GSI1PK: "TASK#t1",
+    GSI1SK: "DUE#2025-01-01",
+    entityType: "TASK",
+    familyId: "fam_1",
+    taskId: "t1",
+    title: "Pack bag",
+    assignedTo: "member_1",
+    dueDate: "2025-01-01",
+    status: "pending",
+    gemsAwarded: 0,
+    createdAt: "2025-01-01T00:00:00Z",
+    updatedAt: "2025-01-01T00:00:00Z",
+  };
+  ddbMock.on(GetCommand).resolves({ Item: existing });
+  ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
 
   const result = await handler(
-    makeEvent({ method: "DELETE", pathParameters: { familyId: "fam_1", taskId: "t1" } })
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", taskId: "t1" },
+      headers,
+      body: JSON.stringify({ status: "done" }),
+    })
+  );
+
+  const body = JSON.parse(result.body ?? "{}");
+  assert.equal(body.gemsAwarded, 10);
+});
+
+test("PUT does not re-award gems on a task that's already done", async () => {
+  const existing: TaskItem = {
+    PK: "FAMILY#fam_1",
+    SK: "TASK#t1",
+    GSI1PK: "TASK#t1",
+    GSI1SK: "DUE#2025-01-01",
+    entityType: "TASK",
+    familyId: "fam_1",
+    taskId: "t1",
+    title: "Pack bag",
+    assignedTo: "member_1",
+    dueDate: "2025-01-01",
+    status: "done",
+    gemsAwarded: 10,
+    createdAt: "2025-01-01T00:00:00Z",
+    updatedAt: "2025-01-01T00:00:00Z",
+  };
+  ddbMock.on(GetCommand).resolves({ Item: existing });
+  ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", taskId: "t1" },
+      headers,
+      body: JSON.stringify({ status: "done" }),
+    })
+  );
+
+  const body = JSON.parse(result.body ?? "{}");
+  assert.equal(body.gemsAwarded, 10);
+});
+
+test("DELETE removes a task", async () => {
+  ddbMock.on(DeleteCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({ method: "DELETE", pathParameters: { familyId: "fam_1", taskId: "t1" }, headers })
   );
   assert.equal(result.statusCode, 200);
   assert.deepEqual(JSON.parse(result.body ?? "{}"), { deleted: "t1" });

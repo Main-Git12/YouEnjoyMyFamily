@@ -25,6 +25,7 @@ The Lambda handler reads:
 
 - `YOUENJOYMYFAMILY_API_BASE_URL` — the deployed backend's API Gateway URL (see `backend/template.yaml` outputs).
 - `YOUENJOYMYFAMILY_FAMILY_ID` — placeholder until account linking resolves the family from the Alexa user; defaults to `fam_demo`.
+- `YOUENJOYMYFAMILY_FAMILY_API_KEY` — the API key for that same family, issued once by `POST /families` (see `backend/README.md`). Every backend route now requires it; requests without it get a 401.
 
 ## Checks
 

@@ -36,6 +36,21 @@
             "add a task to {taskTitle}",
             "remind us to {taskTitle}"
           ]
+        },
+        {
+          "name": "CompleteChoreIntent",
+          "slots": [
+            { "name": "taskTitle", "type": "AMAZON.SearchQuery" },
+            { "name": "memberName", "type": "AMAZON.FirstName" }
+          ],
+          "samples": [
+            "I finished {taskTitle}",
+            "{memberName} finished {taskTitle}",
+            "{memberName} did the chore {taskTitle}",
+            "mark {taskTitle} done",
+            "{memberName} is done with {taskTitle}",
+            "I did {taskTitle} for gems"
+          ]
         }
       ]
     }

@@ -69,6 +69,32 @@ Resources:
         AllowHeaders: ["Content-Type", "Authorization"]
         AllowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 
+  # The only unauthenticated route — see src/handlers/families.ts and
+  # src/lib/auth.ts. Every other function's routes below require
+  # `Authorization: Bearer <apiKey>` and are otherwise unchanged.
+  FamiliesFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/families.ts]
+    Properties:
+      Handler: src/handlers/families.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref YouEnjoyMyFamilyTable
+      Events:
+        Create:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families
+            Method: POST
+
   TasksFunction:
     Type: AWS::Serverless::Function
     Metadata:
@@ -180,6 +206,41 @@ Resources:
             Path: /families/{familyId}/members/{memberId}/preferences
             Method: PUT
 
+  StatedPreferencesFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/statedPreferences.ts]
+    Properties:
+      Handler: src/handlers/statedPreferences.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref YouEnjoyMyFamilyTable
+      Events:
+        List:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/stated-preferences
+            Method: GET
+        Create:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/stated-preferences
+            Method: POST
+        Delete:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/stated-preferences/{preferenceId}
+            Method: DELETE
+
   GroceryCartFunction:
     Type: AWS::Serverless::Function
     Metadata:
@@ -197,8 +258,7 @@ Resources:
             TableName: !Ref YouEnjoyMyFamilyTable
       Environment:
         Variables:
-          KROGER_CLIENT_ID: "{{resolve:ssm:/youenjoymyfamily/kroger/client-id}}"
-          KROGER_CLIENT_SECRET: "{{resolve:ssm-secure:/youenjoymyfamily/kroger/client-secret}}"
+          INSTACART_API_KEY: "{{resolve:ssm-secure:/youenjoymyfamily/instacart/api-key}}"
       Events:
         Get:
           Type: HttpApi
@@ -211,6 +271,18 @@ Resources:
           Properties:
             ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}/grocery-cart/items
+            Method: POST
+        UpdateItem:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/grocery-cart/items/{itemId}
+            Method: PUT
+        Checkout:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/grocery-cart/checkout
             Method: POST
 
   # ---------------------------------------------------------------------

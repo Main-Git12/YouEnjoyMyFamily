@@ -5,6 +5,7 @@ import {
   GetScheduleIntentHandler,
   GetTasksIntentHandler,
   AddTaskIntentHandler,
+  CompleteChoreIntentHandler,
   HelpIntentHandler,
   CancelAndStopIntentHandler,
   SessionEndedRequestHandler,
@@ -38,6 +39,24 @@ test("LaunchRequestHandler skips the APL directive on APL-less devices", () => {
   const response = LaunchRequestHandler.handle(handlerInput) as FakeResponse;
 
   assert.equal(response.directives.length, 0);
+});
+
+test("sends the Authorization header when YOUENJOYMYFAMILY_FAMILY_API_KEY is set", async () => {
+  const previous = process.env.YOUENJOYMYFAMILY_FAMILY_API_KEY;
+  process.env.YOUENJOYMYFAMILY_FAMILY_API_KEY = "fk_test_key";
+  let seenHeaders: RequestInit["headers"];
+  mock.method(globalThis, "fetch", async (_url: string, init?: RequestInit) => {
+    seenHeaders = init?.headers;
+    return new Response(JSON.stringify([]), { status: 200 });
+  });
+
+  try {
+    await GetScheduleIntentHandler.handle(makeHandlerInput(intentRequest("GetScheduleIntent")));
+  } finally {
+    process.env.YOUENJOYMYFAMILY_FAMILY_API_KEY = previous;
+  }
+
+  assert.deepEqual(seenHeaders, { Authorization: "Bearer fk_test_key" });
 });
 
 test("GetScheduleIntentHandler speaks each entry's title", async () => {
@@ -101,6 +120,64 @@ test("AddTaskIntentHandler reports failure without throwing when the backend rej
   const response = (await AddTaskIntentHandler.handle(handlerInput)) as FakeResponse;
 
   assert.match(speechOf(response), /couldn't add that task/i);
+});
+
+test("CompleteChoreIntentHandler asks which chore when the slot is empty", async () => {
+  const handlerInput = makeHandlerInput(intentRequest("CompleteChoreIntent", {}));
+  const response = (await CompleteChoreIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  assert.match(speechOf(response), /which chore/i);
+});
+
+test("CompleteChoreIntentHandler sends the child on a dragon battle and awards gems", async () => {
+  mock.method(globalThis, "fetch", async (_url: string, init?: RequestInit) => {
+    if (!init?.method) {
+      return new Response(
+        JSON.stringify([{ taskId: "t1", title: "Clean room", status: "pending", gemsAwarded: 0 }]),
+        { status: 200 }
+      );
+    }
+    return new Response(
+      JSON.stringify({ taskId: "t1", title: "Clean room", status: "done", gemsAwarded: 10 }),
+      { status: 200 }
+    );
+  });
+
+  const handlerInput = makeHandlerInput(
+    intentRequest("CompleteChoreIntent", { taskTitle: "clean room", memberName: "Isla" }),
+    { supportsApl: true }
+  );
+  const response = (await CompleteChoreIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  assert.match(speechOf(response), /Isla/);
+  assert.match(speechOf(response), /10 gems/);
+  assert.equal(response.directives.length, 1);
+});
+
+test("CompleteChoreIntentHandler reports when no matching open chore exists", async () => {
+  mock.method(globalThis, "fetch", async () => new Response(JSON.stringify([]), { status: 200 }));
+
+  const handlerInput = makeHandlerInput(intentRequest("CompleteChoreIntent", { taskTitle: "clean room" }));
+  const response = (await CompleteChoreIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  assert.match(speechOf(response), /couldn't find an open chore/i);
+});
+
+test("CompleteChoreIntentHandler degrades gracefully when the backend rejects the completion", async () => {
+  mock.method(globalThis, "fetch", async (_url: string, init?: RequestInit) => {
+    if (!init?.method) {
+      return new Response(
+        JSON.stringify([{ taskId: "t1", title: "Clean room", status: "pending", gemsAwarded: 0 }]),
+        { status: 200 }
+      );
+    }
+    return new Response("error", { status: 500 });
+  });
+
+  const handlerInput = makeHandlerInput(intentRequest("CompleteChoreIntent", { taskTitle: "clean room" }));
+  const response = (await CompleteChoreIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  assert.match(speechOf(response), /couldn't mark that chore done/i);
 });
 
 test("HelpIntentHandler and CancelAndStopIntentHandler respond without hitting the network", () => {

@@ -2,7 +2,7 @@
 
 ## Architecture
 
-- `/backend` — AWS SAM (API Gateway HTTP API + Lambda + single-table DynamoDB + EventBridge). Strict TypeScript, AWS SDK v3, zod validation at the API boundary, esbuild-bundled per function.
+- `/backend` — AWS SAM (API Gateway HTTP API + Lambda + single-table DynamoDB + EventBridge). Strict TypeScript, AWS SDK v3, zod validation at the API boundary, esbuild-bundled per function. Every route except `POST /families` requires `Authorization: Bearer <apiKey>`, checked against a per-family key hash (`src/lib/auth.ts`) — see `backend/README.md`'s Authentication section before adding a new route or forgetting to call `authenticateFamily`.
 - `/frontend` — React + Vite + TypeScript + Tailwind, olive/earthy theme (`frontend/tailwind.config.js`, `frontend/src/theme.css`). Built for Echo Show screen sizes.
 - `/alexa-skill` — Alexa Skills Kit custom skill (`ask-sdk-core`, TypeScript) with an APL visual card matching the frontend theme.
 
@@ -14,6 +14,22 @@ first when an entity changes, and let the handlers follow.
 
 ## Working conventions
 
+- **State comes from GitHub, not conversation history:** when resuming a
+  session (including after context compaction), treat a carried-over
+  conversation summary as a claim to verify, never as ground truth. Before
+  acting on it, check the actual state — `git status`/`git log` on the
+  repo, `git remote -v` to confirm which repo you're even in, and open
+  PRs/issues/branches on GitHub — and reconcile any mismatch before doing
+  anything else. If a summary describes work, branches, or repos that
+  don't show up in git/GitHub, say so and ask rather than continuing as if
+  it happened. Nothing else counts as synced either: an uploaded file, a
+  generated zip, or a particular device is not the repo — if it isn't
+  committed and pushed, treat it as not existing for the next session.
+  Never say code is "saved," "pushed," or "deployed" unless you actually
+  did that in this session and verified it landed. If you can't write to
+  the repo, say so plainly and leave a clearly labeled handoff (what
+  changed, why it's uncommitted, what's needed) instead of implying the
+  work is done.
 - **No guessing:** before adding a dependency, endpoint, or DynamoDB key
   pattern, check what's already used in the codebase (`schema.md`,
   existing handlers, `package.json`) rather than assuming a shape.
@@ -27,9 +43,9 @@ first when an entity changes, and let the handlers follow.
 - **Validate at the boundary:** Lambda handlers parse request bodies with
   the zod schemas in `types.ts` via `parseBody()` (`backend/src/lib/validation.ts`).
   Don't hand-roll ad hoc `if (!body.x)` checks for new fields.
-- **Env vars, not hardcoded secrets:** OAuth client IDs/secrets for Google
-  Calendar and Kroger come from SSM Parameter Store in deployed
-  environments (see `template.yaml`) and `.env` locally (see
+- **Env vars, not hardcoded secrets:** the Google Calendar OAuth client and
+  the Instacart Developer Platform API key come from SSM Parameter Store in
+  deployed environments (see `template.yaml`) and `.env` locally (see
   `backend/.env.example`, `frontend/.env.example`). Never commit real
   credentials.
 - **Idempotent sync:** background sync jobs (`calendarSync.ts`) must be
@@ -40,9 +56,19 @@ first when an entity changes, and let the handlers follow.
   in `backend/template.yaml`.
 - **Test new handler logic:** add a `*.test.ts` alongside new/changed
   backend handlers using `node:test` + `aws-sdk-client-mock` (see
-  `tasks.test.ts`, `groceryCart.test.ts`). Mind module-level caches (e.g.
-  the Kroger token cache) when ordering tests that need a fresh state.
-  Every backend handler currently has one — keep it that way.
+  `tasks.test.ts`, `groceryCart.test.ts`). If a handler keeps module-level
+  state (a warm cache, etc.), account for it when ordering tests that need
+  a fresh start. Every backend handler currently has a test file — keep it
+  that way.
+- **New API routes need `authenticateFamily` too:** any handler reading or
+  writing `FAMILY#<familyId>` data must call `authenticateFamily(event,
+  familyId)` right after checking `familyId` is present, and return its
+  result if non-null — see any existing handler for the one-line pattern.
+  In tests, call `mockFamilyAuth(ddbMock, familyId)` from
+  `../lib/authTestSupport` *after* registering the handler's own
+  DynamoDB mocks (aws-sdk-client-mock resolves the most-recently-registered
+  matching stub per call, so registering it first would let a broad
+  `.on(GetCommand).resolves(...)` shadow the family-record lookup).
 - **Inject third-party SDK clients, don't mock the module:** when a
   handler calls an external SDK that isn't just `fetch` (e.g. `googleapis`),
   don't try to structurally fake the SDK's own types or reach for module

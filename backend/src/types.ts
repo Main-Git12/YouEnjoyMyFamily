@@ -28,6 +28,7 @@ export interface TaskItem {
   assignedTo: string | null;
   dueDate: string | null;
   status: "pending" | "in_progress" | "done";
+  gemsAwarded: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -80,13 +81,47 @@ export interface PreferencesItem {
   updatedAt: string;
 }
 
+// Explicit, family-stated preferences only — e.g. "Isla picked penne over
+// spaghetti" or "Parker prefers soccer over baseball", entered when a family
+// member actually says so. Never populated from passive tracking/inference;
+// see backend/models/schema.md.
+export const STATED_PREFERENCE_CATEGORIES = ["meal", "activity", "chore"] as const;
+
+export const StatedPreferenceInput = z.object({
+  memberId: z.string().min(1),
+  category: z.enum(STATED_PREFERENCE_CATEGORIES),
+  statement: z.string().min(1).max(200),
+});
+export type StatedPreferenceInput = z.infer<typeof StatedPreferenceInput>;
+
+export interface StatedPreferenceItem {
+  PK: string;
+  SK: string;
+  entityType: "STATED_PREFERENCE";
+  familyId: string;
+  preferenceId: string;
+  memberId: string;
+  category: (typeof STATED_PREFERENCE_CATEGORIES)[number];
+  statement: string;
+  createdAt: string;
+}
+
 export const CartItemInput = z.object({
-  krogerProductId: z.string().min(1),
   description: z.string().min(1).max(300),
   quantity: z.number().int().positive().optional(),
   addedBy: z.string().min(1).nullable().optional(),
 });
 export type CartItemInput = z.infer<typeof CartItemInput>;
+
+// "unavailable" is set when a family member can't find the item while
+// shopping; "substituted" plus substituteDescription is set only when they
+// then explicitly say what they picked instead — never inferred. See
+// LearnedSubstitutionItem below, which is the only thing derived from that.
+export const CartItemPatch = z.object({
+  status: z.enum(["pending", "unavailable", "substituted"]).optional(),
+  substituteDescription: z.string().min(1).max(300).optional(),
+});
+export type CartItemPatch = z.infer<typeof CartItemPatch>;
 
 export interface CartItem {
   PK: string;
@@ -94,11 +129,48 @@ export interface CartItem {
   entityType: "CART_ITEM";
   familyId: string;
   itemId: string;
-  krogerProductId: string;
   description: string;
   quantity: number;
+  status: "pending" | "unavailable" | "substituted";
+  substituteDescription: string | null;
   addedBy: string | null;
   addedAt: string;
+  updatedAt: string;
+}
+
+// A suggestion for next time, built only from substitutions a family member
+// has explicitly confirmed for this exact item before — never a guess, and
+// always offered as a suggestion the family can accept or ignore, not
+// applied automatically. One item per family per original item description.
+export interface LearnedSubstitutionItem {
+  PK: string;
+  SK: string;
+  entityType: "LEARNED_SUBSTITUTION";
+  familyId: string;
+  originalDescription: string;
+  substituteDescription: string;
+  timesConfirmed: number;
+  updatedAt: string;
+}
+
+export const CreateFamilyInput = z.object({
+  name: z.string().min(1).max(100).optional(),
+});
+export type CreateFamilyInput = z.infer<typeof CreateFamilyInput>;
+
+// The only item every other entity's PK depends on, and the only thing that
+// makes a familyId a real, authenticated tenant rather than an arbitrary
+// caller-supplied string — see POST /families (families.ts) for how one gets
+// created, and lib/auth.ts for how apiKeyHash is checked on every other
+// route. The raw API key is never stored, only its SHA-256 hash.
+export interface FamilyRecord {
+  PK: string;
+  SK: "METADATA";
+  entityType: "FAMILY";
+  familyId: string;
+  name: string | null;
+  apiKeyHash: string;
+  createdAt: string;
 }
 
 export interface CalendarTokenRecord {

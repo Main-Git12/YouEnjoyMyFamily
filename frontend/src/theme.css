@@ -9,20 +9,31 @@
  */
 :root {
   --color-olive-50: #f6f6ef;
+  --color-olive-300: #b7b881;
+  --color-olive-400: #9fa262;
   --color-olive-500: #7d7f45;
   --color-olive-700: #4a4b2b;
+  --color-olive-800: #34351f;
   --color-olive-900: #1f2013;
 
+  --color-clay-100: #f1e4d4;
   --color-clay-300: #dcb98f;
   --color-clay-500: #b9814f;
+  --color-clay-700: #8a5c33;
 
   --color-sand-50: #fbf8f1;
   --color-sand-100: #f3ecdd;
 
   --color-bark: #2b241c;
 
+  /* Jewel tones for gem rewards / celebration confetti only. */
+  --color-gem-emerald: #3f8f6d;
+  --color-gem-ruby: #a8434f;
+  --color-gem-amber: #d19a3d;
+  --color-gem-sapphire: #3f6f8f;
+
   --shadow-card: 0 4px 14px rgba(31, 32, 19, 0.12);
-  --radius-card: 1rem;
+  --radius-card: 1.25rem;
 }
 
 html,
@@ -32,6 +43,6 @@ body,
 }
 
 body {
-  background: var(--color-olive-50);
+  background: #ffffff;
   color: var(--color-bark);
 }

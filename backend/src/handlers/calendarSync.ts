@@ -65,8 +65,6 @@ export async function runCalendarSync(
 export const handler = async (): Promise<CalendarSyncResult> => runCalendarSync();
 
 export async function listFamiliesWithGoogleTokens(): Promise<CalendarTokenRecord[]> {
-  // TODO: replace with a GSI query (e.g. GSI1PK = "PROVIDER#google") once
-  // families opt in to calendar sync; scanning is a placeholder for scaffolding.
   const result = await docClient.send(
     new QueryCommand({
       TableName: TABLE_NAME,

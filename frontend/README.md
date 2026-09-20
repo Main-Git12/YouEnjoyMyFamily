@@ -28,7 +28,7 @@ src/
 ## Local development
 
 ```bash
-cp .env.example .env    # point VITE_API_BASE_URL at your backend (SAM local or deployed)
+cp .env.example .env    # VITE_API_BASE_URL + VITE_FAMILY_API_KEY (see backend/README.md's Authentication section)
 npm install
 npm run dev
 ```

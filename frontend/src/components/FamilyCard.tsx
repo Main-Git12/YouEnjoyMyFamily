@@ -10,7 +10,7 @@ export default function FamilyCard({ title, children, accent = false }: FamilyCa
   return (
     <section
       className={`rounded-card shadow-[var(--shadow-card)] p-6 ${
-        accent ? "bg-clay-300 text-olive-900" : "bg-sand-50 text-bark"
+        accent ? "bg-olive-500 text-white" : "bg-white border-2 border-olive-100 text-bark"
       }`}
     >
       <h2 className="font-display text-xl mb-3">{title}</h2>

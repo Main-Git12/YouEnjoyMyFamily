@@ -4,9 +4,14 @@ import { GetCommand, PutCommand, QueryCommand, DeleteCommand } from "@aws-sdk/li
 import { docClient, TABLE_NAME } from "../lib/dynamoClient";
 import { ok, created, badRequest, notFound, serverError } from "../lib/response";
 import { parseBody, ValidationError } from "../lib/validation";
+import { authenticateFamily } from "../lib/auth";
 import { TaskInput, TaskPatch, type TaskItem } from "../types";
 
 const taskKey = (familyId: string, taskId: string) => ({ PK: `FAMILY#${familyId}`, SK: `TASK#${taskId}` });
+
+// Flat reward per completed task — no per-member ledger yet, so a task's own
+// gemsAwarded (summed client-side) is the running total until one exists.
+const GEMS_PER_COMPLETED_TASK = 10;
 
 async function listTasks(familyId: string): Promise<TaskItem[]> {
   const result = await docClient.send(
@@ -33,6 +38,7 @@ async function createTask(familyId: string, input: TaskInput): Promise<TaskItem>
     assignedTo: input.assignedTo ?? null,
     dueDate: input.dueDate ?? null,
     status: "pending",
+    gemsAwarded: 0,
     createdAt: now,
     updatedAt: now,
   };
@@ -46,12 +52,16 @@ async function updateTask(familyId: string, taskId: string, patch: TaskPatch): P
   if (!existing.Item) return null;
 
   const current = existing.Item as TaskItem;
+  const nextStatus = patch.status ?? current.status;
+  const justCompleted = nextStatus === "done" && current.status !== "done";
+
   const updated: TaskItem = {
     ...current,
     title: patch.title ?? current.title,
     assignedTo: patch.assignedTo !== undefined ? patch.assignedTo : current.assignedTo,
     dueDate: patch.dueDate !== undefined ? patch.dueDate : current.dueDate,
-    status: patch.status ?? current.status,
+    status: nextStatus,
+    gemsAwarded: justCompleted ? current.gemsAwarded + GEMS_PER_COMPLETED_TASK : current.gemsAwarded,
     updatedAt: new Date().toISOString(),
   };
   await docClient.send(new PutCommand({ TableName: TABLE_NAME, Item: updated }));
@@ -68,6 +78,8 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
 
   try {
     if (!familyId) return badRequest("familyId is required");
+    const authError = await authenticateFamily(event, familyId);
+    if (authError) return authError;
 
     switch (method) {
       case "GET":
