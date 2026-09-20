@@ -278,6 +278,12 @@ Resources:
             ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}/grocery-cart/items/{itemId}
             Method: PUT
+        DeleteItem:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/grocery-cart/items/{itemId}
+            Method: DELETE
         Checkout:
           Type: HttpApi
           Properties:

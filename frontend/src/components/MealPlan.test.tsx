@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import MealPlan, { nextSevenDays } from "./MealPlan";
+import { toLocalIsoDate } from "../lib/dates";
 import type { MealPlanEntry } from "../types";
 
 function formatDayLabel(isoDate: string): string {
@@ -12,7 +13,7 @@ describe("nextSevenDays", () => {
   it("returns 7 consecutive ISO dates starting today", () => {
     const days = nextSevenDays();
     expect(days).toHaveLength(7);
-    expect(days[0]).toBe(new Date().toISOString().slice(0, 10));
+    expect(days[0]).toBe(toLocalIsoDate(new Date()));
   });
 });
 
@@ -23,7 +24,9 @@ describe("MealPlan", () => {
 
     render(<MealPlan entries={entries} onSave={vi.fn()} onRemove={vi.fn()} onGenerateGroceryList={vi.fn()} />);
 
-    expect(screen.getByText("Tacos")).toBeInTheDocument();
+    // The chip shows the meal plus how many ingredients it has, so you can
+    // see at a glance which meals still need their ingredients filled in.
+    expect(screen.getByText("Tacos (1)")).toBeInTheDocument();
     expect(screen.getAllByText("+ Breakfast").length).toBeGreaterThan(0);
   });
 

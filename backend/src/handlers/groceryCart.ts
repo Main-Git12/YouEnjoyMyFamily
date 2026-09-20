@@ -1,6 +1,6 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 import { ulid } from "ulid";
-import { GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import { docClient, TABLE_NAME } from "../lib/dynamoClient";
 import { ok, created, badRequest, notFound, serverError } from "../lib/response";
 import { parseBody, ValidationError } from "../lib/validation";
@@ -180,6 +180,10 @@ async function patchCartItem(familyId: string, itemId: string, patch: CartItemPa
   return { item, suggestedSubstitute };
 }
 
+async function deleteCartItem(familyId: string, itemId: string): Promise<void> {
+  await docClient.send(new DeleteCommand({ TableName: TABLE_NAME, Key: cartItemKey(familyId, itemId) }));
+}
+
 async function checkout(familyId: string, instacart: InstacartClient): Promise<string> {
   const items = await listCartItems(familyId);
   const shoppable = items.filter((item) => item.status !== "unavailable");
@@ -226,6 +230,11 @@ export async function routeGroceryCart(
         if (!itemId) return badRequest("itemId is required");
         const result = await patchCartItem(familyId, itemId, parseBody(CartItemPatch, event.body));
         return result ? ok(result) : notFound("Cart item not found");
+      }
+      case "DELETE": {
+        if (!itemId) return badRequest("itemId is required");
+        await deleteCartItem(familyId, itemId);
+        return ok({ deleted: itemId });
       }
       default:
         return badRequest(`Unsupported method: ${method}`);

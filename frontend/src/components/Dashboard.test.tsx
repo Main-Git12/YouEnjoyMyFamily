@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import Dashboard from "./Dashboard";
 import { nextSevenDays } from "./MealPlan";
 import { api } from "../lib/api";
+import type { Task } from "../types";
 
 vi.mock("../lib/api", () => ({
   api: {
@@ -20,6 +21,7 @@ vi.mock("../lib/api", () => ({
     addCartItem: vi.fn(),
     markCartItemUnavailable: vi.fn(),
     confirmCartItemSubstitute: vi.fn(),
+    removeCartItem: vi.fn(),
     checkoutGroceryCart: vi.fn(),
   },
 }));
@@ -179,7 +181,7 @@ describe("Dashboard", () => {
 
     render(<Dashboard />);
 
-    await waitFor(() => expect(screen.getByText("Tacos")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Tacos (2)")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: /generate grocery list for this week/i }));
 
@@ -208,6 +210,133 @@ describe("Dashboard", () => {
     fireEvent.click(screen.getByRole("button", { name: /^add$/i }));
 
     await waitFor(() => expect(screen.getByText("Milk")).toBeInTheDocument());
-    expect(api.addCartItem).toHaveBeenCalledWith("fam_demo", { description: "Milk" });
+    expect(api.addCartItem).toHaveBeenCalledWith("fam_demo", { description: "Milk", quantity: 1 });
+  });
+
+  it("removes a grocery item from the cart", async () => {
+    vi.mocked(api.listTasks).mockResolvedValue([]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+    vi.mocked(api.listCartItems).mockResolvedValue([
+      {
+        itemId: "c1",
+        description: "Spaghetti",
+        quantity: 1,
+        status: "pending",
+        substituteDescription: null,
+        source: "manual",
+      },
+    ]);
+    vi.mocked(api.removeCartItem).mockResolvedValue({ deleted: "c1" });
+
+    render(<Dashboard />);
+
+    await waitFor(() => expect(screen.getByText("Spaghetti")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText('Remove "Spaghetti" from the cart'));
+
+    await waitFor(() => expect(screen.getByText("Nothing in the cart yet.")).toBeInTheDocument());
+    expect(api.removeCartItem).toHaveBeenCalledWith("fam_demo", "c1");
+  });
+
+  it("picks up an edit made on another device when the screen becomes visible again", async () => {
+    vi.mocked(api.listTasks).mockResolvedValue([]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+    const today = nextSevenDays()[0] as string;
+    // First load: nothing planned. Then someone adds Tacos on their phone.
+    vi.mocked(api.listMealPlan)
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([{ date: today, slot: "dinner", mealName: "Tacos", ingredients: [] }]);
+
+    render(<Dashboard />);
+
+    await waitFor(() => expect(screen.getByText("Meal plan")).toBeInTheDocument());
+    expect(screen.queryByText("Tacos")).not.toBeInTheDocument();
+
+    // The phone wakes up / the tab is refocused.
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    await waitFor(() => expect(screen.getByText("Tacos")).toBeInTheDocument());
+  });
+
+  it("polls for other devices' changes on an interval", async () => {
+    vi.useFakeTimers();
+    vi.mocked(api.listTasks).mockResolvedValue([]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+
+    render(<Dashboard />);
+
+    await vi.waitFor(() => expect(api.listMealPlan).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(api.listMealPlan).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(api.listMealPlan).toHaveBeenCalledTimes(3);
+
+    vi.useRealTimers();
+  });
+
+  it("keeps showing the last good data when a background sync fails", async () => {
+    vi.mocked(api.listTasks).mockResolvedValue([
+      { taskId: "t1", title: "Pack soccer bag", assignedTo: null, dueDate: null, status: "pending", gemsAwarded: 0 },
+    ]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+
+    render(<Dashboard />);
+    await waitFor(() => expect(screen.getByText("Pack soccer bag")).toBeInTheDocument());
+
+    // The phone drops off the network mid-sync.
+    vi.mocked(api.listTasks).mockRejectedValue(new Error("Failed to fetch"));
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    await waitFor(() => expect(api.listTasks).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("Pack soccer bag")).toBeInTheDocument();
+    expect(screen.queryByText(/couldn't reach the backend/i)).not.toBeInTheDocument();
+  });
+
+  it("surfaces the failure when someone asks for a refresh themselves", async () => {
+    vi.mocked(api.listTasks).mockResolvedValue([]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+
+    render(<Dashboard />);
+    await waitFor(() => expect(screen.getByText("Today's tasks")).toBeInTheDocument());
+
+    vi.mocked(api.listTasks).mockRejectedValue(new Error("Failed to fetch"));
+    fireEvent.click(screen.getByRole("button", { name: /refresh from the family's other devices/i }));
+
+    await waitFor(() => expect(screen.getByText(/couldn't reach the backend/i)).toBeInTheDocument());
+  });
+
+  it("shows a loading state until the first fetch resolves, instead of flashing empty cards", async () => {
+    let resolveTasks: (tasks: Task[]) => void = () => {};
+    vi.mocked(api.listTasks).mockReturnValue(
+      new Promise<Task[]>((resolve) => {
+        resolveTasks = resolve;
+      })
+    );
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+
+    render(<Dashboard />);
+
+    expect(screen.getByText(/loading your family's day/i)).toBeInTheDocument();
+    expect(screen.queryByText("Today's tasks")).not.toBeInTheDocument();
+
+    resolveTasks([]);
+
+    await waitFor(() => expect(screen.getByText("Today's tasks")).toBeInTheDocument());
+    expect(screen.queryByText(/loading your family's day/i)).not.toBeInTheDocument();
   });
 });

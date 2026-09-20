@@ -12,11 +12,23 @@ const pendingItem: CartItem = {
   source: "manual",
 };
 
+type CartProps = Parameters<typeof GroceryCart>[0];
+
+function cartProps(overrides: Partial<CartProps> = {}): CartProps {
+  return {
+    items: [],
+    onAdd: vi.fn(),
+    onMarkUnavailable: vi.fn(),
+    onConfirmSubstitute: vi.fn(),
+    onRemove: vi.fn(),
+    onCheckout: vi.fn(),
+    ...overrides,
+  };
+}
+
 describe("GroceryCart", () => {
   it("shows a calm empty state when the cart is empty", () => {
-    render(
-      <GroceryCart items={[]} onAdd={vi.fn()} onMarkUnavailable={vi.fn()} onConfirmSubstitute={vi.fn()} onCheckout={vi.fn()} />
-    );
+    render(<GroceryCart {...cartProps()} />);
     expect(screen.getByText(/nothing in the cart yet/i)).toBeInTheDocument();
   });
 
@@ -25,9 +37,7 @@ describe("GroceryCart", () => {
       pendingItem,
       { itemId: "i2", description: "Tortillas", quantity: 3, status: "pending", substituteDescription: null, source: "meal_plan" },
     ];
-    render(
-      <GroceryCart items={items} onAdd={vi.fn()} onMarkUnavailable={vi.fn()} onConfirmSubstitute={vi.fn()} onCheckout={vi.fn()} />
-    );
+    render(<GroceryCart {...cartProps({ items })} />);
 
     expect(screen.getByText("Spaghetti")).toBeInTheDocument();
     expect(screen.getByText("Tortillas")).toBeInTheDocument();
@@ -35,30 +45,58 @@ describe("GroceryCart", () => {
     expect(screen.getByText("from meal plan")).toBeInTheDocument();
   });
 
-  it("adds a new item and clears the input", async () => {
+  it("adds a new item with the entered quantity, then resets the form", async () => {
     const onAdd = vi.fn().mockResolvedValue(undefined);
-    render(
-      <GroceryCart items={[]} onAdd={onAdd} onMarkUnavailable={vi.fn()} onConfirmSubstitute={vi.fn()} onCheckout={vi.fn()} />
-    );
+    render(<GroceryCart {...cartProps({ onAdd })} />);
 
     fireEvent.change(screen.getByPlaceholderText("Add an item"), { target: { value: "Milk" } });
+    fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "3" } });
     fireEvent.click(screen.getByRole("button", { name: /^add$/i }));
 
-    expect(onAdd).toHaveBeenCalledWith("Milk");
+    expect(onAdd).toHaveBeenCalledWith("Milk", 3);
     await waitFor(() => expect(screen.getByPlaceholderText("Add an item")).toHaveValue(""));
+    expect(screen.getByLabelText("Quantity")).toHaveValue(1);
+  });
+
+  it("falls back to a quantity of 1 when the quantity field is blank or nonsense", async () => {
+    const onAdd = vi.fn().mockResolvedValue(undefined);
+    render(<GroceryCart {...cartProps({ onAdd })} />);
+
+    fireEvent.change(screen.getByPlaceholderText("Add an item"), { target: { value: "Milk" } });
+    fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: /^add$/i }));
+
+    expect(onAdd).toHaveBeenCalledWith("Milk", 1);
+    // Wait out the post-submit form reset so the state update lands inside act().
+    await waitFor(() => expect(screen.getByPlaceholderText("Add an item")).toHaveValue(""));
+  });
+
+  it("removes an item outright", async () => {
+    const onRemove = vi.fn().mockResolvedValue(undefined);
+    render(<GroceryCart {...cartProps({ items: [pendingItem], onRemove })} />);
+
+    fireEvent.click(screen.getByLabelText('Remove "Spaghetti" from the cart'));
+
+    await waitFor(() => expect(onRemove).toHaveBeenCalledWith(pendingItem));
+  });
+
+  it("can remove an item that was already marked unavailable, so it doesn't linger forever", async () => {
+    const onRemove = vi.fn().mockResolvedValue(undefined);
+    const unavailableItem: CartItem = { ...pendingItem, status: "unavailable" };
+    render(<GroceryCart {...cartProps({ items: [unavailableItem], onRemove })} />);
+
+    // "Can't find it" is gone once it's unavailable, but Remove still isn't.
+    expect(screen.queryByLabelText('Mark "Spaghetti" unavailable')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Remove "Spaghetti" from the cart'));
+
+    await waitFor(() => expect(onRemove).toHaveBeenCalledWith(unavailableItem));
   });
 
   it("marking an item unavailable shows a suggested substitute to confirm", async () => {
     const onMarkUnavailable = vi.fn().mockResolvedValue("Penne");
     const onConfirmSubstitute = vi.fn().mockResolvedValue(undefined);
     const { rerender } = render(
-      <GroceryCart
-        items={[pendingItem]}
-        onAdd={vi.fn()}
-        onMarkUnavailable={onMarkUnavailable}
-        onConfirmSubstitute={onConfirmSubstitute}
-        onCheckout={vi.fn()}
-      />
+      <GroceryCart {...cartProps({ items: [pendingItem], onMarkUnavailable, onConfirmSubstitute })} />
     );
 
     fireEvent.click(screen.getByLabelText('Mark "Spaghetti" unavailable'));
@@ -68,15 +106,7 @@ describe("GroceryCart", () => {
     // Simulate the parent (Dashboard) re-rendering with the item's updated
     // status, the way it really flows once markCartItemUnavailable resolves.
     const unavailableItem: CartItem = { ...pendingItem, status: "unavailable" };
-    rerender(
-      <GroceryCart
-        items={[unavailableItem]}
-        onAdd={vi.fn()}
-        onMarkUnavailable={onMarkUnavailable}
-        onConfirmSubstitute={onConfirmSubstitute}
-        onCheckout={vi.fn()}
-      />
-    );
+    rerender(<GroceryCart {...cartProps({ items: [unavailableItem], onMarkUnavailable, onConfirmSubstitute })} />);
 
     fireEvent.click(screen.getByRole("button", { name: /confirm/i }));
     await waitFor(() => expect(onConfirmSubstitute).toHaveBeenCalledWith(unavailableItem, "Penne"));
@@ -84,23 +114,32 @@ describe("GroceryCart", () => {
 
   it("checkout shows a link to continue on Instacart", async () => {
     const onCheckout = vi.fn().mockResolvedValue("https://instacart.example/list/abc");
-    render(
-      <GroceryCart items={[pendingItem]} onAdd={vi.fn()} onMarkUnavailable={vi.fn()} onConfirmSubstitute={vi.fn()} onCheckout={onCheckout} />
-    );
+    render(<GroceryCart {...cartProps({ items: [pendingItem], onCheckout })} />);
 
     fireEvent.click(screen.getByRole("button", { name: /checkout with instacart/i }));
 
-    await waitFor(() => expect(screen.getByRole("link", { name: /continue on instacart/i })).toHaveAttribute(
-      "href",
-      "https://instacart.example/list/abc"
-    ));
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: /continue on instacart/i })).toHaveAttribute(
+        "href",
+        "https://instacart.example/list/abc"
+      )
+    );
+  });
+
+  it("disables checkout when there's nothing shoppable, rather than letting it fail server-side", () => {
+    const { rerender } = render(<GroceryCart {...cartProps({ items: [] })} />);
+    expect(screen.getByRole("button", { name: /checkout with instacart/i })).toBeDisabled();
+
+    rerender(<GroceryCart {...cartProps({ items: [{ ...pendingItem, status: "unavailable" }] })} />);
+    expect(screen.getByRole("button", { name: /checkout with instacart/i })).toBeDisabled();
+
+    rerender(<GroceryCart {...cartProps({ items: [pendingItem] })} />);
+    expect(screen.getByRole("button", { name: /checkout with instacart/i })).toBeEnabled();
   });
 
   it("shows an error message when checkout fails", async () => {
     const onCheckout = vi.fn().mockRejectedValue(new Error("The cart has no shoppable items"));
-    render(
-      <GroceryCart items={[pendingItem]} onAdd={vi.fn()} onMarkUnavailable={vi.fn()} onConfirmSubstitute={vi.fn()} onCheckout={onCheckout} />
-    );
+    render(<GroceryCart {...cartProps({ items: [pendingItem], onCheckout })} />);
 
     fireEvent.click(screen.getByRole("button", { name: /checkout with instacart/i }));
 

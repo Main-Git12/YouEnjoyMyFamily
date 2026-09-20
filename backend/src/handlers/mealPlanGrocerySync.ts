@@ -23,6 +23,10 @@ async function listAllFamilies(): Promise<FamilyRecord[]> {
   return (result.Items ?? []) as FamilyRecord[];
 }
 
+// UTC is safe here where it wouldn't be in the UI: the schedule fires at
+// 13:00 UTC (see template.yaml), which is mid-morning across the Americas
+// and mid-afternoon across Europe — never near a date rollover — and the
+// window is a whole week wide either way.
 function nextSevenDayWindow(now: Date = new Date()): { start: string; end: string } {
   const start = now.toISOString().slice(0, 10);
   const endDate = new Date(now);

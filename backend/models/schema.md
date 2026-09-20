@@ -55,11 +55,17 @@ its ingredients, typed in the same way a task or a stated preference is.
 `generateGroceryListFromMealPlan` (`mealPlans.ts`) is the only thing that
 turns that into `Grocery cart item`s: it aggregates a date range's planned
 ingredients (case-insensitively, so "Rice" and "rice" become one line with
-a summed quantity) and adds any not already generated before as a cart item
+a summed quantity) and adds the ones not already on the list as a cart item
 tagged `source: "meal_plan"` with `mealPlanSourceKey` set to the
 ingredient's normalized text — the same idempotent-upsert spirit as
 `Synced calendar evt`'s `GSI1PK`, just checked by a Query + in-memory Set
-instead of a GSI, since a family's cart is small. A weekly EventBridge job
+instead of a GSI, since a family's cart is small. "Already on the list"
+means matching *either* an existing `mealPlanSourceKey` (a previous
+generation) *or* an existing item's normalized `description` — the latter
+is what stops a hand-added "Milk" and a meal plan's "milk" turning into two
+lines on the same trip. Clearing an item off the cart (`DELETE`) therefore
+lets the next generation re-add it, which is what makes the weekly job
+right across weeks rather than only the first time. A weekly EventBridge job
 (`mealPlanGrocerySync.ts`, see `template.yaml`) calls it for every family
 over the coming 7 days so nobody has to remember to hit "generate"; it's
 still driven entirely by what the family already typed into their meal
@@ -78,6 +84,7 @@ plan, never an AI-invented meal or ingredient. A manually-added cart item
 - List all of a family's stated preferences: `Query PK = FAMILY#<familyId>, SK begins_with STATEDPREF#`.
 - List one member's stated preferences: `Query PK = FAMILY#<familyId>, SK begins_with STATEDPREF#<memberId>#`.
 - Look up a learned substitute for an item by its (lowercased, trimmed) description: `GetItem PK = FAMILY#<familyId>, SK = SUBSTITUTION#<normalizedDescription>`.
+- Remove a grocery cart item outright by id (not just marking it unavailable): `DeleteItem PK = FAMILY#<familyId>, SK = CARTITEM#<itemId>`.
 - List a family's meal plan for a date range: `Query PK = FAMILY#<familyId>, SK between MEALPLAN#<start> and MEALPLAN#<end>`.
 - Look up or replace one day+slot's planned meal: `GetItem`/`PutItem PK = FAMILY#<familyId>, SK = MEALPLAN#<isoDate>#<slot>`.
 - List every family (weekly meal-plan grocery sync only): `Scan filter entityType = FAMILY` — the one access pattern here with no natural partition to query across; a Scan is the pragmatic choice for a job that runs once a week over what's expected to be a small number of families.

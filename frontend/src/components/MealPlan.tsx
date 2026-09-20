@@ -1,5 +1,6 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import type { MealPlanEntry, MealSlot } from "../types";
+import { localDaysFromToday } from "../lib/dates";
 
 interface MealPlanProps {
   entries: MealPlanEntry[];
@@ -12,14 +13,7 @@ const SLOTS: MealSlot[] = ["breakfast", "lunch", "dinner"];
 const SLOT_LABELS: Record<MealSlot, string> = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner" };
 
 export function nextSevenDays(): string[] {
-  const days: string[] = [];
-  const today = new Date();
-  for (let i = 0; i < 7; i++) {
-    const day = new Date(today);
-    day.setDate(today.getDate() + i);
-    days.push(day.toISOString().slice(0, 10));
-  }
-  return days;
+  return localDaysFromToday(7);
 }
 
 function formatDayLabel(isoDate: string): string {
@@ -31,7 +25,10 @@ function formatDayLabel(isoDate: string): string {
 // meals or ingredients. generateGroceryListFromMealPlan (backend) is the
 // only thing that ever turns these ingredients into cart items.
 export default function MealPlan({ entries, onSave, onRemove, onGenerateGroceryList }: MealPlanProps) {
-  const days = useMemo(() => nextSevenDays(), []);
+  // Recomputed every render rather than memoized on mount: this dashboard
+  // lives on an always-on Echo Show, and a window pinned at mount would
+  // still be showing yesterday's week after midnight.
+  const days = nextSevenDays();
   const [editing, setEditing] = useState<{ date: string; slot: MealSlot } | null>(null);
   const [mealName, setMealName] = useState("");
   const [ingredientsText, setIngredientsText] = useState("");
@@ -56,12 +53,15 @@ export default function MealPlan({ entries, onSave, onRemove, onGenerateGroceryL
       .filter((ingredient) => ingredient.length > 0);
     await onSave(editing.date, editing.slot, { mealName: mealName.trim(), ingredients });
     setEditing(null);
+    // The last generate result described a plan that just changed.
+    setGenerateResult(null);
   }
 
   async function handleRemove() {
     if (!editing) return;
     await onRemove(editing.date, editing.slot);
     setEditing(null);
+    setGenerateResult(null);
   }
 
   async function handleGenerate() {
@@ -82,23 +82,34 @@ export default function MealPlan({ entries, onSave, onRemove, onGenerateGroceryL
 
       <div className="space-y-2 mb-4">
         {days.map((date) => (
-          <div key={date} className="flex items-center gap-2 flex-wrap">
-            <span className="w-24 shrink-0 text-sm font-semibold text-olive-700">{formatDayLabel(date)}</span>
-            {SLOTS.map((slot) => {
-              const entry = entryFor(date, slot);
-              return (
-                <button
-                  key={slot}
-                  type="button"
-                  onClick={() => startEditing(date, slot)}
-                  className={`rounded-lg px-3 py-1.5 text-sm ${
-                    entry ? "bg-olive-100 text-olive-800" : "bg-olive-50 text-olive-500 italic"
-                  }`}
-                >
-                  {entry ? entry.mealName : `+ ${SLOT_LABELS[slot]}`}
-                </button>
-              );
-            })}
+          // Label above the slots on a phone, beside them from `sm` up; the
+          // slots stay a 3-column grid either way so a day's breakfast,
+          // lunch and dinner always line up instead of wrapping raggedly.
+          <div key={date} className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+            <span className="sm:w-24 shrink-0 text-sm font-semibold text-olive-700">{formatDayLabel(date)}</span>
+            <div className="grid grid-cols-3 gap-2 flex-1">
+              {SLOTS.map((slot) => {
+                const entry = entryFor(date, slot);
+                return (
+                  <button
+                    key={slot}
+                    type="button"
+                    aria-label={`${SLOT_LABELS[slot]} on ${formatDayLabel(date)}${entry ? `: ${entry.mealName}` : " — nothing planned"}`}
+                    title={entry ? `${entry.mealName}${entry.ingredients.length ? ` — ${entry.ingredients.join(", ")}` : ""}` : undefined}
+                    onClick={() => startEditing(date, slot)}
+                    className={`rounded-lg px-2 sm:px-3 py-2 text-xs sm:text-sm truncate ${
+                      entry ? "bg-olive-100 text-olive-800" : "bg-olive-50 text-olive-500 italic"
+                    }`}
+                  >
+                    {entry
+                      ? entry.ingredients.length
+                        ? `${entry.mealName} (${entry.ingredients.length})`
+                        : entry.mealName
+                      : `+ ${SLOT_LABELS[slot]}`}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         ))}
       </div>
@@ -110,6 +121,7 @@ export default function MealPlan({ entries, onSave, onRemove, onGenerateGroceryL
           </p>
           <input
             type="text"
+            aria-label="Meal name"
             placeholder="Meal name (e.g. Tacos)"
             value={mealName}
             onChange={(e) => setMealName(e.target.value)}
@@ -117,6 +129,7 @@ export default function MealPlan({ entries, onSave, onRemove, onGenerateGroceryL
           />
           <input
             type="text"
+            aria-label="Ingredients, comma separated"
             placeholder="Ingredients, comma separated (e.g. Tortillas, Ground beef, Cheddar)"
             value={ingredientsText}
             onChange={(e) => setIngredientsText(e.target.value)}

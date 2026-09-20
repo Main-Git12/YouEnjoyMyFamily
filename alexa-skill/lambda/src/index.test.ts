@@ -15,6 +15,8 @@ import {
   SessionEndedRequestHandler,
   ErrorHandler,
   CHORE_CELEBRATION_LINES,
+  familyToday,
+  addDaysToIsoDate,
 } from "./index";
 import { makeHandlerInput, intentRequest, type FakeResponse } from "./testSupport";
 
@@ -238,6 +240,79 @@ test("GetGemCastleIntentHandler degrades gracefully when the backend is unreacha
   const response = (await GetGemCastleIntentHandler.handle(handlerInput)) as FakeResponse;
 
   assert.match(speechOf(response), /couldn't check the gem castle/i);
+});
+
+test("familyToday uses the family's configured timezone, not Lambda's UTC clock", () => {
+  const previous = process.env.YOUENJOYMYFAMILY_TIME_ZONE;
+  // 9:30pm on Sep 19 in New York is already Sep 20 in UTC.
+  const lateEvening = new Date("2026-09-20T01:30:00Z");
+
+  try {
+    process.env.YOUENJOYMYFAMILY_TIME_ZONE = "America/New_York";
+    assert.equal(familyToday(lateEvening), "2026-09-19");
+
+    process.env.YOUENJOYMYFAMILY_TIME_ZONE = "UTC";
+    assert.equal(familyToday(lateEvening), "2026-09-20");
+  } finally {
+    process.env.YOUENJOYMYFAMILY_TIME_ZONE = previous;
+  }
+});
+
+test("familyToday falls back to UTC rather than breaking every response on a bad timezone", () => {
+  const previous = process.env.YOUENJOYMYFAMILY_TIME_ZONE;
+  try {
+    process.env.YOUENJOYMYFAMILY_TIME_ZONE = "Not/AZone";
+    assert.equal(familyToday(new Date("2026-09-20T01:30:00Z")), "2026-09-20");
+  } finally {
+    process.env.YOUENJOYMYFAMILY_TIME_ZONE = previous;
+  }
+});
+
+test("addDaysToIsoDate rolls across month and year boundaries", () => {
+  assert.equal(addDaysToIsoDate("2026-09-19", 6), "2026-09-25");
+  assert.equal(addDaysToIsoDate("2026-12-30", 3), "2027-01-02");
+});
+
+test("GetMealPlanIntentHandler asks the backend for the family's local date", async () => {
+  const previous = process.env.YOUENJOYMYFAMILY_TIME_ZONE;
+  process.env.YOUENJOYMYFAMILY_TIME_ZONE = "America/New_York";
+  mock.timers.enable({ apis: ["Date"], now: Date.UTC(2026, 8, 20, 1, 30) });
+
+  let requestedUrl = "";
+  mock.method(globalThis, "fetch", async (url: string) => {
+    requestedUrl = url;
+    return new Response(JSON.stringify([]), { status: 200 });
+  });
+
+  try {
+    await GetMealPlanIntentHandler.handle(makeHandlerInput(intentRequest("GetMealPlanIntent")));
+  } finally {
+    mock.timers.reset();
+    process.env.YOUENJOYMYFAMILY_TIME_ZONE = previous;
+  }
+
+  assert.match(requestedUrl, /start=2026-09-19&end=2026-09-19/);
+});
+
+test("GenerateGroceryListIntentHandler spans the coming 7 days from the family's local date", async () => {
+  const previous = process.env.YOUENJOYMYFAMILY_TIME_ZONE;
+  process.env.YOUENJOYMYFAMILY_TIME_ZONE = "America/New_York";
+  mock.timers.enable({ apis: ["Date"], now: Date.UTC(2026, 8, 20, 1, 30) });
+
+  let requestedUrl = "";
+  mock.method(globalThis, "fetch", async (url: string) => {
+    requestedUrl = url;
+    return new Response(JSON.stringify({ added: 0, skipped: 0 }), { status: 200 });
+  });
+
+  try {
+    await GenerateGroceryListIntentHandler.handle(makeHandlerInput(intentRequest("GenerateGroceryListIntent")));
+  } finally {
+    mock.timers.reset();
+    process.env.YOUENJOYMYFAMILY_TIME_ZONE = previous;
+  }
+
+  assert.match(requestedUrl, /start=2026-09-19&end=2026-09-25/);
 });
 
 test("GetMealPlanIntentHandler speaks each planned slot in breakfast/lunch/dinner order", async () => {

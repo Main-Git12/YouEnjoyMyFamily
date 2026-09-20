@@ -54,6 +54,34 @@ interface CartItemEntry {
 const MEAL_SLOT_ORDER: MealSlot[] = ["breakfast", "lunch", "dinner"];
 const MEAL_SLOT_LABELS: Record<MealSlot, string> = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner" };
 
+/**
+ * Today's date in the family's own timezone, as `YYYY-MM-DD`.
+ *
+ * Deliberately not `new Date().toISOString().slice(0, 10)`: Lambda runs in
+ * UTC, so for any family west of UTC that rolls over to tomorrow in the
+ * evening — exactly when someone asks "what's for dinner". Read fresh (not
+ * cached at module scope) so tests can flip the zone per case.
+ */
+export function familyToday(now: Date = new Date()): string {
+  const timeZone = process.env.YOUENJOYMYFAMILY_TIME_ZONE ?? "UTC";
+  try {
+    // en-CA renders as YYYY-MM-DD.
+    return new Intl.DateTimeFormat("en-CA", { timeZone }).format(now);
+  } catch {
+    // A misconfigured zone shouldn't take every voice response down with it.
+    console.error(`Invalid YOUENJOYMYFAMILY_TIME_ZONE "${timeZone}", falling back to UTC`);
+    return new Intl.DateTimeFormat("en-CA", { timeZone: "UTC" }).format(now);
+  }
+}
+
+/** Whole-day arithmetic on a date-only value — UTC keeps it DST-proof. */
+export function addDaysToIsoDate(isoDate: string, days: number): string {
+  const [year, month, day] = isoDate.split("-");
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 function sortByMealSlot(entries: MealPlanEntry[]): MealPlanEntry[] {
   return [...entries].sort((a, b) => MEAL_SLOT_ORDER.indexOf(a.slot) - MEAL_SLOT_ORDER.indexOf(b.slot));
 }
@@ -210,7 +238,7 @@ export const GetScheduleIntentHandler: Alexa.RequestHandler = {
   },
   async handle(handlerInput): Promise<Response> {
     try {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = familyToday();
       const entries = await fetchJson<ScheduleEntry[]>(`/families/${FAMILY_ID}/schedules?start=${today}&end=${today}`);
 
       const speakOutput = entries.length
@@ -376,7 +404,7 @@ export const GetMealPlanIntentHandler: Alexa.RequestHandler = {
   },
   async handle(handlerInput): Promise<Response> {
     try {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = familyToday();
       const entries = sortByMealSlot(
         await fetchJson<MealPlanEntry[]>(`/families/${FAMILY_ID}/meal-plan?start=${today}&end=${today}`)
       );
@@ -409,11 +437,8 @@ export const GenerateGroceryListIntentHandler: Alexa.RequestHandler = {
     try {
       if (!API_BASE_URL) throw new Error("YOUENJOYMYFAMILY_API_BASE_URL is not configured");
 
-      const start = new Date();
-      const end = new Date(start);
-      end.setUTCDate(end.getUTCDate() + 6);
-      const startDate = start.toISOString().slice(0, 10);
-      const endDate = end.toISOString().slice(0, 10);
+      const startDate = familyToday();
+      const endDate = addDaysToIsoDate(startDate, 6);
 
       const response = await fetch(
         `${API_BASE_URL}/families/${FAMILY_ID}/meal-plan/generate-grocery-list?start=${startDate}&end=${endDate}`,

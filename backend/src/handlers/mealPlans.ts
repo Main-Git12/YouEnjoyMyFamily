@@ -95,15 +95,23 @@ export async function generateGroceryListFromMealPlan(
 
   if (aggregated.size === 0) return { added: 0, skipped: 0 };
 
+  // Anything already on the list — whether a previous generation put it
+  // there (mealPlanSourceKey) or someone typed it in themselves (its
+  // description) — counts as covered. Matching on the description too is
+  // what stops a hand-added "Milk" and a meal plan's "milk" becoming two
+  // separate lines on the same shopping trip.
   const existingItems = await listCartItems(familyId);
-  const alreadyGenerated = new Set(
-    existingItems.flatMap((item) => (item.mealPlanSourceKey ? [item.mealPlanSourceKey] : []))
+  const alreadyOnTheList = new Set(
+    existingItems.flatMap((item) => [
+      ...(item.mealPlanSourceKey ? [item.mealPlanSourceKey] : []),
+      normalizeIngredient(item.description),
+    ])
   );
 
   let added = 0;
   let skipped = 0;
   for (const [key, { description, quantity }] of aggregated) {
-    if (alreadyGenerated.has(key)) {
+    if (alreadyOnTheList.has(key)) {
       skipped++;
       continue;
     }

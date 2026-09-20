@@ -1,7 +1,7 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { mockClient } from "aws-sdk-client-mock";
-import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
 import { handler, routeGroceryCart, type InstacartClient } from "./groceryCart";
 import type { CartItem, LearnedSubstitutionItem } from "../types";
@@ -242,4 +242,26 @@ test("checkout rejects when every item is unavailable", async () => {
   );
 
   assert.equal(result.statusCode, 400);
+});
+
+test("DELETE requires an itemId", async () => {
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(makeEvent({ method: "DELETE", pathParameters: { familyId: "fam_1" }, headers }));
+  assert.equal(result.statusCode, 400);
+});
+
+test("DELETE removes a cart item outright", async () => {
+  ddbMock.on(DeleteCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({ method: "DELETE", pathParameters: { familyId: "fam_1", itemId: "i1" }, headers })
+  );
+
+  assert.equal(result.statusCode, 200);
+  assert.deepEqual(JSON.parse(result.body ?? "{}"), { deleted: "i1" });
+  const deleteCalls = ddbMock.commandCalls(DeleteCommand);
+  assert.equal(deleteCalls.length, 1);
+  assert.deepEqual(deleteCalls[0]?.args[0].input.Key, { PK: "FAMILY#fam_1", SK: "CARTITEM#i1" });
 });

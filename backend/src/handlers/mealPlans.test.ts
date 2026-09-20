@@ -189,6 +189,30 @@ test("generateGroceryListFromMealPlan is idempotent — never duplicates an ingr
   assert.ok(!cartPuts.some((item) => item.description === "Spaghetti"));
 });
 
+test("generateGroceryListFromMealPlan doesn't duplicate an ingredient someone already added to the cart by hand", async () => {
+  ddbMock.on(QueryCommand, { ExpressionAttributeValues: { ":pk": "FAMILY#fam_1", ":from": "MEALPLAN#0000-00-00", ":to": "MEALPLAN#9999-12-31#￿" } })
+    .resolves({ Items: [mealPlanEntry({ ingredients: ["Spaghetti", "Ground beef"] })] });
+  ddbMock.on(QueryCommand, { ExpressionAttributeValues: { ":pk": "FAMILY#fam_1", ":prefix": "CARTITEM#" } })
+    .resolves({
+      // Typed in by a family member, so it has no mealPlanSourceKey at all —
+      // matching on the description is the only thing that catches it.
+      Items: [cartItem({ itemId: "i1", description: "spaghetti ", source: "manual", mealPlanSourceKey: null })],
+    });
+  ddbMock.on(PutCommand).resolves({});
+
+  const result = await generateGroceryListFromMealPlan("fam_1");
+
+  assert.deepEqual(result, { added: 1, skipped: 1 });
+  const cartPuts = ddbMock
+    .commandCalls(PutCommand)
+    .map((call) => call.args[0].input.Item as Record<string, unknown>)
+    .filter((item) => item.entityType === "CART_ITEM");
+  assert.deepEqual(
+    cartPuts.map((item) => item.description),
+    ["Ground beef"]
+  );
+});
+
 test("generateGroceryListFromMealPlan aggregates a repeated ingredient across meals into one line with a summed quantity", async () => {
   const monday = mealPlanEntry({ SK: "MEALPLAN#2025-01-13#dinner", date: "2025-01-13", ingredients: ["Rice"] });
   const wednesday = mealPlanEntry({ SK: "MEALPLAN#2025-01-15#dinner", date: "2025-01-15", ingredients: ["rice"] });
