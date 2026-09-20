@@ -1,0 +1,119 @@
+{
+  "type": "APL",
+  "version": "2023.3",
+  "theme": "light",
+  "mainTemplate": {
+    "parameters": ["payload"],
+    "items": [
+      {
+        "type": "Container",
+        "width": "100%",
+        "height": "100%",
+        "backgroundColor": "#ffffff",
+        "alignItems": "center",
+        "items": [
+          {
+            "type": "Text",
+            "text": "Gem Garden",
+            "fontSize": "44dp",
+            "fontWeight": "bold",
+            "color": "#4a4b2b",
+            "paddingTop": "28dp"
+          },
+          {
+            "comment": "-- a simple decorative tree, built from the same Frame-shape technique as the chore-battle card --",
+            "type": "Container",
+            "width": "220dp",
+            "height": "190dp",
+            "paddingTop": "12dp",
+            "items": [
+              {
+                "type": "Frame",
+                "position": "absolute",
+                "bottom": "0dp",
+                "left": "104dp",
+                "width": "12dp",
+                "height": "70dp",
+                "backgroundColor": "#8a5c33"
+              },
+              {
+                "type": "Frame",
+                "position": "absolute",
+                "bottom": "58dp",
+                "left": "55dp",
+                "width": "70dp",
+                "height": "70dp",
+                "cornerRadius": "35dp",
+                "backgroundColor": "#7d7f45"
+              },
+              {
+                "type": "Frame",
+                "position": "absolute",
+                "bottom": "58dp",
+                "left": "95dp",
+                "width": "70dp",
+                "height": "70dp",
+                "cornerRadius": "35dp",
+                "backgroundColor": "#7d7f45"
+              },
+              {
+                "type": "Frame",
+                "position": "absolute",
+                "bottom": "88dp",
+                "left": "75dp",
+                "width": "70dp",
+                "height": "70dp",
+                "cornerRadius": "35dp",
+                "backgroundColor": "#9fa262"
+              },
+              { "type": "Frame", "position": "absolute", "bottom": "112dp", "left": "88dp", "width": "16dp", "height": "16dp", "cornerRadius": "8dp", "backgroundColor": "#a8434f" },
+              { "type": "Frame", "position": "absolute", "bottom": "128dp", "left": "116dp", "width": "16dp", "height": "16dp", "cornerRadius": "8dp", "backgroundColor": "#d19a3d" },
+              { "type": "Frame", "position": "absolute", "bottom": "90dp", "left": "65dp", "width": "14dp", "height": "14dp", "cornerRadius": "7dp", "backgroundColor": "#3f8f6d" },
+              { "type": "Frame", "position": "absolute", "bottom": "90dp", "left": "145dp", "width": "14dp", "height": "14dp", "cornerRadius": "7dp", "backgroundColor": "#3f6f8f" }
+            ]
+          },
+          {
+            "type": "Text",
+            "text": "${payload.garden.stageName}",
+            "fontSize": "36dp",
+            "fontWeight": "bold",
+            "color": "#4a4b2b",
+            "paddingTop": "8dp"
+          },
+          {
+            "type": "Text",
+            "text": "${payload.garden.totalGems} gems collected",
+            "fontSize": "26dp",
+            "color": "#616337",
+            "paddingTop": "4dp"
+          },
+          {
+            "type": "Frame",
+            "width": "70%",
+            "height": "18dp",
+            "cornerRadius": "9dp",
+            "backgroundColor": "#e8e8d6",
+            "paddingTop": "18dp",
+            "item": {
+              "type": "Frame",
+              "width": "${payload.garden.progressPercent}%",
+              "height": "100%",
+              "cornerRadius": "9dp",
+              "backgroundColor": "#7d7f45"
+            }
+          },
+          {
+            "type": "Text",
+            "text": "${payload.garden.progressLabel}",
+            "fontSize": "22dp",
+            "color": "#616337",
+            "paddingTop": "10dp",
+            "paddingLeft": "24dp",
+            "paddingRight": "24dp",
+            "textAlign": "center"
+          }
+        ]
+      }
+    ]
+  }
+}

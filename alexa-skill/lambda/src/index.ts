@@ -6,6 +6,8 @@ import type { Response } from "ask-sdk-model";
 const dashboardCard = require("../apl/dashboardCard.json") as Record<string, unknown>;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const choreBattleCard = require("../apl/choreBattleCard.json") as Record<string, unknown>;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const gemGardenCard = require("../apl/gemGardenCard.json") as Record<string, unknown>;
 
 const API_BASE_URL = process.env.YOUENJOYMYFAMILY_API_BASE_URL;
 // TODO: resolve from the authenticated Alexa household account linking flow
@@ -32,6 +34,72 @@ interface ScheduleEntry {
   title: string;
 }
 
+// Mirrors frontend/src/components/gemGarden/index.ts's stage thresholds —
+// kept as an independent copy per this repo's "no shared code across
+// subprojects" convention (frontend/backend/alexa-skill deploy separately).
+interface GardenStage {
+  id: string;
+  name: string;
+  threshold: number;
+}
+
+const SEED_STAGE: GardenStage = { id: "seed", name: "Tiny Seed", threshold: 0 };
+const GARDEN_STAGES: GardenStage[] = [
+  SEED_STAGE,
+  { id: "sprout", name: "Sprout", threshold: 25 },
+  { id: "sapling", name: "Budding Sapling", threshold: 75 },
+  { id: "tree", name: "Blooming Tree", threshold: 150 },
+  { id: "grove", name: "Magical Grove", threshold: 300 },
+];
+
+interface GardenProgress {
+  stage: GardenStage;
+  nextStage: GardenStage | null;
+  gemsToNextStage: number | null;
+}
+
+function getGardenProgress(totalGems: number): GardenProgress {
+  let stage = SEED_STAGE;
+  let stageIndex = 0;
+
+  GARDEN_STAGES.forEach((candidate, index) => {
+    if (totalGems >= candidate.threshold) {
+      stage = candidate;
+      stageIndex = index;
+    }
+  });
+
+  const nextStage = GARDEN_STAGES[stageIndex + 1] ?? null;
+  const gemsToNextStage = nextStage ? nextStage.threshold - totalGems : null;
+  return { stage, nextStage, gemsToNextStage };
+}
+
+// Several equivalent flavor lines for the same event — picked at random so
+// repeat chore completions don't all sound identical. Every line must keep
+// the literal "<gems> gems" substring and the member's name, since those are
+// the only parts callers (and tests) actually depend on.
+type CelebrationLine = (memberName: string, taskTitle: string, gems: number) => string;
+
+const CELEBRATION_LINE_DRAGON_CHASED: CelebrationLine = (memberName, taskTitle, gems) =>
+  `A dragon swooped in for "${taskTitle}", but ${memberName}'s knight chased it off and earned ${gems} gems!`;
+const CELEBRATION_LINE_HERO: CelebrationLine = (memberName, taskTitle, gems) =>
+  `${memberName} battled through "${taskTitle}" like a true hero and claimed ${gems} gems!`;
+const CELEBRATION_LINE_DRAGON_FLED: CelebrationLine = (memberName, taskTitle, gems) =>
+  `The gem dragon guarding "${taskTitle}" gave up the moment it saw ${memberName} coming, dropping ${gems} gems!`;
+
+export const CHORE_CELEBRATION_LINES: CelebrationLine[] = [
+  CELEBRATION_LINE_DRAGON_CHASED,
+  CELEBRATION_LINE_HERO,
+  CELEBRATION_LINE_DRAGON_FLED,
+];
+
+export function pickCelebrationLine(memberName: string, taskTitle: string, gems: number): string {
+  const roll = Math.floor(Math.random() * CHORE_CELEBRATION_LINES.length);
+  if (roll === 1) return CELEBRATION_LINE_HERO(memberName, taskTitle, gems);
+  if (roll === 2) return CELEBRATION_LINE_DRAGON_FLED(memberName, taskTitle, gems);
+  return CELEBRATION_LINE_DRAGON_CHASED(memberName, taskTitle, gems);
+}
+
 function supportsApl(handlerInput: Alexa.HandlerInput): boolean {
   const supportedInterfaces = handlerInput.requestEnvelope.context.System.device?.supportedInterfaces;
   return Boolean(supportedInterfaces?.["Alexa.Presentation.APL"]);
@@ -54,6 +122,22 @@ function renderChoreBattle(handlerInput: Alexa.HandlerInput, memberName: string,
     type: "Alexa.Presentation.APL.RenderDocument",
     document: choreBattleCard,
     datasources: { battle: { memberName, taskTitle, gems } },
+  });
+}
+
+function renderGemGarden(
+  handlerInput: Alexa.HandlerInput,
+  stageName: string,
+  totalGems: number,
+  progressPercent: number,
+  progressLabel: string
+): void {
+  if (!supportsApl(handlerInput)) return;
+
+  handlerInput.responseBuilder.addDirective({
+    type: "Alexa.Presentation.APL.RenderDocument",
+    document: gemGardenCard,
+    datasources: { garden: { stageName, totalGems, progressPercent, progressLabel } },
   });
 }
 
@@ -194,12 +278,47 @@ export const CompleteChoreIntentHandler: Alexa.RequestHandler = {
       if (!response.ok) throw new Error(`YouEnjoyMyFamily API error: ${response.status}`);
       const completed = (await response.json()) as TaskItem;
 
-      const speakOutput = `A dragon swooped in for "${match.title}", but ${memberName}'s knight chased it off and earned ${completed.gemsAwarded} gems!`;
+      const speakOutput = pickCelebrationLine(memberName, match.title, completed.gemsAwarded);
       renderChoreBattle(handlerInput, memberName, match.title, completed.gemsAwarded);
       return handlerInput.responseBuilder.speak(speakOutput).getResponse();
     } catch (err) {
       console.error(err);
       return handlerInput.responseBuilder.speak("I couldn't mark that chore done right now.").getResponse();
+    }
+  },
+};
+
+export const GetGemGardenIntentHandler: Alexa.RequestHandler = {
+  canHandle(handlerInput) {
+    return (
+      Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
+      Alexa.getIntentName(handlerInput.requestEnvelope) === "GetGemGardenIntent"
+    );
+  },
+  async handle(handlerInput): Promise<Response> {
+    try {
+      const tasks = await fetchJson<TaskItem[]>(`/families/${FAMILY_ID}/tasks`);
+      const totalGems = tasks.reduce((sum, task) => sum + task.gemsAwarded, 0);
+      const { stage, nextStage, gemsToNextStage } = getGardenProgress(totalGems);
+
+      const speakOutput = nextStage
+        ? `Your gem garden is a ${stage.name} with ${totalGems} gems! ${gemsToNextStage} more gem${
+            gemsToNextStage === 1 ? "" : "s"
+          } to grow into a ${nextStage.name}.`
+        : `Your gem garden is a ${stage.name} with ${totalGems} gems — full bloom, as lush as it gets!`;
+
+      const progressPercent = nextStage
+        ? Math.min(100, Math.round(((totalGems - stage.threshold) / (nextStage.threshold - stage.threshold)) * 100))
+        : 100;
+      const progressLabel = nextStage
+        ? `${gemsToNextStage} more gem${gemsToNextStage === 1 ? "" : "s"} to reach ${nextStage.name}!`
+        : "Full bloom! The garden is as lush as it gets.";
+
+      renderGemGarden(handlerInput, stage.name, totalGems, progressPercent, progressLabel);
+      return handlerInput.responseBuilder.speak(speakOutput).getResponse();
+    } catch (err) {
+      console.error(err);
+      return handlerInput.responseBuilder.speak("I couldn't check the gem garden right now.").getResponse();
     }
   },
 };
@@ -213,7 +332,7 @@ export const HelpIntentHandler: Alexa.RequestHandler = {
   },
   handle(handlerInput): Response {
     const speakOutput =
-      "You can ask what's on today's schedule, what the tasks are, add a task, or say you finished a chore to battle for gems.";
+      "You can ask what's on today's schedule, what the tasks are, add a task, say you finished a chore to battle for gems, or ask how the gem garden is growing.";
     return handlerInput.responseBuilder.speak(speakOutput).reprompt(speakOutput).getResponse();
   },
 };
@@ -257,6 +376,7 @@ export const handler = Alexa.SkillBuilders.custom()
     GetTasksIntentHandler,
     AddTaskIntentHandler,
     CompleteChoreIntentHandler,
+    GetGemGardenIntentHandler,
     HelpIntentHandler,
     CancelAndStopIntentHandler,
     SessionEndedRequestHandler

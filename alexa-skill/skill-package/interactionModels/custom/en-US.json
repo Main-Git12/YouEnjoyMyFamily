@@ -51,6 +51,18 @@
             "{memberName} is done with {taskTitle}",
             "I did {taskTitle} for gems"
           ]
+        },
+        {
+          "name": "GetGemGardenIntent",
+          "slots": [],
+          "samples": [
+            "how's the gem garden doing",
+            "what does my gem garden look like",
+            "check the gem garden",
+            "how many gems until the next stage",
+            "tell me about the gem garden",
+            "how's our gem garden growing"
+          ]
         }
       ]
     }
