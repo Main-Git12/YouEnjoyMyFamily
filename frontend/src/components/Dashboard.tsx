@@ -7,6 +7,7 @@ import Calendar from "./Calendar";
 import Celebration from "./Celebration";
 import FamilyFavorites from "./FamilyFavorites";
 import GemCastle from "./GemCastle";
+import CastleAlert from "./CastleAlert";
 
 // Placeholder until family selection / auth is wired up.
 const DEMO_FAMILY_ID = "fam_demo";
@@ -17,6 +18,8 @@ export default function Dashboard() {
   const [preferences, setPreferences] = useState<StatedPreference[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [celebration, setCelebration] = useState<{ gemsEarned: number } | null>(null);
+  const [castleAlertTask, setCastleAlertTask] = useState<Task | null>(null);
+  const [hasTriggeredCastleAlert, setHasTriggeredCastleAlert] = useState(false);
 
   useEffect(() => {
     Promise.all([api.listTasks(DEMO_FAMILY_ID), api.listSchedules(DEMO_FAMILY_ID), api.listStatedPreferences(DEMO_FAMILY_ID)])
@@ -27,6 +30,19 @@ export default function Dashboard() {
       })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
+
+  // Trigger the castle-attack event once per dashboard session, off data the
+  // family already explicitly entered (a pending task's own assignee) —
+  // never any inference about a child's behavior.
+  useEffect(() => {
+    if (hasTriggeredCastleAlert || tasks.length === 0) return;
+    const candidates = tasks.filter((task) => task.status === "pending" && task.assignedTo);
+    if (candidates.length === 0) return;
+    const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+    if (!chosen) return;
+    setCastleAlertTask(chosen);
+    setHasTriggeredCastleAlert(true);
+  }, [tasks, hasTriggeredCastleAlert]);
 
   const totalGems = tasks.reduce((sum, task) => sum + task.gemsAwarded, 0);
 
@@ -57,6 +73,11 @@ export default function Dashboard() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
+  }
+
+  function handleDefendCastle(task: Task) {
+    setCastleAlertTask(null);
+    void handleComplete(task);
   }
 
   return (
@@ -102,6 +123,10 @@ export default function Dashboard() {
           totalGems={totalGems}
           onDismiss={() => setCelebration(null)}
         />
+      )}
+
+      {castleAlertTask && (
+        <CastleAlert task={castleAlertTask} onDefend={handleDefendCastle} onDismiss={() => setCastleAlertTask(null)} />
       )}
     </main>
   );

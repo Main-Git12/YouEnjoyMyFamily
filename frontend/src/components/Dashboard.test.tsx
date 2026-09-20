@@ -98,4 +98,43 @@ describe("Dashboard", () => {
       statement: "prefers penne over spaghetti",
     });
   });
+
+  it("triggers a castle-attack event for a pending task that already has an assignee", async () => {
+    vi.mocked(api.listTasks).mockResolvedValue([
+      { taskId: "t1", title: "wipe the table", assignedTo: "Parker", dueDate: null, status: "pending", gemsAwarded: 0 },
+    ]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+    vi.mocked(api.completeTask).mockResolvedValue({
+      taskId: "t1",
+      title: "wipe the table",
+      assignedTo: "Parker",
+      dueDate: null,
+      status: "done",
+      gemsAwarded: 10,
+    });
+
+    render(<Dashboard />);
+
+    await waitFor(() => expect(screen.getByText("Castle Under Attack!")).toBeInTheDocument());
+    expect(screen.getByText(/Parker/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /defend the castle/i }));
+
+    await waitFor(() => expect(api.completeTask).toHaveBeenCalledWith("fam_demo", "t1"));
+    expect(screen.queryByText("Castle Under Attack!")).not.toBeInTheDocument();
+  });
+
+  it("does not trigger a castle-attack event when no pending task has an assignee", async () => {
+    vi.mocked(api.listTasks).mockResolvedValue([
+      { taskId: "t1", title: "Pack soccer bag", assignedTo: null, dueDate: null, status: "pending", gemsAwarded: 0 },
+    ]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+
+    render(<Dashboard />);
+
+    await waitFor(() => expect(screen.getByText("Pack soccer bag")).toBeInTheDocument());
+    expect(screen.queryByText("Castle Under Attack!")).not.toBeInTheDocument();
+  });
 });
