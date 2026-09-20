@@ -42,6 +42,8 @@ const cartItem = (overrides: Partial<CartItem> = {}): CartItem => ({
   status: "pending",
   substituteDescription: null,
   addedBy: null,
+  source: "manual",
+  mealPlanSourceKey: null,
   addedAt: "2025-01-01T00:00:00Z",
   updatedAt: "2025-01-01T00:00:00Z",
   ...overrides,

@@ -57,7 +57,7 @@ const substitutionKey = (familyId: string, originalDescription: string) => ({
   SK: `SUBSTITUTION#${normalize(originalDescription)}`,
 });
 
-async function listCartItems(familyId: string): Promise<CartItem[]> {
+export async function listCartItems(familyId: string): Promise<CartItem[]> {
   const result = await docClient.send(
     new QueryCommand({
       TableName: TABLE_NAME,
@@ -81,6 +81,42 @@ async function addCartItem(familyId: string, input: CartItemInput): Promise<Cart
     status: "pending",
     substituteDescription: null,
     addedBy: input.addedBy ?? null,
+    source: "manual",
+    mealPlanSourceKey: null,
+    addedAt: now,
+    updatedAt: now,
+  };
+
+  await docClient.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));
+  return item;
+}
+
+/**
+ * Adds a cart item generated from a family's own meal plan ingredients (see
+ * mealPlans.ts's generateGroceryListFromMealPlan) rather than typed in
+ * directly. `mealPlanSourceKey` (the ingredient's normalized text) is what
+ * makes re-running that generation idempotent — see listCartItems callers.
+ */
+export async function addMealPlanCartItem(
+  familyId: string,
+  description: string,
+  quantity: number,
+  mealPlanSourceKey: string
+): Promise<CartItem> {
+  const itemId = ulid();
+  const now = new Date().toISOString();
+  const item: CartItem = {
+    ...cartItemKey(familyId, itemId),
+    entityType: "CART_ITEM",
+    familyId,
+    itemId,
+    description,
+    quantity,
+    status: "pending",
+    substituteDescription: null,
+    addedBy: null,
+    source: "meal_plan",
+    mealPlanSourceKey,
     addedAt: now,
     updatedAt: now,
   };

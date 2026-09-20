@@ -134,6 +134,11 @@ export interface CartItem {
   status: "pending" | "unavailable" | "substituted";
   substituteDescription: string | null;
   addedBy: string | null;
+  // "meal_plan" items are generated from a family's own meal plan
+  // ingredients (see mealPlans.ts) rather than typed in directly; a
+  // "manual" item's mealPlanSourceKey is always null.
+  source: "manual" | "meal_plan";
+  mealPlanSourceKey: string | null;
   addedAt: string;
   updatedAt: string;
 }
@@ -197,4 +202,30 @@ export interface CalendarEventItem {
   startTime: string | null;
   endTime: string | null;
   syncedAt: string;
+}
+
+export const MEAL_SLOTS = ["breakfast", "lunch", "dinner"] as const;
+export type MealSlot = (typeof MEAL_SLOTS)[number];
+
+// A meal a family member has planned for a specific day + slot, along with
+// the ingredients it takes — always typed in by a family member, never an
+// AI-invented recipe. This is the only input the grocery list generation in
+// mealPlans.ts reads from; see backend/models/schema.md.
+export const MealPlanEntryInput = z.object({
+  mealName: z.string().min(1).max(200),
+  ingredients: z.array(z.string().min(1).max(200)).max(50).optional(),
+});
+export type MealPlanEntryInput = z.infer<typeof MealPlanEntryInput>;
+
+export interface MealPlanEntryItem {
+  PK: string;
+  SK: string;
+  entityType: "MEAL_PLAN_ENTRY";
+  familyId: string;
+  date: string;
+  slot: MealSlot;
+  mealName: string;
+  ingredients: string[];
+  createdAt: string;
+  updatedAt: string;
 }

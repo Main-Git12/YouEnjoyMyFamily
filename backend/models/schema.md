@@ -17,6 +17,7 @@ items returned from a `Query` without a second read.
 | Synced calendar evt | `FAMILY#<familyId>`   | `CALEVENT#<isoDate>#<id>`   | `EXTID#<googleEventId>`| `FAMILY#<familyId>`        |
 | Grocery cart item   | `FAMILY#<familyId>`   | `CARTITEM#<itemId>`         | —                       | —                          |
 | Learned substitution| `FAMILY#<familyId>`   | `SUBSTITUTION#<normalizedDescription>`| —             | —                          |
+| Meal plan entry     | `FAMILY#<familyId>`   | `MEALPLAN#<isoDate>#<slot>` | —                       | —                          |
 | OAuth token set     | `FAMILY#<familyId>`   | `TOKEN#<provider>`          | —                       | —                          |
 
 `Family` (`METADATA`) is the tenant record every other item's `PK` depends
@@ -48,6 +49,24 @@ item unavailable and then explicitly saying what they picked instead (see
 only ever offered back as a suggestion on the next matching "unavailable",
 not applied automatically.
 
+`Meal plan entry` (`MEALPLAN#<isoDate>#<slot>`, one item per family per
+day+slot) is a meal a family member has explicitly planned — a name plus
+its ingredients, typed in the same way a task or a stated preference is.
+`generateGroceryListFromMealPlan` (`mealPlans.ts`) is the only thing that
+turns that into `Grocery cart item`s: it aggregates a date range's planned
+ingredients (case-insensitively, so "Rice" and "rice" become one line with
+a summed quantity) and adds any not already generated before as a cart item
+tagged `source: "meal_plan"` with `mealPlanSourceKey` set to the
+ingredient's normalized text — the same idempotent-upsert spirit as
+`Synced calendar evt`'s `GSI1PK`, just checked by a Query + in-memory Set
+instead of a GSI, since a family's cart is small. A weekly EventBridge job
+(`mealPlanGrocerySync.ts`, see `template.yaml`) calls it for every family
+over the coming 7 days so nobody has to remember to hit "generate"; it's
+still driven entirely by what the family already typed into their meal
+plan, never an AI-invented meal or ingredient. A manually-added cart item
+(`POST /grocery-cart/items`) always has `source: "manual"` and
+`mealPlanSourceKey: null`.
+
 ## Access patterns
 
 - Get a family + all members: `Query PK = FAMILY#<familyId>`, filter/prefix on `SK`.
@@ -59,6 +78,9 @@ not applied automatically.
 - List all of a family's stated preferences: `Query PK = FAMILY#<familyId>, SK begins_with STATEDPREF#`.
 - List one member's stated preferences: `Query PK = FAMILY#<familyId>, SK begins_with STATEDPREF#<memberId>#`.
 - Look up a learned substitute for an item by its (lowercased, trimmed) description: `GetItem PK = FAMILY#<familyId>, SK = SUBSTITUTION#<normalizedDescription>`.
+- List a family's meal plan for a date range: `Query PK = FAMILY#<familyId>, SK between MEALPLAN#<start> and MEALPLAN#<end>`.
+- Look up or replace one day+slot's planned meal: `GetItem`/`PutItem PK = FAMILY#<familyId>, SK = MEALPLAN#<isoDate>#<slot>`.
+- List every family (weekly meal-plan grocery sync only): `Scan filter entityType = FAMILY` — the one access pattern here with no natural partition to query across; a Scan is the pragmatic choice for a job that runs once a week over what's expected to be a small number of families.
 
 ## Item shape examples
 
@@ -118,7 +140,23 @@ not applied automatically.
   "status": "unavailable", // "pending" | "unavailable" | "substituted"
   "substituteDescription": null, // set only once the family confirms a pick
   "addedBy": "member_456",
+  "source": "manual", // "manual" | "meal_plan" — "meal_plan" items came from generateGroceryListFromMealPlan
+  "mealPlanSourceKey": null, // the ingredient's normalized text, set only on a "meal_plan" item — makes regeneration idempotent
   "addedAt": "2025-01-10T12:00:00Z",
+  "updatedAt": "2025-01-10T12:00:00Z"
+}
+
+// Meal plan entry — a meal a family member explicitly planned for one day+slot
+{
+  "PK": "FAMILY#fam_123",
+  "SK": "MEALPLAN#2025-01-15#dinner",
+  "entityType": "MEAL_PLAN_ENTRY",
+  "familyId": "fam_123",
+  "date": "2025-01-15",
+  "slot": "dinner", // "breakfast" | "lunch" | "dinner"
+  "mealName": "Spaghetti and meatballs",
+  "ingredients": ["Spaghetti", "Ground beef", "Marinara sauce"],
+  "createdAt": "2025-01-10T12:00:00Z",
   "updatedAt": "2025-01-10T12:00:00Z"
 }
 

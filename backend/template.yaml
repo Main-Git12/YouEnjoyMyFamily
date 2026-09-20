@@ -285,6 +285,47 @@ Resources:
             Path: /families/{familyId}/grocery-cart/checkout
             Method: POST
 
+  MealPlansFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/mealPlans.ts]
+    Properties:
+      Handler: src/handlers/mealPlans.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref YouEnjoyMyFamilyTable
+      Events:
+        List:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/meal-plan
+            Method: GET
+        Upsert:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/meal-plan/{date}/{slot}
+            Method: PUT
+        Delete:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/meal-plan/{date}/{slot}
+            Method: DELETE
+        GenerateGroceryList:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/meal-plan/generate-grocery-list
+            Method: POST
+
   # ---------------------------------------------------------------------
   # Background sync — EventBridge scheduled trigger, decoupled from API
   # ---------------------------------------------------------------------
@@ -315,6 +356,31 @@ Resources:
             Schedule: rate(15 minutes)
             Name: !Sub YouEnjoyMyFamily-CalendarSync-${Stage}
             Description: Periodic Google Calendar sync for all connected families
+            Enabled: true
+
+  MealPlanGrocerySyncFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/mealPlanGrocerySync.ts]
+    Properties:
+      Handler: src/handlers/mealPlanGrocerySync.handler
+      CodeUri: .
+      Timeout: 30
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref YouEnjoyMyFamilyTable
+      Events:
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 13 ? * SUN *)
+            Name: !Sub YouEnjoyMyFamily-MealPlanGrocerySync-${Stage}
+            Description: Weekly conversion of each family's planned meals into grocery cart items
             Enabled: true
 
 Outputs:

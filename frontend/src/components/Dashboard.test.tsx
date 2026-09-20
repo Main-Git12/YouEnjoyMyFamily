@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import Dashboard from "./Dashboard";
+import { nextSevenDays } from "./MealPlan";
 import { api } from "../lib/api";
 
 vi.mock("../lib/api", () => ({
@@ -11,10 +12,26 @@ vi.mock("../lib/api", () => ({
     listStatedPreferences: vi.fn(),
     addStatedPreference: vi.fn(),
     removeStatedPreference: vi.fn(),
+    listMealPlan: vi.fn(),
+    upsertMealPlanEntry: vi.fn(),
+    removeMealPlanEntry: vi.fn(),
+    generateGroceryListFromMealPlan: vi.fn(),
+    listCartItems: vi.fn(),
+    addCartItem: vi.fn(),
+    markCartItemUnavailable: vi.fn(),
+    confirmCartItemSubstitute: vi.fn(),
+    checkoutGroceryCart: vi.fn(),
   },
 }));
 
 describe("Dashboard", () => {
+  beforeEach(() => {
+    // Defaults so tests that don't touch meal planning / grocery don't have
+    // to stub every call in the dashboard's initial Promise.all.
+    vi.mocked(api.listMealPlan).mockResolvedValue([]);
+    vi.mocked(api.listCartItems).mockResolvedValue([]);
+  });
+
   afterEach(() => {
     vi.resetAllMocks();
   });
@@ -136,5 +153,61 @@ describe("Dashboard", () => {
 
     await waitFor(() => expect(screen.getByText("Pack soccer bag")).toBeInTheDocument());
     expect(screen.queryByText("Castle Under Attack!")).not.toBeInTheDocument();
+  });
+
+  it("renders the planned meal plan and generates a grocery list from it", async () => {
+    vi.mocked(api.listTasks).mockResolvedValue([]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+    const today = nextSevenDays()[0] as string;
+    vi.mocked(api.listMealPlan).mockResolvedValue([
+      { date: today, slot: "dinner", mealName: "Tacos", ingredients: ["Tortillas", "Ground beef"] },
+    ]);
+    vi.mocked(api.generateGroceryListFromMealPlan).mockResolvedValue({ added: 2, skipped: 0 });
+    vi.mocked(api.listCartItems)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          itemId: "c1",
+          description: "Tortillas",
+          quantity: 1,
+          status: "pending",
+          substituteDescription: null,
+          source: "meal_plan",
+        },
+      ]);
+
+    render(<Dashboard />);
+
+    await waitFor(() => expect(screen.getByText("Tacos")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /generate grocery list for this week/i }));
+
+    await waitFor(() => expect(screen.getByText(/Added 2 ingredients/)).toBeInTheDocument());
+    expect(screen.getByText("Tortillas")).toBeInTheDocument();
+  });
+
+  it("adds a manual grocery item to the cart", async () => {
+    vi.mocked(api.listTasks).mockResolvedValue([]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+    vi.mocked(api.addCartItem).mockResolvedValue({
+      itemId: "c1",
+      description: "Milk",
+      quantity: 1,
+      status: "pending",
+      substituteDescription: null,
+      source: "manual",
+    });
+
+    render(<Dashboard />);
+
+    await waitFor(() => expect(screen.getByText("Nothing in the cart yet.")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByPlaceholderText("Add an item"), { target: { value: "Milk" } });
+    fireEvent.click(screen.getByRole("button", { name: /^add$/i }));
+
+    await waitFor(() => expect(screen.getByText("Milk")).toBeInTheDocument());
+    expect(api.addCartItem).toHaveBeenCalledWith("fam_demo", { description: "Milk" });
   });
 });
