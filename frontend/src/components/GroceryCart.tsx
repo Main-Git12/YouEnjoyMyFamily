@@ -10,6 +10,8 @@ interface GroceryCartProps {
   onCheckout: () => Promise<string>;
 }
 
+const REMOVAL_CONFIRM_MS = 4000;
+
 const STATUS_LABELS: Record<CartItem["status"], string> = {
   pending: "",
   unavailable: "Unavailable",
@@ -23,12 +25,22 @@ export default function GroceryCart({ items, onAdd, onMarkUnavailable, onConfirm
   const [substituteDrafts, setSubstituteDrafts] = useState<Record<string, string>>({});
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Removing is one tap away on a screen kids walk past, so it takes a
+  // second, deliberate tap. Forgets itself shortly after, so a half-finished
+  // removal never sits there waiting to catch the next person out.
+  const [pendingRemoval, setPendingRemoval] = useState<string | null>(null);
 
   const canCheckout = items.some((item) => item.status !== "unavailable");
 
   // The Instacart link is a snapshot of the cart at checkout time — once the
   // cart changes it points at a list that no longer matches, so drop it.
   useEffect(() => setCheckoutUrl(null), [items]);
+
+  useEffect(() => {
+    if (!pendingRemoval) return;
+    const timer = setTimeout(() => setPendingRemoval(null), REMOVAL_CONFIRM_MS);
+    return () => clearTimeout(timer);
+  }, [pendingRemoval]);
 
   async function handleAdd(event: FormEvent) {
     event.preventDefault();
@@ -58,6 +70,15 @@ export default function GroceryCart({ items, onAdd, onMarkUnavailable, onConfirm
     });
   }
 
+  function handleRemoveClick(item: CartItem) {
+    if (pendingRemoval === item.itemId) {
+      setPendingRemoval(null);
+      void onRemove(item);
+      return;
+    }
+    setPendingRemoval(item.itemId);
+  }
+
   async function handleCheckout() {
     setError(null);
     try {
@@ -81,7 +102,15 @@ export default function GroceryCart({ items, onAdd, onMarkUnavailable, onConfirm
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-2">
                 <span>
                   {item.status === "substituted" && item.substituteDescription ? item.substituteDescription : item.description}
-                  {item.quantity > 1 && <span className="text-olive-600"> ×{item.quantity}</span>}
+                  {item.quantity > 1 &&
+                    // A meal-plan item's quantity is how many of the week's
+                    // meals call for it, not how many to buy — saying "×3" in
+                    // an aisle would have someone buy three packs of tortillas.
+                    (item.source === "meal_plan" ? (
+                      <span className="text-olive-600"> · for {item.quantity} meals</span>
+                    ) : (
+                      <span className="text-olive-600"> ×{item.quantity}</span>
+                    ))}
                   {item.source === "meal_plan" && (
                     <span className="text-xs uppercase tracking-wide text-olive-500 ml-2">from meal plan</span>
                   )}
@@ -102,11 +131,17 @@ export default function GroceryCart({ items, onAdd, onMarkUnavailable, onConfirm
                   )}
                   <button
                     type="button"
-                    aria-label={`Remove "${item.description}" from the cart`}
-                    onClick={() => onRemove(item)}
-                    className="text-sm text-clay-700 underline underline-offset-2 py-1"
+                    aria-label={
+                      pendingRemoval === item.itemId
+                        ? `Tap again to remove "${item.description}" from the cart`
+                        : `Remove "${item.description}" from the cart`
+                    }
+                    onClick={() => handleRemoveClick(item)}
+                    className={`text-sm underline underline-offset-2 py-1 ${
+                      pendingRemoval === item.itemId ? "text-clay-900 font-semibold" : "text-clay-700"
+                    }`}
                   >
-                    Remove
+                    {pendingRemoval === item.itemId ? "Tap again" : "Remove"}
                   </button>
                 </span>
               </div>

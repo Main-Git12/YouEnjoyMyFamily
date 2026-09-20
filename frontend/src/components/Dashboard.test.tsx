@@ -232,7 +232,9 @@ describe("Dashboard", () => {
     render(<Dashboard />);
 
     await waitFor(() => expect(screen.getByText("Spaghetti")).toBeInTheDocument());
+    // Removal takes a deliberate second tap.
     fireEvent.click(screen.getByLabelText('Remove "Spaghetti" from the cart'));
+    fireEvent.click(screen.getByLabelText('Tap again to remove "Spaghetti" from the cart'));
 
     await waitFor(() => expect(screen.getByText("Nothing in the cart yet.")).toBeInTheDocument());
     expect(api.removeCartItem).toHaveBeenCalledWith("fam_demo", "c1");

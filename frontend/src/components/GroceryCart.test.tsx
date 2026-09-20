@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import GroceryCart from "./GroceryCart";
 import type { CartItem } from "../types";
 
@@ -41,8 +41,19 @@ describe("GroceryCart", () => {
 
     expect(screen.getByText("Spaghetti")).toBeInTheDocument();
     expect(screen.getByText("Tortillas")).toBeInTheDocument();
-    expect(screen.getByText("×3")).toBeInTheDocument();
     expect(screen.getByText("from meal plan")).toBeInTheDocument();
+    // A meal-plan quantity counts meals, not packets — "×3" in an aisle
+    // would have someone buy three packs.
+    expect(screen.getByText(/for 3 meals/)).toBeInTheDocument();
+    expect(screen.queryByText("×3")).not.toBeInTheDocument();
+  });
+
+  it("shows a hand-entered quantity as a plain multiplier", () => {
+    const items: CartItem[] = [{ ...pendingItem, description: "Milk", quantity: 2, source: "manual" }];
+    render(<GroceryCart {...cartProps({ items })} />);
+
+    expect(screen.getByText("×2")).toBeInTheDocument();
+    expect(screen.queryByText(/for 2 meals/)).not.toBeInTheDocument();
   });
 
   it("adds a new item with the entered quantity, then resets the form", async () => {
@@ -71,13 +82,33 @@ describe("GroceryCart", () => {
     await waitFor(() => expect(screen.getByPlaceholderText("Add an item")).toHaveValue(""));
   });
 
-  it("removes an item outright", async () => {
+  it("removes an item only after a second, deliberate tap", async () => {
+    const onRemove = vi.fn().mockResolvedValue(undefined);
+    render(<GroceryCart {...cartProps({ items: [pendingItem], onRemove })} />);
+
+    // One stray tap — from a passing child, say — must not delete anything.
+    fireEvent.click(screen.getByLabelText('Remove "Spaghetti" from the cart'));
+    expect(onRemove).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByLabelText('Tap again to remove "Spaghetti" from the cart'));
+    await waitFor(() => expect(onRemove).toHaveBeenCalledWith(pendingItem));
+  });
+
+  it("forgets a half-finished removal, so it can't catch the next person out", async () => {
+    vi.useFakeTimers();
     const onRemove = vi.fn().mockResolvedValue(undefined);
     render(<GroceryCart {...cartProps({ items: [pendingItem], onRemove })} />);
 
     fireEvent.click(screen.getByLabelText('Remove "Spaghetti" from the cart'));
+    expect(screen.getByText("Tap again")).toBeInTheDocument();
 
-    await waitFor(() => expect(onRemove).toHaveBeenCalledWith(pendingItem));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+
+    expect(screen.getByText("Remove")).toBeInTheDocument();
+    expect(onRemove).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 
   it("can remove an item that was already marked unavailable, so it doesn't linger forever", async () => {
@@ -88,6 +119,7 @@ describe("GroceryCart", () => {
     // "Can't find it" is gone once it's unavailable, but Remove still isn't.
     expect(screen.queryByLabelText('Mark "Spaghetti" unavailable')).not.toBeInTheDocument();
     fireEvent.click(screen.getByLabelText('Remove "Spaghetti" from the cart'));
+    fireEvent.click(screen.getByLabelText('Tap again to remove "Spaghetti" from the cart'));
 
     await waitFor(() => expect(onRemove).toHaveBeenCalledWith(unavailableItem));
   });
