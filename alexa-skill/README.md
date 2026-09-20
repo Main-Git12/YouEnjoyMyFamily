@@ -10,7 +10,8 @@ skill-package/
   skill.json                             Skill manifest (publishing info, APL interface)
   interactionModels/custom/en-US.json     Invocation name + intents (GetSchedule, GetTasks, AddTask,
                                            CompleteChore, GetGemCastle, GetMealPlan,
-                                           GenerateGroceryList, GetGroceryList)
+                                           GenerateGroceryList, GetGroceryList,
+                                           AddGroceryItem)
 lambda/
   src/index.ts                            ask-sdk-core request handlers (TypeScript), calls the YouEnjoyMyFamily backend API
   src/index.test.ts                        node:test unit tests for every handler (mocked fetch, no network)

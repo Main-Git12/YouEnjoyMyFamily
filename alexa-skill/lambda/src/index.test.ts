@@ -10,6 +10,7 @@ import {
   GetMealPlanIntentHandler,
   GenerateGroceryListIntentHandler,
   GetGroceryListIntentHandler,
+  AddGroceryItemIntentHandler,
   HelpIntentHandler,
   CancelAndStopIntentHandler,
   SessionEndedRequestHandler,
@@ -421,6 +422,38 @@ test("GetGroceryListIntentHandler degrades gracefully when the backend is unreac
   const response = (await GetGroceryListIntentHandler.handle(handlerInput)) as FakeResponse;
 
   assert.match(speechOf(response), /couldn't check the grocery list/i);
+});
+
+test("AddGroceryItemIntentHandler asks what to add when the slot is empty", async () => {
+  const handlerInput = makeHandlerInput(intentRequest("AddGroceryItemIntent", {}));
+  const response = (await AddGroceryItemIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  assert.match(speechOf(response), /what should I add to the grocery list/i);
+});
+
+test("AddGroceryItemIntentHandler posts the item and confirms it", async () => {
+  let seen: { url?: string; init?: RequestInit } = {};
+  mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+    seen = { url, init };
+    return new Response(JSON.stringify({ itemId: "c1" }), { status: 201 });
+  });
+
+  const handlerInput = makeHandlerInput(intentRequest("AddGroceryItemIntent", { itemDescription: "oat milk" }));
+  const response = (await AddGroceryItemIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  assert.match(seen.url ?? "", /\/grocery-cart\/items$/);
+  assert.equal(seen.init?.method, "POST");
+  assert.deepEqual(JSON.parse(String(seen.init?.body)), { description: "oat milk" });
+  assert.match(speechOf(response), /Added oat milk to the grocery list/);
+});
+
+test("AddGroceryItemIntentHandler reports failure without throwing when the backend rejects the write", async () => {
+  mock.method(globalThis, "fetch", async () => new Response("error", { status: 500 }));
+
+  const handlerInput = makeHandlerInput(intentRequest("AddGroceryItemIntent", { itemDescription: "oat milk" }));
+  const response = (await AddGroceryItemIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  assert.match(speechOf(response), /couldn't add that to the grocery list/i);
 });
 
 test("HelpIntentHandler and CancelAndStopIntentHandler respond without hitting the network", () => {

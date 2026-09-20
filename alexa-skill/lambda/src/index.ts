@@ -492,6 +492,40 @@ export const GetGroceryListIntentHandler: Alexa.RequestHandler = {
   },
 };
 
+export const AddGroceryItemIntentHandler: Alexa.RequestHandler = {
+  canHandle(handlerInput) {
+    return (
+      Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
+      Alexa.getIntentName(handlerInput.requestEnvelope) === "AddGroceryItemIntent"
+    );
+  },
+  async handle(handlerInput): Promise<Response> {
+    const description = Alexa.getSlotValue(handlerInput.requestEnvelope, "itemDescription");
+    if (!description) {
+      return handlerInput.responseBuilder
+        .speak("What should I add to the grocery list?")
+        .reprompt("What should I add to the grocery list?")
+        .getResponse();
+    }
+
+    try {
+      if (!API_BASE_URL) throw new Error("YOUENJOYMYFAMILY_API_BASE_URL is not configured");
+
+      const response = await fetch(`${API_BASE_URL}/families/${FAMILY_ID}/grocery-cart/items`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ description }),
+      });
+      if (!response.ok) throw new Error(`YouEnjoyMyFamily API error: ${response.status}`);
+
+      return handlerInput.responseBuilder.speak(`Added ${description} to the grocery list.`).getResponse();
+    } catch (err) {
+      console.error(err);
+      return handlerInput.responseBuilder.speak("I couldn't add that to the grocery list right now.").getResponse();
+    }
+  },
+};
+
 export const HelpIntentHandler: Alexa.RequestHandler = {
   canHandle(handlerInput) {
     return (
@@ -501,7 +535,7 @@ export const HelpIntentHandler: Alexa.RequestHandler = {
   },
   handle(handlerInput): Response {
     const speakOutput =
-      "You can ask what's on today's schedule, what the tasks are, add a task, say you finished a chore to battle for gems, ask how the gem castle is growing, check today's meal plan, build the grocery list from this week's meals, or ask what's on the grocery list.";
+      "You can ask what's on today's schedule, what the tasks are, add a task, say you finished a chore to battle for gems, ask how the gem castle is growing, check today's meal plan, build the grocery list from this week's meals, add something to the grocery list, or ask what's on it.";
     return handlerInput.responseBuilder.speak(speakOutput).reprompt(speakOutput).getResponse();
   },
 };
@@ -549,6 +583,7 @@ export const handler = Alexa.SkillBuilders.custom()
     GetMealPlanIntentHandler,
     GenerateGroceryListIntentHandler,
     GetGroceryListIntentHandler,
+    AddGroceryItemIntentHandler,
     HelpIntentHandler,
     CancelAndStopIntentHandler,
     SessionEndedRequestHandler

@@ -97,6 +97,18 @@
             "read the grocery list",
             "what's in the grocery cart"
           ]
+        },
+        {
+          "name": "AddGroceryItemIntent",
+          "slots": [{ "name": "itemDescription", "type": "AMAZON.SearchQuery" }],
+          "samples": [
+            "add {itemDescription} to the grocery list",
+            "add {itemDescription} to the shopping list",
+            "put {itemDescription} on the grocery list",
+            "we need {itemDescription}",
+            "we're out of {itemDescription}",
+            "buy {itemDescription}"
+          ]
         }
       ]
     }
