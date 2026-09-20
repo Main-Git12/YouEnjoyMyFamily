@@ -7,6 +7,9 @@ import {
   AddTaskIntentHandler,
   CompleteChoreIntentHandler,
   GetGemCastleIntentHandler,
+  GetMealPlanIntentHandler,
+  GenerateGroceryListIntentHandler,
+  GetGroceryListIntentHandler,
   HelpIntentHandler,
   CancelAndStopIntentHandler,
   SessionEndedRequestHandler,
@@ -235,6 +238,114 @@ test("GetGemCastleIntentHandler degrades gracefully when the backend is unreacha
   const response = (await GetGemCastleIntentHandler.handle(handlerInput)) as FakeResponse;
 
   assert.match(speechOf(response), /couldn't check the gem castle/i);
+});
+
+test("GetMealPlanIntentHandler speaks each planned slot in breakfast/lunch/dinner order", async () => {
+  mock.method(globalThis, "fetch", async () =>
+    new Response(
+      JSON.stringify([
+        { date: "2025-01-15", slot: "dinner", mealName: "Tacos" },
+        { date: "2025-01-15", slot: "breakfast", mealName: "Pancakes" },
+      ]),
+      { status: 200 }
+    )
+  );
+
+  const handlerInput = makeHandlerInput(intentRequest("GetMealPlanIntent"), { supportsApl: true });
+  const response = (await GetMealPlanIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  const speech = speechOf(response);
+  assert.match(speech, /Breakfast: Pancakes/);
+  assert.match(speech, /Dinner: Tacos/);
+  assert.ok(speech.indexOf("Breakfast") < speech.indexOf("Dinner"));
+  assert.equal(response.directives.length, 1);
+});
+
+test("GetMealPlanIntentHandler reports nothing planned on an empty day", async () => {
+  mock.method(globalThis, "fetch", async () => new Response(JSON.stringify([]), { status: 200 }));
+
+  const handlerInput = makeHandlerInput(intentRequest("GetMealPlanIntent"));
+  const response = (await GetMealPlanIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  assert.match(speechOf(response), /nothing's planned for today/i);
+});
+
+test("GetMealPlanIntentHandler degrades gracefully when the backend is unreachable", async () => {
+  mock.method(globalThis, "fetch", async () => new Response("error", { status: 500 }));
+
+  const handlerInput = makeHandlerInput(intentRequest("GetMealPlanIntent"));
+  const response = (await GetMealPlanIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  assert.match(speechOf(response), /couldn't check the meal plan/i);
+});
+
+test("GenerateGroceryListIntentHandler reports how many ingredients were added and skipped", async () => {
+  mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ added: 3, skipped: 1 }), { status: 200 }));
+
+  const handlerInput = makeHandlerInput(intentRequest("GenerateGroceryListIntent"));
+  const response = (await GenerateGroceryListIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  assert.match(speechOf(response), /Added 3 ingredients/);
+  assert.match(speechOf(response), /1 was already on it/);
+});
+
+test("GenerateGroceryListIntentHandler reports when nothing new was added", async () => {
+  mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ added: 0, skipped: 2 }), { status: 200 }));
+
+  const handlerInput = makeHandlerInput(intentRequest("GenerateGroceryListIntent"));
+  const response = (await GenerateGroceryListIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  assert.match(speechOf(response), /already on the grocery list/i);
+});
+
+test("GenerateGroceryListIntentHandler degrades gracefully when the backend rejects the request", async () => {
+  mock.method(globalThis, "fetch", async () => new Response("error", { status: 500 }));
+
+  const handlerInput = makeHandlerInput(intentRequest("GenerateGroceryListIntent"));
+  const response = (await GenerateGroceryListIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  assert.match(speechOf(response), /couldn't build the grocery list/i);
+});
+
+test("GetGroceryListIntentHandler speaks pending and substituted items but excludes unavailable ones", async () => {
+  mock.method(globalThis, "fetch", async () =>
+    new Response(
+      JSON.stringify([
+        { description: "Milk", status: "pending" },
+        { description: "Rare cheese", status: "unavailable" },
+        { description: "Penne", status: "substituted" },
+      ]),
+      { status: 200 }
+    )
+  );
+
+  const handlerInput = makeHandlerInput(intentRequest("GetGroceryListIntent"), { supportsApl: true });
+  const response = (await GetGroceryListIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  const speech = speechOf(response);
+  assert.match(speech, /Milk/);
+  assert.match(speech, /Penne/);
+  assert.doesNotMatch(speech, /Rare cheese/);
+  assert.match(speech, /2 items/);
+  assert.equal(response.directives.length, 1);
+});
+
+test("GetGroceryListIntentHandler reports an empty list", async () => {
+  mock.method(globalThis, "fetch", async () => new Response(JSON.stringify([]), { status: 200 }));
+
+  const handlerInput = makeHandlerInput(intentRequest("GetGroceryListIntent"));
+  const response = (await GetGroceryListIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  assert.match(speechOf(response), /grocery list is empty/i);
+});
+
+test("GetGroceryListIntentHandler degrades gracefully when the backend is unreachable", async () => {
+  mock.method(globalThis, "fetch", async () => new Response("error", { status: 500 }));
+
+  const handlerInput = makeHandlerInput(intentRequest("GetGroceryListIntent"));
+  const response = (await GetGroceryListIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  assert.match(speechOf(response), /couldn't check the grocery list/i);
 });
 
 test("HelpIntentHandler and CancelAndStopIntentHandler respond without hitting the network", () => {

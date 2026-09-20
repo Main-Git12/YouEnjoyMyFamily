@@ -64,6 +64,39 @@
             "how's our kingdom growing",
             "who lives in the castle"
           ]
+        },
+        {
+          "name": "GetMealPlanIntent",
+          "slots": [],
+          "samples": [
+            "what's for dinner",
+            "what's on the menu today",
+            "what are we eating today",
+            "what's the meal plan for today",
+            "what's for breakfast",
+            "what's for lunch"
+          ]
+        },
+        {
+          "name": "GenerateGroceryListIntent",
+          "slots": [],
+          "samples": [
+            "build the grocery list from this week's meals",
+            "add this week's meals to the grocery list",
+            "generate the grocery list",
+            "turn the meal plan into a grocery list",
+            "make a grocery list from the meal plan"
+          ]
+        },
+        {
+          "name": "GetGroceryListIntent",
+          "slots": [],
+          "samples": [
+            "what's on the grocery list",
+            "what do we need from the store",
+            "read the grocery list",
+            "what's in the grocery cart"
+          ]
         }
       ]
     }

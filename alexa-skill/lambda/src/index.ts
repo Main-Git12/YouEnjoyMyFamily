@@ -34,6 +34,30 @@ interface ScheduleEntry {
   title: string;
 }
 
+// Mirrors what mealPlans.ts's listMealPlan / generateGroceryListFromMealPlan
+// and groceryCart.ts's listCartItems return — only the fields these
+// handlers actually read, per this repo's "no shared code across
+// subprojects" convention (frontend/backend/alexa-skill deploy separately).
+type MealSlot = "breakfast" | "lunch" | "dinner";
+
+interface MealPlanEntry {
+  date: string;
+  slot: MealSlot;
+  mealName: string;
+}
+
+interface CartItemEntry {
+  description: string;
+  status: "pending" | "unavailable" | "substituted";
+}
+
+const MEAL_SLOT_ORDER: MealSlot[] = ["breakfast", "lunch", "dinner"];
+const MEAL_SLOT_LABELS: Record<MealSlot, string> = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner" };
+
+function sortByMealSlot(entries: MealPlanEntry[]): MealPlanEntry[] {
+  return [...entries].sort((a, b) => MEAL_SLOT_ORDER.indexOf(a.slot) - MEAL_SLOT_ORDER.indexOf(b.slot));
+}
+
 // Mirrors frontend/src/components/gemCastle/index.ts's stage thresholds —
 // kept as an independent copy per this repo's "no shared code across
 // subprojects" convention (frontend/backend/alexa-skill deploy separately).
@@ -343,6 +367,106 @@ export const GetGemCastleIntentHandler: Alexa.RequestHandler = {
   },
 };
 
+export const GetMealPlanIntentHandler: Alexa.RequestHandler = {
+  canHandle(handlerInput) {
+    return (
+      Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
+      Alexa.getIntentName(handlerInput.requestEnvelope) === "GetMealPlanIntent"
+    );
+  },
+  async handle(handlerInput): Promise<Response> {
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const entries = sortByMealSlot(
+        await fetchJson<MealPlanEntry[]>(`/families/${FAMILY_ID}/meal-plan?start=${today}&end=${today}`)
+      );
+
+      const speakOutput = entries.length
+        ? entries.map((entry) => `${MEAL_SLOT_LABELS[entry.slot]}: ${entry.mealName}`).join(". ") + "."
+        : "Nothing's planned for today yet.";
+
+      renderDashboard(
+        handlerInput,
+        "Today's meals",
+        entries.length ? entries.map((entry) => `${MEAL_SLOT_LABELS[entry.slot]}: ${entry.mealName}`) : ["Nothing planned yet"]
+      );
+      return handlerInput.responseBuilder.speak(speakOutput).getResponse();
+    } catch (err) {
+      console.error(err);
+      return handlerInput.responseBuilder.speak("I couldn't check the meal plan right now.").getResponse();
+    }
+  },
+};
+
+export const GenerateGroceryListIntentHandler: Alexa.RequestHandler = {
+  canHandle(handlerInput) {
+    return (
+      Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
+      Alexa.getIntentName(handlerInput.requestEnvelope) === "GenerateGroceryListIntent"
+    );
+  },
+  async handle(handlerInput): Promise<Response> {
+    try {
+      if (!API_BASE_URL) throw new Error("YOUENJOYMYFAMILY_API_BASE_URL is not configured");
+
+      const start = new Date();
+      const end = new Date(start);
+      end.setUTCDate(end.getUTCDate() + 6);
+      const startDate = start.toISOString().slice(0, 10);
+      const endDate = end.toISOString().slice(0, 10);
+
+      const response = await fetch(
+        `${API_BASE_URL}/families/${FAMILY_ID}/meal-plan/generate-grocery-list?start=${startDate}&end=${endDate}`,
+        { method: "POST", headers: authHeaders() }
+      );
+      if (!response.ok) throw new Error(`YouEnjoyMyFamily API error: ${response.status}`);
+      const result = (await response.json()) as { added: number; skipped: number };
+
+      const speakOutput = result.added
+        ? `Added ${result.added} ingredient${result.added === 1 ? "" : "s"} to the grocery list from this week's meal plan${
+            result.skipped ? `. ${result.skipped} ${result.skipped === 1 ? "was" : "were"} already on it` : ""
+          }.`
+        : "Everything from this week's meal plan is already on the grocery list.";
+
+      return handlerInput.responseBuilder.speak(speakOutput).getResponse();
+    } catch (err) {
+      console.error(err);
+      return handlerInput.responseBuilder.speak("I couldn't build the grocery list right now.").getResponse();
+    }
+  },
+};
+
+export const GetGroceryListIntentHandler: Alexa.RequestHandler = {
+  canHandle(handlerInput) {
+    return (
+      Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
+      Alexa.getIntentName(handlerInput.requestEnvelope) === "GetGroceryListIntent"
+    );
+  },
+  async handle(handlerInput): Promise<Response> {
+    try {
+      const items = await fetchJson<CartItemEntry[]>(`/families/${FAMILY_ID}/grocery-cart`);
+      const shoppable = items.filter((item) => item.status !== "unavailable");
+
+      const speakOutput = shoppable.length
+        ? `The grocery list has ${shoppable.length} item${shoppable.length === 1 ? "" : "s"}: ${shoppable
+            .map((item) => item.description)
+            .join(", ")}.`
+        : "The grocery list is empty.";
+
+      renderDashboard(
+        handlerInput,
+        "Grocery list",
+        shoppable.length ? shoppable.map((item) => item.description) : ["Nothing on the list"]
+      );
+      return handlerInput.responseBuilder.speak(speakOutput).getResponse();
+    } catch (err) {
+      console.error(err);
+      return handlerInput.responseBuilder.speak("I couldn't check the grocery list right now.").getResponse();
+    }
+  },
+};
+
 export const HelpIntentHandler: Alexa.RequestHandler = {
   canHandle(handlerInput) {
     return (
@@ -352,7 +476,7 @@ export const HelpIntentHandler: Alexa.RequestHandler = {
   },
   handle(handlerInput): Response {
     const speakOutput =
-      "You can ask what's on today's schedule, what the tasks are, add a task, say you finished a chore to battle for gems, or ask how the gem castle is growing.";
+      "You can ask what's on today's schedule, what the tasks are, add a task, say you finished a chore to battle for gems, ask how the gem castle is growing, check today's meal plan, build the grocery list from this week's meals, or ask what's on the grocery list.";
     return handlerInput.responseBuilder.speak(speakOutput).reprompt(speakOutput).getResponse();
   },
 };
@@ -397,6 +521,9 @@ export const handler = Alexa.SkillBuilders.custom()
     AddTaskIntentHandler,
     CompleteChoreIntentHandler,
     GetGemCastleIntentHandler,
+    GetMealPlanIntentHandler,
+    GenerateGroceryListIntentHandler,
+    GetGroceryListIntentHandler,
     HelpIntentHandler,
     CancelAndStopIntentHandler,
     SessionEndedRequestHandler
