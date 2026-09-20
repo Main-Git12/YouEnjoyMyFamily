@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import type { Task, ScheduleEntry, StatedPreference, StatedPreferenceCategory, MealPlanEntry, MealSlot, CartItem } from "../types";
 import FamilyCard from "./FamilyCard";
@@ -9,7 +9,7 @@ import FamilyFavorites from "./FamilyFavorites";
 import GemCastle from "./GemCastle";
 import CastleAlert from "./CastleAlert";
 import MealPlan from "./MealPlan";
-import { weekFromOffset } from "../lib/dates";
+import { toLocalIsoDate, weekFromOffset } from "../lib/dates";
 import GroceryCart from "./GroceryCart";
 
 // Placeholder until family selection / auth is wired up.
@@ -39,6 +39,9 @@ export default function Dashboard() {
   const weekDays = weekFromOffset(weekOffset);
   const weekStart = weekDays[0];
   const weekEnd = weekDays[weekDays.length - 1];
+  // The card says "Today's schedule", so ask for today rather than sending
+  // blank bounds and relying on the backend's catch-all range.
+  const today = toLocalIsoDate(new Date());
 
   // Fetches but deliberately does not apply — the caller decides whether a
   // response that arrived late is still the one it asked for. Paging
@@ -47,13 +50,29 @@ export default function Dashboard() {
   const fetchEverything = useCallback(async () => {
     const [taskItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList] = await Promise.all([
       api.listTasks(DEMO_FAMILY_ID),
-      api.listSchedules(DEMO_FAMILY_ID),
+      api.listSchedules(DEMO_FAMILY_ID, today, today),
       api.listStatedPreferences(DEMO_FAMILY_ID),
       api.listMealPlan(DEMO_FAMILY_ID, weekStart, weekEnd),
       api.listCartItems(DEMO_FAMILY_ID),
     ]);
     return { taskItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList };
-  }, [weekStart, weekEnd]);
+  }, [weekStart, weekEnd, today]);
+
+  // Bumped at the start *and* the end of every local write. A sync that
+  // overlapped a write is holding a snapshot taken before the server saw it,
+  // so applying it would un-tick the chore a child just completed and roll
+  // the gem total backwards in front of them. Overlapping syncs are dropped;
+  // the next tick reconciles.
+  const writeSeq = useRef(0);
+
+  async function guardedWrite<T>(write: () => Promise<T>): Promise<T> {
+    writeSeq.current += 1;
+    try {
+      return await write();
+    } finally {
+      writeSeq.current += 1;
+    }
+  }
 
   const applyEverything = useCallback((data: Awaited<ReturnType<typeof fetchEverything>>) => {
     setTasks(data.taskItems);
@@ -67,9 +86,10 @@ export default function Dashboard() {
   // to next week actually loads next week rather than relabelling this one.
   useEffect(() => {
     let superseded = false;
+    const writesAtStart = writeSeq.current;
     fetchEverything()
       .then((data) => {
-        if (superseded) return;
+        if (superseded || writeSeq.current !== writesAtStart) return;
         applyEverything(data);
         setError(null);
       })
@@ -93,9 +113,11 @@ export default function Dashboard() {
   useEffect(() => {
     let superseded = false;
     const sync = () => {
+      const writesAtStart = writeSeq.current;
       void fetchEverything()
         .then((data) => {
-          if (!superseded) applyEverything(data);
+          if (superseded || writeSeq.current !== writesAtStart) return;
+          applyEverything(data);
         })
         .catch(() => undefined);
     };
@@ -149,7 +171,7 @@ export default function Dashboard() {
 
   async function handleComplete(task: Task) {
     try {
-      const updated = await api.completeTask(DEMO_FAMILY_ID, task.taskId);
+      const updated = await guardedWrite(() => api.completeTask(DEMO_FAMILY_ID, task.taskId));
       setTasks((prev) => prev.map((t) => (t.taskId === updated.taskId ? updated : t)));
       setCelebration({ gemsEarned: updated.gemsAwarded - task.gemsAwarded });
       setError(null);
@@ -160,7 +182,7 @@ export default function Dashboard() {
 
   async function handleAddPreference(input: { memberId: string; category: StatedPreferenceCategory; statement: string }) {
     try {
-      const created = await api.addStatedPreference(DEMO_FAMILY_ID, input);
+      const created = await guardedWrite(() => api.addStatedPreference(DEMO_FAMILY_ID, input));
       setPreferences((prev) => [...prev, created]);
       setError(null);
     } catch (err) {
@@ -171,7 +193,7 @@ export default function Dashboard() {
 
   async function handleRemovePreference(preference: StatedPreference) {
     try {
-      await api.removeStatedPreference(DEMO_FAMILY_ID, preference.preferenceId, preference.memberId);
+      await guardedWrite(() => api.removeStatedPreference(DEMO_FAMILY_ID, preference.preferenceId, preference.memberId));
       setPreferences((prev) => prev.filter((p) => p.preferenceId !== preference.preferenceId));
       setError(null);
     } catch (err) {
@@ -186,17 +208,19 @@ export default function Dashboard() {
 
   async function handleSaveMealPlanEntry(date: string, slot: MealSlot, input: { mealName: string; ingredients: string[] }) {
     try {
-      const saved = await api.upsertMealPlanEntry(DEMO_FAMILY_ID, date, slot, input);
+      const saved = await guardedWrite(() => api.upsertMealPlanEntry(DEMO_FAMILY_ID, date, slot, input));
       setMealPlan((prev) => [...prev.filter((entry) => !(entry.date === date && entry.slot === slot)), saved]);
       setError(null);
     } catch (err) {
       reportError(err);
+      // Rethrown so the editor stays open with the meal still in it.
+      throw err;
     }
   }
 
   async function handleRemoveMealPlanEntry(date: string, slot: MealSlot) {
     try {
-      await api.removeMealPlanEntry(DEMO_FAMILY_ID, date, slot);
+      await guardedWrite(() => api.removeMealPlanEntry(DEMO_FAMILY_ID, date, slot));
       setMealPlan((prev) => prev.filter((entry) => !(entry.date === date && entry.slot === slot)));
       setError(null);
     } catch (err) {
@@ -205,15 +229,20 @@ export default function Dashboard() {
   }
 
   async function handleGenerateGroceryList() {
-    const result = await api.generateGroceryListFromMealPlan(DEMO_FAMILY_ID, weekStart, weekEnd);
-    const refreshed = await api.listCartItems(DEMO_FAMILY_ID);
-    setCartItems(refreshed);
-    return result;
+    try {
+      const result = await guardedWrite(() => api.generateGroceryListFromMealPlan(DEMO_FAMILY_ID, weekStart, weekEnd));
+      setCartItems(await api.listCartItems(DEMO_FAMILY_ID));
+      setError(null);
+      return result;
+    } catch (err) {
+      reportError(err);
+      throw err;
+    }
   }
 
   async function handleAddCartItem(description: string, quantity: number) {
     try {
-      const created = await api.addCartItem(DEMO_FAMILY_ID, { description, quantity });
+      const created = await guardedWrite(() => api.addCartItem(DEMO_FAMILY_ID, { description, quantity }));
       setCartItems((prev) => [...prev, created]);
       setError(null);
     } catch (err) {
@@ -223,7 +252,7 @@ export default function Dashboard() {
 
   async function handleRemoveCartItem(item: CartItem) {
     try {
-      await api.removeCartItem(DEMO_FAMILY_ID, item.itemId);
+      await guardedWrite(() => api.removeCartItem(DEMO_FAMILY_ID, item.itemId));
       setCartItems((prev) => prev.filter((i) => i.itemId !== item.itemId));
       setError(null);
     } catch (err) {
@@ -233,7 +262,7 @@ export default function Dashboard() {
 
   async function handleMarkCartItemUnavailable(item: CartItem): Promise<string | null> {
     try {
-      const { item: updated, suggestedSubstitute } = await api.markCartItemUnavailable(DEMO_FAMILY_ID, item.itemId);
+      const { item: updated, suggestedSubstitute } = await guardedWrite(() => api.markCartItemUnavailable(DEMO_FAMILY_ID, item.itemId));
       setCartItems((prev) => prev.map((i) => (i.itemId === updated.itemId ? updated : i)));
       setError(null);
       return suggestedSubstitute;
@@ -245,7 +274,7 @@ export default function Dashboard() {
 
   async function handleConfirmCartItemSubstitute(item: CartItem, substituteDescription: string) {
     try {
-      const { item: updated } = await api.confirmCartItemSubstitute(DEMO_FAMILY_ID, item.itemId, substituteDescription);
+      const { item: updated } = await guardedWrite(() => api.confirmCartItemSubstitute(DEMO_FAMILY_ID, item.itemId, substituteDescription));
       setCartItems((prev) => prev.map((i) => (i.itemId === updated.itemId ? updated : i)));
       setError(null);
     } catch (err) {

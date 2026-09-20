@@ -260,6 +260,48 @@ describe("Dashboard", () => {
     expect(screen.getByText(/^Week of /)).toBeInTheDocument();
   });
 
+  it("does not let a slow background sync undo a chore someone just completed", async () => {
+    const pending: Task = {
+      taskId: "t1",
+      title: "Feed the dog",
+      assignedTo: null,
+      dueDate: null,
+      status: "pending",
+      gemsAwarded: 0,
+    };
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+    vi.mocked(api.listTasks).mockResolvedValue([pending]);
+
+    render(<Dashboard />);
+    await waitFor(() => expect(screen.getByText("Feed the dog")).toBeInTheDocument());
+
+    // A sync starts and is still in flight, holding a pre-completion snapshot.
+    let releaseStaleSync: (tasks: Task[]) => void = () => {};
+    vi.mocked(api.listTasks).mockReturnValueOnce(
+      new Promise<Task[]>((resolve) => {
+        releaseStaleSync = resolve;
+      })
+    );
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    // Mid-flight, a child ticks the chore off and sees the gems land.
+    vi.mocked(api.completeTask).mockResolvedValue({ ...pending, status: "done", gemsAwarded: 10 });
+    fireEvent.click(screen.getByLabelText('Mark "Feed the dog" done'));
+    await waitFor(() => expect(screen.getByText("10 gems collected")).toBeInTheDocument());
+
+    // Now the stale snapshot finally lands, still showing the chore as pending.
+    await act(async () => {
+      releaseStaleSync([pending]);
+    });
+
+    // It must not un-tick the chore or roll the gem total backwards.
+    expect(screen.getByText("10 gems collected")).toBeInTheDocument();
+    expect(screen.queryByLabelText('Mark "Feed the dog" done')).not.toBeInTheDocument();
+  });
+
   it("picks up an edit made on another device when the screen becomes visible again", async () => {
     vi.mocked(api.listTasks).mockResolvedValue([]);
     vi.mocked(api.listSchedules).mockResolvedValue([]);

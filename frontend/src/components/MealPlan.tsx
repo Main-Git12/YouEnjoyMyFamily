@@ -62,7 +62,13 @@ export default function MealPlan({
       .split(",")
       .map((ingredient) => ingredient.trim())
       .filter((ingredient) => ingredient.length > 0);
-    await onSave(editing.date, editing.slot, { mealName: mealName.trim(), ingredients });
+    try {
+      await onSave(editing.date, editing.slot, { mealName: mealName.trim(), ingredients });
+    } catch {
+      // Leave the form open and filled in — retyping a meal and its whole
+      // ingredient list because the network blipped is its own small insult.
+      return;
+    }
     setEditing(null);
     // The last generate result described a plan that just changed.
     setGenerateResult(null);
@@ -76,7 +82,13 @@ export default function MealPlan({
   }
 
   async function handleGenerate() {
-    const result = await onGenerateGroceryList();
+    let result;
+    try {
+      result = await onGenerateGroceryList();
+    } catch {
+      setGenerateResult("Couldn't build the grocery list just now — try again in a moment.");
+      return;
+    }
     setGenerateResult(
       result.added === 0 && result.skipped === 0
         ? "No ingredients planned yet."

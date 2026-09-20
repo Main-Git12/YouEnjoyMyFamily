@@ -13,14 +13,18 @@ const scheduleKey = (familyId: string, isoDate: string, entryId: string) => ({
 });
 
 async function listSchedules(familyId: string, start?: string, end?: string): Promise<ScheduleItem[]> {
+  // `||`, not `??`: an omitted query param reaches us as an empty string, and
+  // `??` would keep it — building the range SCHEDULE#..SCHEDULE##￿,
+  // which sorts *below* every real SCHEDULE#<date>#<id> key and quietly
+  // returns nothing at all.
   const result = await docClient.send(
     new QueryCommand({
       TableName: TABLE_NAME,
       KeyConditionExpression: "PK = :pk AND SK BETWEEN :from AND :to",
       ExpressionAttributeValues: {
         ":pk": `FAMILY#${familyId}`,
-        ":from": `SCHEDULE#${start ?? "0000-00-00"}`,
-        ":to": `SCHEDULE#${end ?? "9999-12-31"}#￿`,
+        ":from": `SCHEDULE#${start || "0000-00-00"}`,
+        ":to": `SCHEDULE#${end || "9999-12-31"}#￿`,
       },
     })
   );

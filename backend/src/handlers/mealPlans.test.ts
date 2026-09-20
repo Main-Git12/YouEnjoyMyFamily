@@ -78,6 +78,20 @@ test("GET lists meal plan entries for a family", async () => {
   assert.deepEqual(JSON.parse(result.body ?? "[]"), entries);
 });
 
+test("GET treats blank start/end as 'no filter' rather than a range that matches nothing", async () => {
+  ddbMock.on(QueryCommand).resolves({ Items: [] });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({ method: "GET", pathParameters: { familyId: "fam_1" }, headers, queryStringParameters: { start: "", end: "" } })
+  );
+
+  assert.equal(result.statusCode, 200);
+  const values = ddbMock.commandCalls(QueryCommand)[0]?.args[0].input.ExpressionAttributeValues;
+  const realKey = "MEALPLAN#2026-09-20#dinner";
+  assert.ok(realKey >= String(values?.[":from"]) && realKey <= String(values?.[":to"]));
+});
+
 test("PUT rejects an invalid slot", async () => {
   const headers = mockFamilyAuth(ddbMock, "fam_1");
   const result = await handler(

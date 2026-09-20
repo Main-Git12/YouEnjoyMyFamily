@@ -158,6 +158,23 @@ describe("GroceryCart", () => {
     );
   });
 
+  it("keeps the checkout link when a sync re-sends an identical cart", async () => {
+    const onCheckout = vi.fn().mockResolvedValue("https://instacart.example/list/abc");
+    const { rerender } = render(<GroceryCart {...cartProps({ items: [pendingItem], onCheckout })} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /checkout with instacart/i }));
+    await waitFor(() => expect(screen.getByRole("link", { name: /continue on instacart/i })).toBeInTheDocument());
+
+    // The 30s sync hands down a fresh array with identical contents. The link
+    // must survive — otherwise it vanishes on the way to the shop.
+    rerender(<GroceryCart {...cartProps({ items: [{ ...pendingItem }], onCheckout })} />);
+    expect(screen.getByRole("link", { name: /continue on instacart/i })).toBeInTheDocument();
+
+    // A cart that actually changed does invalidate it.
+    rerender(<GroceryCart {...cartProps({ items: [{ ...pendingItem, quantity: 5 }], onCheckout })} />);
+    expect(screen.queryByRole("link", { name: /continue on instacart/i })).not.toBeInTheDocument();
+  });
+
   it("disables checkout when there's nothing shoppable, rather than letting it fail server-side", () => {
     const { rerender } = render(<GroceryCart {...cartProps({ items: [] })} />);
     expect(screen.getByRole("button", { name: /checkout with instacart/i })).toBeDisabled();

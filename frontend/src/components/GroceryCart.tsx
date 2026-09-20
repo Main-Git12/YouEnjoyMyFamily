@@ -34,7 +34,13 @@ export default function GroceryCart({ items, onAdd, onMarkUnavailable, onConfirm
 
   // The Instacart link is a snapshot of the cart at checkout time — once the
   // cart changes it points at a list that no longer matches, so drop it.
-  useEffect(() => setCheckoutUrl(null), [items]);
+  // Keyed on the contents rather than the array itself: the 30s sync hands
+  // down a new array every tick, which would otherwise bin a perfectly good
+  // link while someone was still walking to the shop.
+  const cartSignature = items
+    .map((item) => `${item.itemId}:${item.status}:${item.quantity}:${item.substituteDescription ?? ""}`)
+    .join("|");
+  useEffect(() => setCheckoutUrl(null), [cartSignature]);
 
   useEffect(() => {
     if (!pendingRemoval) return;

@@ -59,6 +59,31 @@ test("GET lists schedule entries in a date range", async () => {
   assert.equal(query?.ExpressionAttributeValues?.[":from"], "SCHEDULE#2025-01-01");
 });
 
+test("GET treats blank start/end as 'no filter' rather than a range that matches nothing", async () => {
+  ddbMock.on(QueryCommand).resolves({ Items: [] });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  // This is exactly what the dashboard sends: `?start=&end=`. Read as empty
+  // strings, the range becomes SCHEDULE#..SCHEDULE##￿, which sorts below
+  // every real SCHEDULE#<date>#<id> key — the schedule card stays empty forever.
+  const result = await handler(
+    makeEvent({
+      method: "GET",
+      pathParameters: { familyId: "fam_1" },
+      headers,
+      queryStringParameters: { start: "", end: "" },
+    })
+  );
+
+  assert.equal(result.statusCode, 200);
+  const values = ddbMock.commandCalls(QueryCommand)[0]?.args[0].input.ExpressionAttributeValues;
+  assert.equal(values?.[":from"], "SCHEDULE#0000-00-00");
+  assert.equal(values?.[":to"], "SCHEDULE#9999-12-31#￿");
+
+  const realKey = "SCHEDULE#2026-09-20#01JABCDEF";
+  assert.ok(realKey >= String(values?.[":from"]) && realKey <= String(values?.[":to"]));
+});
+
 test("POST rejects a missing date", async () => {
   const headers = mockFamilyAuth(ddbMock, "fam_1");
   const result = await handler(

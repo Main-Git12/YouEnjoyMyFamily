@@ -27,8 +27,11 @@ export async function listMealPlan(familyId: string, start?: string, end?: strin
       KeyConditionExpression: "PK = :pk AND SK BETWEEN :from AND :to",
       ExpressionAttributeValues: {
         ":pk": `FAMILY#${familyId}`,
-        ":from": `MEALPLAN#${start ?? "0000-00-00"}`,
-        ":to": `MEALPLAN#${end ?? "9999-12-31"}#￿`,
+        // `||`, not `??` — an omitted query param arrives as an empty string,
+        // which would build a range sorting below every real key (see the
+        // same guard in schedules.ts).
+        ":from": `MEALPLAN#${start || "0000-00-00"}`,
+        ":to": `MEALPLAN#${end || "9999-12-31"}#￿`,
       },
     })
   );

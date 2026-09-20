@@ -100,6 +100,32 @@ describe("MealPlan", () => {
     expect(screen.getByText(/1 already on it/)).toBeInTheDocument();
   });
 
+  it("keeps the meal and its ingredients on screen when saving fails", async () => {
+    const onSave = vi.fn().mockRejectedValue(new Error("Failed to fetch"));
+    render(<MealPlan {...mealPlanProps({ onSave })} />);
+
+    fireEvent.click(screen.getAllByText("+ Dinner")[0] as HTMLElement);
+    fireEvent.change(screen.getByLabelText("Meal name"), { target: { value: "Shepherd's pie" } });
+    fireEvent.change(screen.getByLabelText("Ingredients, comma separated"), {
+      target: { value: "Lamb mince, Potatoes, Carrots" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    // Nobody should have to retype all of that because the network blipped.
+    expect(screen.getByLabelText("Meal name")).toHaveValue("Shepherd's pie");
+    expect(screen.getByLabelText("Ingredients, comma separated")).toHaveValue("Lamb mince, Potatoes, Carrots");
+  });
+
+  it("says so when building the grocery list fails, rather than doing nothing visible", async () => {
+    const onGenerateGroceryList = vi.fn().mockRejectedValue(new Error("Failed to fetch"));
+    render(<MealPlan {...mealPlanProps({ onGenerateGroceryList })} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /generate grocery list/i }));
+
+    await waitFor(() => expect(screen.getByText(/couldn't build the grocery list/i)).toBeInTheDocument());
+  });
+
   it("lets the family page forward to plan a future week and back again", () => {
     const onWeekOffsetChange = vi.fn();
     render(<MealPlan {...mealPlanProps({ onWeekOffsetChange })} />);
