@@ -6,7 +6,7 @@ import TaskList from "./TaskList";
 import Calendar from "./Calendar";
 import Celebration from "./Celebration";
 import FamilyFavorites from "./FamilyFavorites";
-import GemGarden from "./GemGarden";
+import GemCastle from "./GemCastle";
 
 // Placeholder until family selection / auth is wired up.
 const DEMO_FAMILY_ID = "fam_demo";
@@ -92,8 +92,8 @@ export default function Dashboard() {
         <FamilyFavorites preferences={preferences} onAdd={handleAddPreference} onRemove={handleRemovePreference} />
       </FamilyCard>
 
-      <FamilyCard title="Gem Garden">
-        <GemGarden totalGems={totalGems} />
+      <FamilyCard title="Gem Castle">
+        <GemCastle totalGems={totalGems} />
       </FamilyCard>
 
       {celebration && (

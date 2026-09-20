@@ -6,7 +6,7 @@ import {
   GetTasksIntentHandler,
   AddTaskIntentHandler,
   CompleteChoreIntentHandler,
-  GetGemGardenIntentHandler,
+  GetGemCastleIntentHandler,
   HelpIntentHandler,
   CancelAndStopIntentHandler,
   SessionEndedRequestHandler,
@@ -190,39 +190,51 @@ test("every CHORE_CELEBRATION_LINES variant keeps the member name and the litera
   }
 });
 
-test("GetGemGardenIntentHandler reports the current stage and progress toward the next one", async () => {
+test("GetGemCastleIntentHandler reports the current stage, its residents, and progress toward the next one", async () => {
   mock.method(globalThis, "fetch", async () =>
     new Response(JSON.stringify([{ taskId: "t1", title: "Pack bag", status: "done", gemsAwarded: 50 }]), { status: 200 })
   );
 
-  const handlerInput = makeHandlerInput(intentRequest("GetGemGardenIntent"), { supportsApl: true });
-  const response = (await GetGemGardenIntentHandler.handle(handlerInput)) as FakeResponse;
+  const handlerInput = makeHandlerInput(intentRequest("GetGemCastleIntent"), { supportsApl: true });
+  const response = (await GetGemCastleIntentHandler.handle(handlerInput)) as FakeResponse;
 
-  assert.match(speechOf(response), /Sprout/);
+  assert.match(speechOf(response), /Knight's Keep/);
+  assert.match(speechOf(response), /Sir Olive is standing guard/);
   assert.match(speechOf(response), /50 gems/);
   assert.match(speechOf(response), /25 more gem/);
   assert.equal(response.directives.length, 1);
 });
 
-test("GetGemGardenIntentHandler reports full bloom at the top stage with singular phrasing intact", async () => {
+test("GetGemCastleIntentHandler reports the completed kingdom at the top stage with singular phrasing intact", async () => {
   mock.method(globalThis, "fetch", async () =>
     new Response(JSON.stringify([{ taskId: "t1", title: "Pack bag", status: "done", gemsAwarded: 300 }]), { status: 200 })
   );
 
-  const handlerInput = makeHandlerInput(intentRequest("GetGemGardenIntent"));
-  const response = (await GetGemGardenIntentHandler.handle(handlerInput)) as FakeResponse;
+  const handlerInput = makeHandlerInput(intentRequest("GetGemCastleIntent"));
+  const response = (await GetGemCastleIntentHandler.handle(handlerInput)) as FakeResponse;
 
-  assert.match(speechOf(response), /Magical Grove/);
-  assert.match(speechOf(response), /full bloom/i);
+  assert.match(speechOf(response), /Kingdom of Gems/);
+  assert.match(speechOf(response), /Ember are all home/);
+  assert.match(speechOf(response), /kingdom is complete/i);
 });
 
-test("GetGemGardenIntentHandler degrades gracefully when the backend is unreachable", async () => {
+test("GetGemCastleIntentHandler reports nobody home yet at the watchtower stage", async () => {
+  mock.method(globalThis, "fetch", async () => new Response(JSON.stringify([]), { status: 200 }));
+
+  const handlerInput = makeHandlerInput(intentRequest("GetGemCastleIntent"));
+  const response = (await GetGemCastleIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  assert.match(speechOf(response), /Watchtower/);
+  assert.match(speechOf(response), /0 gems/);
+});
+
+test("GetGemCastleIntentHandler degrades gracefully when the backend is unreachable", async () => {
   mock.method(globalThis, "fetch", async () => new Response("error", { status: 500 }));
 
-  const handlerInput = makeHandlerInput(intentRequest("GetGemGardenIntent"));
-  const response = (await GetGemGardenIntentHandler.handle(handlerInput)) as FakeResponse;
+  const handlerInput = makeHandlerInput(intentRequest("GetGemCastleIntent"));
+  const response = (await GetGemCastleIntentHandler.handle(handlerInput)) as FakeResponse;
 
-  assert.match(speechOf(response), /couldn't check the gem garden/i);
+  assert.match(speechOf(response), /couldn't check the gem castle/i);
 });
 
 test("HelpIntentHandler and CancelAndStopIntentHandler respond without hitting the network", () => {

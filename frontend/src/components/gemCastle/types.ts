@@ -1,4 +1,4 @@
-export interface GardenStageProps {
+export interface CastleStageProps {
   size?: number;
   className?: string;
 }

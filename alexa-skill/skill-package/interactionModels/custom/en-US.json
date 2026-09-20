@@ -53,15 +53,16 @@
           ]
         },
         {
-          "name": "GetGemGardenIntent",
+          "name": "GetGemCastleIntent",
           "slots": [],
           "samples": [
-            "how's the gem garden doing",
-            "what does my gem garden look like",
-            "check the gem garden",
+            "how's the gem castle doing",
+            "what does my gem castle look like",
+            "check the gem castle",
             "how many gems until the next stage",
-            "tell me about the gem garden",
-            "how's our gem garden growing"
+            "tell me about the gem castle",
+            "how's our kingdom growing",
+            "who lives in the castle"
           ]
         }
       ]

@@ -7,7 +7,7 @@ const dashboardCard = require("../apl/dashboardCard.json") as Record<string, unk
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const choreBattleCard = require("../apl/choreBattleCard.json") as Record<string, unknown>;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const gemGardenCard = require("../apl/gemGardenCard.json") as Record<string, unknown>;
+const gemCastleCard = require("../apl/gemCastleCard.json") as Record<string, unknown>;
 
 const API_BASE_URL = process.env.YOUENJOYMYFAMILY_API_BASE_URL;
 // TODO: resolve from the authenticated Alexa household account linking flow
@@ -34,44 +34,62 @@ interface ScheduleEntry {
   title: string;
 }
 
-// Mirrors frontend/src/components/gemGarden/index.ts's stage thresholds —
+// Mirrors frontend/src/components/gemCastle/index.ts's stage thresholds —
 // kept as an independent copy per this repo's "no shared code across
 // subprojects" convention (frontend/backend/alexa-skill deploy separately).
-interface GardenStage {
+interface CastleStage {
   id: string;
   name: string;
   threshold: number;
 }
 
-const SEED_STAGE: GardenStage = { id: "seed", name: "Tiny Seed", threshold: 0 };
-const GARDEN_STAGES: GardenStage[] = [
-  SEED_STAGE,
-  { id: "sprout", name: "Sprout", threshold: 25 },
-  { id: "sapling", name: "Budding Sapling", threshold: 75 },
-  { id: "tree", name: "Blooming Tree", threshold: 150 },
-  { id: "grove", name: "Magical Grove", threshold: 300 },
+const WATCHTOWER_STAGE: CastleStage = { id: "watchtower", name: "Watchtower", threshold: 0 };
+const CASTLE_STAGES: CastleStage[] = [
+  WATCHTOWER_STAGE,
+  { id: "knights-keep", name: "Knight's Keep", threshold: 25 },
+  { id: "rising-castle", name: "Rising Castle", threshold: 75 },
+  { id: "grand-fortress", name: "Grand Fortress", threshold: 150 },
+  { id: "kingdom-of-gems", name: "Kingdom of Gems", threshold: 300 },
 ];
 
-interface GardenProgress {
-  stage: GardenStage;
-  nextStage: GardenStage | null;
+interface CastleProgress {
+  stage: CastleStage;
+  nextStage: CastleStage | null;
   gemsToNextStage: number | null;
 }
 
-function getGardenProgress(totalGems: number): GardenProgress {
-  let stage = SEED_STAGE;
+function getCastleProgress(totalGems: number): CastleProgress {
+  let stage = WATCHTOWER_STAGE;
   let stageIndex = 0;
 
-  GARDEN_STAGES.forEach((candidate, index) => {
+  CASTLE_STAGES.forEach((candidate, index) => {
     if (totalGems >= candidate.threshold) {
       stage = candidate;
       stageIndex = index;
     }
   });
 
-  const nextStage = GARDEN_STAGES[stageIndex + 1] ?? null;
+  const nextStage = CASTLE_STAGES[stageIndex + 1] ?? null;
   const gemsToNextStage = nextStage ? nextStage.threshold - totalGems : null;
   return { stage, nextStage, gemsToNextStage };
+}
+
+// Mirrors who's visibly present in each frontend castle stage illustration —
+// gives the voice response the same "the kingdom is coming alive" narrative
+// as the screen, rather than just a number.
+function getResidentsPhrase(stageId: string): string {
+  switch (stageId) {
+    case "knights-keep":
+      return "Sir Olive is standing guard";
+    case "rising-castle":
+      return "Sir Olive and Wren are both home";
+    case "grand-fortress":
+      return "Sir Olive, Wren, and Ember the dragon are all home";
+    case "kingdom-of-gems":
+      return "Sir Olive, Wren, and Ember are all home, and the kingdom sparkles";
+    default:
+      return "";
+  }
 }
 
 // Several equivalent flavor lines for the same event — picked at random so
@@ -125,7 +143,7 @@ function renderChoreBattle(handlerInput: Alexa.HandlerInput, memberName: string,
   });
 }
 
-function renderGemGarden(
+function renderGemCastle(
   handlerInput: Alexa.HandlerInput,
   stageName: string,
   totalGems: number,
@@ -136,8 +154,8 @@ function renderGemGarden(
 
   handlerInput.responseBuilder.addDirective({
     type: "Alexa.Presentation.APL.RenderDocument",
-    document: gemGardenCard,
-    datasources: { garden: { stageName, totalGems, progressPercent, progressLabel } },
+    document: gemCastleCard,
+    datasources: { castle: { stageName, totalGems, progressPercent, progressLabel } },
   });
 }
 
@@ -288,37 +306,39 @@ export const CompleteChoreIntentHandler: Alexa.RequestHandler = {
   },
 };
 
-export const GetGemGardenIntentHandler: Alexa.RequestHandler = {
+export const GetGemCastleIntentHandler: Alexa.RequestHandler = {
   canHandle(handlerInput) {
     return (
       Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
-      Alexa.getIntentName(handlerInput.requestEnvelope) === "GetGemGardenIntent"
+      Alexa.getIntentName(handlerInput.requestEnvelope) === "GetGemCastleIntent"
     );
   },
   async handle(handlerInput): Promise<Response> {
     try {
       const tasks = await fetchJson<TaskItem[]>(`/families/${FAMILY_ID}/tasks`);
       const totalGems = tasks.reduce((sum, task) => sum + task.gemsAwarded, 0);
-      const { stage, nextStage, gemsToNextStage } = getGardenProgress(totalGems);
+      const { stage, nextStage, gemsToNextStage } = getCastleProgress(totalGems);
+      const residents = getResidentsPhrase(stage.id);
+      const residentsClause = residents ? ` ${residents}.` : "";
 
       const speakOutput = nextStage
-        ? `Your gem garden is a ${stage.name} with ${totalGems} gems! ${gemsToNextStage} more gem${
+        ? `Your castle is a ${stage.name} with ${totalGems} gems!${residentsClause} ${gemsToNextStage} more gem${
             gemsToNextStage === 1 ? "" : "s"
           } to grow into a ${nextStage.name}.`
-        : `Your gem garden is a ${stage.name} with ${totalGems} gems — full bloom, as lush as it gets!`;
+        : `Your castle is a ${stage.name} with ${totalGems} gems!${residentsClause} The kingdom is complete!`;
 
       const progressPercent = nextStage
         ? Math.min(100, Math.round(((totalGems - stage.threshold) / (nextStage.threshold - stage.threshold)) * 100))
         : 100;
       const progressLabel = nextStage
         ? `${gemsToNextStage} more gem${gemsToNextStage === 1 ? "" : "s"} to reach ${nextStage.name}!`
-        : "Full bloom! The garden is as lush as it gets.";
+        : "The kingdom is complete — every hero has come home!";
 
-      renderGemGarden(handlerInput, stage.name, totalGems, progressPercent, progressLabel);
+      renderGemCastle(handlerInput, stage.name, totalGems, progressPercent, progressLabel);
       return handlerInput.responseBuilder.speak(speakOutput).getResponse();
     } catch (err) {
       console.error(err);
-      return handlerInput.responseBuilder.speak("I couldn't check the gem garden right now.").getResponse();
+      return handlerInput.responseBuilder.speak("I couldn't check the gem castle right now.").getResponse();
     }
   },
 };
@@ -332,7 +352,7 @@ export const HelpIntentHandler: Alexa.RequestHandler = {
   },
   handle(handlerInput): Response {
     const speakOutput =
-      "You can ask what's on today's schedule, what the tasks are, add a task, say you finished a chore to battle for gems, or ask how the gem garden is growing.";
+      "You can ask what's on today's schedule, what the tasks are, add a task, say you finished a chore to battle for gems, or ask how the gem castle is growing.";
     return handlerInput.responseBuilder.speak(speakOutput).reprompt(speakOutput).getResponse();
   },
 };
@@ -376,7 +396,7 @@ export const handler = Alexa.SkillBuilders.custom()
     GetTasksIntentHandler,
     AddTaskIntentHandler,
     CompleteChoreIntentHandler,
-    GetGemGardenIntentHandler,
+    GetGemCastleIntentHandler,
     HelpIntentHandler,
     CancelAndStopIntentHandler,
     SessionEndedRequestHandler

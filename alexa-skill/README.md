@@ -9,14 +9,14 @@ matching the frontend dashboard) for Echo Show devices.
 skill-package/
   skill.json                             Skill manifest (publishing info, APL interface)
   interactionModels/custom/en-US.json     Invocation name + intents (GetSchedule, GetTasks, AddTask,
-                                           CompleteChore, GetGemGarden)
+                                           CompleteChore, GetGemCastle)
 lambda/
   src/index.ts                            ask-sdk-core request handlers (TypeScript), calls the YouEnjoyMyFamily backend API
   src/index.test.ts                        node:test unit tests for every handler (mocked fetch, no network)
   src/testSupport.ts                       Fake HandlerInput/ResponseBuilder builders for the tests above
   apl/dashboardCard.json                  APL document rendered on Echo Show for schedule/task responses
   apl/choreBattleCard.json                Animated knight-vs-dragon APL scene for CompleteChoreIntent
-  apl/gemGardenCard.json                  APL card for GetGemGardenIntent's current stage + progress bar
+  apl/gemCastleCard.json                  APL card for GetGemCastleIntent's current stage + progress bar
   tsconfig.json                            Strict compiler options (typechecks src/ including tests)
   tsconfig.build.json                      Extends tsconfig.json, excludes test files — used by `npm run build`
   eslint.config.js                         typescript-eslint flat config

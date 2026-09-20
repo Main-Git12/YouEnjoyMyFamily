@@ -1,0 +1,86 @@
+{
+  "type": "APL",
+  "version": "2023.3",
+  "theme": "light",
+  "mainTemplate": {
+    "parameters": ["payload"],
+    "items": [
+      {
+        "type": "Container",
+        "width": "100%",
+        "height": "100%",
+        "backgroundColor": "#ffffff",
+        "alignItems": "center",
+        "items": [
+          {
+            "type": "Text",
+            "text": "Gem Castle",
+            "fontSize": "44dp",
+            "fontWeight": "bold",
+            "color": "#4a4b2b",
+            "paddingTop": "28dp"
+          },
+          {
+            "comment": "-- a simple keep with a tower and a flag, built from the same Frame-shape technique as the chore-battle card --",
+            "type": "Container",
+            "width": "220dp",
+            "height": "190dp",
+            "paddingTop": "8dp",
+            "items": [
+              { "type": "Frame", "position": "absolute", "bottom": "0dp", "left": "20dp", "width": "180dp", "height": "70dp", "backgroundColor": "#f3ecdd", "borderColor": "#8a5c33", "borderWidth": "3dp" },
+              { "type": "Frame", "position": "absolute", "bottom": "62dp", "left": "24dp", "width": "16dp", "height": "16dp", "backgroundColor": "#f3ecdd", "borderColor": "#8a5c33", "borderWidth": "2dp" },
+              { "type": "Frame", "position": "absolute", "bottom": "62dp", "left": "50dp", "width": "16dp", "height": "16dp", "backgroundColor": "#f3ecdd", "borderColor": "#8a5c33", "borderWidth": "2dp" },
+              { "type": "Frame", "position": "absolute", "bottom": "62dp", "left": "154dp", "width": "16dp", "height": "16dp", "backgroundColor": "#f3ecdd", "borderColor": "#8a5c33", "borderWidth": "2dp" },
+              { "type": "Frame", "position": "absolute", "bottom": "62dp", "left": "180dp", "width": "16dp", "height": "16dp", "backgroundColor": "#f3ecdd", "borderColor": "#8a5c33", "borderWidth": "2dp" },
+              { "type": "Frame", "position": "absolute", "bottom": "0dp", "left": "94dp", "width": "32dp", "height": "40dp", "backgroundColor": "#2b241c", "opacity": 0.7 },
+              { "type": "Frame", "position": "absolute", "bottom": "70dp", "left": "70dp", "width": "80dp", "height": "110dp", "backgroundColor": "#f3ecdd", "borderColor": "#8a5c33", "borderWidth": "3dp" },
+              { "type": "Frame", "position": "absolute", "bottom": "150dp", "left": "70dp", "width": "80dp", "height": "40dp", "backgroundColor": "#8a5c33", "transform": [{ "rotate": 45 }] },
+              { "type": "Frame", "position": "absolute", "top": "0dp", "left": "108dp", "width": "4dp", "height": "34dp", "backgroundColor": "#8a5c33" },
+              { "type": "Frame", "position": "absolute", "top": "0dp", "left": "112dp", "width": "26dp", "height": "16dp", "backgroundColor": "#7d7f45" }
+            ]
+          },
+          {
+            "type": "Text",
+            "text": "${payload.castle.stageName}",
+            "fontSize": "36dp",
+            "fontWeight": "bold",
+            "color": "#4a4b2b",
+            "paddingTop": "8dp"
+          },
+          {
+            "type": "Text",
+            "text": "${payload.castle.totalGems} gems in the kingdom",
+            "fontSize": "26dp",
+            "color": "#616337",
+            "paddingTop": "4dp"
+          },
+          {
+            "type": "Frame",
+            "width": "70%",
+            "height": "18dp",
+            "cornerRadius": "9dp",
+            "backgroundColor": "#e8e8d6",
+            "paddingTop": "18dp",
+            "item": {
+              "type": "Frame",
+              "width": "${payload.castle.progressPercent}%",
+              "height": "100%",
+              "cornerRadius": "9dp",
+              "backgroundColor": "#7d7f45"
+            }
+          },
+          {
+            "type": "Text",
+            "text": "${payload.castle.progressLabel}",
+            "fontSize": "22dp",
+            "color": "#616337",
+            "paddingTop": "10dp",
+            "paddingLeft": "24dp",
+            "paddingRight": "24dp",
+            "textAlign": "center"
+          }
+        ]
+      }
+    ]
+  }
+}
