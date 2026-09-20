@@ -4,6 +4,7 @@ import { GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { docClient, TABLE_NAME } from "../lib/dynamoClient";
 import { ok, created, badRequest, notFound, serverError } from "../lib/response";
 import { parseBody, ValidationError } from "../lib/validation";
+import { authenticateFamily } from "../lib/auth";
 import { CartItemInput, CartItemPatch, type CartItem, type LearnedSubstitutionItem } from "../types";
 
 // Instacart Developer Platform ("Create shopping list page") is the real,
@@ -173,6 +174,8 @@ export async function routeGroceryCart(
 
   try {
     if (!familyId) return badRequest("familyId is required");
+    const authError = await authenticateFamily(event, familyId);
+    if (authError) return authError;
 
     if (isCheckout && method === "POST") {
       return ok({ productsLinkUrl: await checkout(familyId, instacart) });

@@ -4,6 +4,7 @@ import { PutCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import { docClient, TABLE_NAME } from "../lib/dynamoClient";
 import { ok, created, badRequest, serverError } from "../lib/response";
 import { parseBody, ValidationError } from "../lib/validation";
+import { authenticateFamily } from "../lib/auth";
 import { ScheduleInput, type ScheduleItem } from "../types";
 
 const scheduleKey = (familyId: string, isoDate: string, entryId: string) => ({
@@ -54,6 +55,8 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
 
   try {
     if (!familyId) return badRequest("familyId is required");
+    const authError = await authenticateFamily(event, familyId);
+    if (authError) return authError;
 
     switch (method) {
       case "GET":

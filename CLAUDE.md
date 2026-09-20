@@ -2,7 +2,7 @@
 
 ## Architecture
 
-- `/backend` — AWS SAM (API Gateway HTTP API + Lambda + single-table DynamoDB + EventBridge). Strict TypeScript, AWS SDK v3, zod validation at the API boundary, esbuild-bundled per function.
+- `/backend` — AWS SAM (API Gateway HTTP API + Lambda + single-table DynamoDB + EventBridge). Strict TypeScript, AWS SDK v3, zod validation at the API boundary, esbuild-bundled per function. Every route except `POST /families` requires `Authorization: Bearer <apiKey>`, checked against a per-family key hash (`src/lib/auth.ts`) — see `backend/README.md`'s Authentication section before adding a new route or forgetting to call `authenticateFamily`.
 - `/frontend` — React + Vite + TypeScript + Tailwind, olive/earthy theme (`frontend/tailwind.config.js`, `frontend/src/theme.css`). Built for Echo Show screen sizes.
 - `/alexa-skill` — Alexa Skills Kit custom skill (`ask-sdk-core`, TypeScript) with an APL visual card matching the frontend theme.
 
@@ -60,6 +60,15 @@ first when an entity changes, and let the handlers follow.
   state (a warm cache, etc.), account for it when ordering tests that need
   a fresh start. Every backend handler currently has a test file — keep it
   that way.
+- **New API routes need `authenticateFamily` too:** any handler reading or
+  writing `FAMILY#<familyId>` data must call `authenticateFamily(event,
+  familyId)` right after checking `familyId` is present, and return its
+  result if non-null — see any existing handler for the one-line pattern.
+  In tests, call `mockFamilyAuth(ddbMock, familyId)` from
+  `../lib/authTestSupport` *after* registering the handler's own
+  DynamoDB mocks (aws-sdk-client-mock resolves the most-recently-registered
+  matching stub per call, so registering it first would let a broad
+  `.on(GetCommand).resolves(...)` shadow the family-record lookup).
 - **Inject third-party SDK clients, don't mock the module:** when a
   handler calls an external SDK that isn't just `fetch` (e.g. `googleapis`),
   don't try to structurally fake the SDK's own types or reach for module

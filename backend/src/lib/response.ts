@@ -16,6 +16,7 @@ function json(statusCode: number, body: unknown): APIGatewayProxyStructuredResul
 export const ok = (body: unknown) => json(200, body);
 export const created = (body: unknown) => json(201, body);
 export const badRequest = (message: string) => json(400, { error: message });
+export const unauthorized = (message = "Unauthorized") => json(401, { error: message });
 export const notFound = (message = "Not found") => json(404, { error: message });
 
 export function serverError(err: unknown): APIGatewayProxyStructuredResultV2 {

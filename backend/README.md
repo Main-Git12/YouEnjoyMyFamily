@@ -13,8 +13,10 @@ tsconfig.json          Strict compiler options
 eslint.config.js        typescript-eslint flat config
 models/schema.md        Single-table DynamoDB entity/access-pattern design
 src/types.ts            Zod input schemas + persisted item interfaces (single source of truth)
-src/lib/                Dynamo client, typed API Gateway responses, request-body validation
+src/lib/                Dynamo client, typed API Gateway responses, request-body validation,
+                         per-family API key check (auth.ts — see "Authentication" below)
 src/handlers/                (every handler below has a matching *.test.ts)
+  families.ts            POST /families — the one unauthenticated route; provisions a family and its API key
   tasks.ts              CRUD: /families/{familyId}/tasks[/{taskId}]
   schedules.ts           CRUD: /families/{familyId}/schedules[/{scheduleId}]
   preferences.ts         GET/PUT: /families/{familyId}/members/{memberId}/preferences
@@ -26,6 +28,27 @@ src/handlers/                (every handler below has a matching *.test.ts)
                            `runCalendarSync`/`syncFamilyCalendar` take an injectable `CalendarClientFactory`
                            so tests fake the Google API without network access — see `MinimalCalendarClient`
 ```
+
+## Authentication
+
+Every route except `POST /families` requires `Authorization: Bearer <apiKey>`
+and returns 401 without it or with the wrong key. A family has no
+credential until it's created:
+
+```bash
+curl -X POST "$API_BASE_URL/families" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "The Peals"}'
+# -> { "familyId": "fam_...", "apiKey": "fk_..." }
+```
+
+The response's `apiKey` is shown exactly once — only its SHA-256 hash is
+ever stored (see `FamilyRecord` in `src/types.ts`). Save it: the frontend
+(`VITE_FAMILY_API_KEY`) and the Alexa skill
+(`YOUENJOYMYFAMILY_FAMILY_API_KEY`) both need it. This is one deployment
+per family rather than public multi-tenant signup, so `POST /families`
+has no invite/approval gate — whoever can reach it gets a family, the same
+trust model as the Alexa skill's invocation name.
 
 ## Prerequisites
 

@@ -3,6 +3,7 @@ import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { docClient, TABLE_NAME } from "../lib/dynamoClient";
 import { ok, badRequest, serverError } from "../lib/response";
 import { parseBody, ValidationError } from "../lib/validation";
+import { authenticateFamily } from "../lib/auth";
 import { PreferencesInput, type PreferencesItem } from "../types";
 
 const DEFAULT_PREFERENCES = {
@@ -19,6 +20,8 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
 
   try {
     if (!familyId || !memberId) return badRequest("familyId and memberId are required");
+    const authError = await authenticateFamily(event, familyId);
+    if (authError) return authError;
 
     if (method === "GET") {
       const result = await docClient.send(new GetCommand({ TableName: TABLE_NAME, Key: prefsKey(familyId, memberId) }));

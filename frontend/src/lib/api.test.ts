@@ -11,6 +11,7 @@ describe("api client", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("listTasks calls the family's tasks endpoint and parses the JSON body", async () => {
@@ -69,6 +70,26 @@ describe("api client", () => {
       expect.stringContaining("/families/fam_1/stated-preferences/p1?memberId=member_1"),
       expect.objectContaining({ method: "DELETE" })
     );
+  });
+
+  it("sends an Authorization header when VITE_FAMILY_API_KEY is set", async () => {
+    vi.stubEnv("VITE_FAMILY_API_KEY", "fk_test_key");
+
+    await api.listTasks("fam_1");
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer fk_test_key" }) })
+    );
+  });
+
+  it("omits the Authorization header when VITE_FAMILY_API_KEY is unset", async () => {
+    vi.stubEnv("VITE_FAMILY_API_KEY", "");
+
+    await api.listTasks("fam_1");
+
+    const headers = (vi.mocked(fetch).mock.calls[0]?.[1]?.headers ?? {}) as Record<string, string>;
+    expect("Authorization" in headers).toBe(false);
   });
 
   it("throws with the status code when the response is not ok", async () => {

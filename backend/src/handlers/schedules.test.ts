@@ -4,6 +4,7 @@ import { mockClient } from "aws-sdk-client-mock";
 import { DynamoDBDocumentClient, PutCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
 import { handler } from "./schedules";
+import { mockFamilyAuth } from "../lib/authTestSupport";
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
 
@@ -32,14 +33,21 @@ test("GET without familyId returns 400", async () => {
   assert.equal(result.statusCode, 400);
 });
 
+test("rejects a request with no Authorization header", async () => {
+  const result = await handler(makeEvent({ method: "GET", pathParameters: { familyId: "fam_1" } }));
+  assert.equal(result.statusCode, 401);
+});
+
 test("GET lists schedule entries in a date range", async () => {
   const items = [{ scheduleId: "s1", date: "2025-01-15", title: "Soccer practice" }];
   ddbMock.on(QueryCommand).resolves({ Items: items });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
 
   const result = await handler(
     makeEvent({
       method: "GET",
       pathParameters: { familyId: "fam_1" },
+      headers,
       queryStringParameters: { start: "2025-01-01", end: "2025-01-31" },
     })
   );
@@ -52,10 +60,12 @@ test("GET lists schedule entries in a date range", async () => {
 });
 
 test("POST rejects a missing date", async () => {
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
   const result = await handler(
     makeEvent({
       method: "POST",
       pathParameters: { familyId: "fam_1" },
+      headers,
       body: JSON.stringify({ title: "Soccer practice" }),
     })
   );
@@ -64,11 +74,13 @@ test("POST rejects a missing date", async () => {
 
 test("POST creates a schedule entry with defaults for optional fields", async () => {
   ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
 
   const result = await handler(
     makeEvent({
       method: "POST",
       pathParameters: { familyId: "fam_1" },
+      headers,
       body: JSON.stringify({ date: "2025-01-15", title: "Soccer practice" }),
     })
   );
@@ -81,19 +93,22 @@ test("POST creates a schedule entry with defaults for optional fields", async ()
 });
 
 test("DELETE requires both scheduleId and a date query param", async () => {
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
   const result = await handler(
-    makeEvent({ method: "DELETE", pathParameters: { familyId: "fam_1", scheduleId: "s1" } })
+    makeEvent({ method: "DELETE", pathParameters: { familyId: "fam_1", scheduleId: "s1" }, headers })
   );
   assert.equal(result.statusCode, 400);
 });
 
 test("DELETE removes a schedule entry", async () => {
   ddbMock.on(DeleteCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
 
   const result = await handler(
     makeEvent({
       method: "DELETE",
       pathParameters: { familyId: "fam_1", scheduleId: "s1" },
+      headers,
       queryStringParameters: { date: "2025-01-15" },
     })
   );

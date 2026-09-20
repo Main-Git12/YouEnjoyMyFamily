@@ -5,6 +5,7 @@ import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand } from "@a
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
 import { handler, routeGroceryCart, type InstacartClient } from "./groceryCart";
 import type { CartItem, LearnedSubstitutionItem } from "../types";
+import { mockFamilyAuth } from "../lib/authTestSupport";
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
 
@@ -46,29 +47,38 @@ const cartItem = (overrides: Partial<CartItem> = {}): CartItem => ({
   ...overrides,
 });
 
+test("rejects a request with no Authorization header", async () => {
+  const result = await handler(makeEvent({ method: "GET", pathParameters: { familyId: "fam_1" } }));
+  assert.equal(result.statusCode, 401);
+});
+
 test("GET lists cart items for a family", async () => {
   const items = [cartItem()];
   ddbMock.on(QueryCommand).resolves({ Items: items });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
 
-  const result = await handler(makeEvent({ method: "GET", pathParameters: { familyId: "fam_1" } }));
+  const result = await handler(makeEvent({ method: "GET", pathParameters: { familyId: "fam_1" }, headers }));
   assert.equal(result.statusCode, 200);
   assert.deepEqual(JSON.parse(result.body ?? "[]"), items);
 });
 
 test("POST rejects a missing description", async () => {
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
   const result = await handler(
-    makeEvent({ method: "POST", pathParameters: { familyId: "fam_1" }, body: JSON.stringify({}) })
+    makeEvent({ method: "POST", pathParameters: { familyId: "fam_1" }, headers, body: JSON.stringify({}) })
   );
   assert.equal(result.statusCode, 400);
 });
 
 test("POST adds an item with pending status and no Instacart product id required", async () => {
   ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
 
   const result = await handler(
     makeEvent({
       method: "POST",
       pathParameters: { familyId: "fam_1" },
+      headers,
       body: JSON.stringify({ description: "2% Milk, 1 Gallon" }),
     })
   );
@@ -82,9 +92,10 @@ test("POST adds an item with pending status and no Instacart product id required
 
 test("PUT on a missing item returns 404", async () => {
   ddbMock.on(GetCommand).resolves({ Item: undefined });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
 
   const result = await handler(
-    makeEvent({ method: "PUT", pathParameters: { familyId: "fam_1", itemId: "missing" }, body: "{}" })
+    makeEvent({ method: "PUT", pathParameters: { familyId: "fam_1", itemId: "missing" }, headers, body: "{}" })
   );
   assert.equal(result.statusCode, 404);
 });
@@ -93,11 +104,13 @@ test("PUT marks an item unavailable with no suggestion when nothing was ever con
   ddbMock.on(GetCommand, { Key: { PK: "FAMILY#fam_1", SK: "CARTITEM#i1" } }).resolves({ Item: cartItem() });
   ddbMock.on(GetCommand, { Key: { PK: "FAMILY#fam_1", SK: "SUBSTITUTION#spaghetti" } }).resolves({ Item: undefined });
   ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
 
   const result = await handler(
     makeEvent({
       method: "PUT",
       pathParameters: { familyId: "fam_1", itemId: "i1" },
+      headers,
       body: JSON.stringify({ status: "unavailable" }),
     })
   );
@@ -122,11 +135,13 @@ test("PUT marking an item unavailable surfaces a previously confirmed substitute
   };
   ddbMock.on(GetCommand, { Key: { PK: "FAMILY#fam_1", SK: "SUBSTITUTION#spaghetti" } }).resolves({ Item: learned });
   ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
 
   const result = await handler(
     makeEvent({
       method: "PUT",
       pathParameters: { familyId: "fam_1", itemId: "i1" },
+      headers,
       body: JSON.stringify({ status: "unavailable" }),
     })
   );
@@ -144,11 +159,13 @@ test("PUT confirming a substitute records it as learned for next time", async ()
   });
   ddbMock.on(GetCommand, { Key: { PK: "FAMILY#fam_1", SK: "SUBSTITUTION#spaghetti" } }).resolves({ Item: undefined });
   ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
 
   const result = await handler(
     makeEvent({
       method: "PUT",
       pathParameters: { familyId: "fam_1", itemId: "i1" },
+      headers,
       body: JSON.stringify({ status: "substituted", substituteDescription: "Penne" }),
     })
   );
@@ -175,6 +192,7 @@ test("checkout builds Instacart line items, using the substitute description whe
       cartItem({ itemId: "i3", description: "Rare cheese", status: "unavailable" }),
     ],
   });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
 
   const calls: unknown[] = [];
   const fakeInstacart: InstacartClient = {
@@ -185,7 +203,12 @@ test("checkout builds Instacart line items, using the substitute description whe
   };
 
   const result = await routeGroceryCart(
-    makeEvent({ method: "POST", path: "/families/fam_1/grocery-cart/checkout", pathParameters: { familyId: "fam_1" } }),
+    makeEvent({
+      method: "POST",
+      path: "/families/fam_1/grocery-cart/checkout",
+      pathParameters: { familyId: "fam_1" },
+      headers,
+    }),
     fakeInstacart
   );
 
@@ -204,9 +227,15 @@ test("checkout builds Instacart line items, using the substitute description whe
 
 test("checkout rejects when every item is unavailable", async () => {
   ddbMock.on(QueryCommand).resolves({ Items: [cartItem({ status: "unavailable" })] });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
 
   const result = await routeGroceryCart(
-    makeEvent({ method: "POST", path: "/families/fam_1/grocery-cart/checkout", pathParameters: { familyId: "fam_1" } }),
+    makeEvent({
+      method: "POST",
+      path: "/families/fam_1/grocery-cart/checkout",
+      pathParameters: { familyId: "fam_1" },
+      headers,
+    }),
     { createShoppingListLink: async () => "unused" }
   );
 

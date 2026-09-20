@@ -69,6 +69,32 @@ Resources:
         AllowHeaders: ["Content-Type", "Authorization"]
         AllowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 
+  # The only unauthenticated route — see src/handlers/families.ts and
+  # src/lib/auth.ts. Every other function's routes below require
+  # `Authorization: Bearer <apiKey>` and are otherwise unchanged.
+  FamiliesFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/families.ts]
+    Properties:
+      Handler: src/handlers/families.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref YouEnjoyMyFamilyTable
+      Events:
+        Create:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families
+            Method: POST
+
   TasksFunction:
     Type: AWS::Serverless::Function
     Metadata:

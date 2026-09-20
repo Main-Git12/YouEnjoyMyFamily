@@ -19,6 +19,14 @@ items returned from a `Query` without a second read.
 | Learned substitution| `FAMILY#<familyId>`   | `SUBSTITUTION#<normalizedDescription>`| —             | —                          |
 | OAuth token set     | `FAMILY#<familyId>`   | `TOKEN#<provider>`          | —                       | —                          |
 
+`Family` (`METADATA`) is the tenant record every other item's `PK` depends
+on, and the only thing that makes a `familyId` real rather than an
+arbitrary caller-supplied string — it holds `apiKeyHash` (a SHA-256 hash,
+never the raw key) and is created by `POST /families`, the one
+unauthenticated route in this API. Every other route requires
+`Authorization: Bearer <apiKey>` and checks it against this record before
+touching any data (see `backend/src/lib/auth.ts`).
+
 `Member preferences` (`PREFS#<memberId>`, one item per member) is app/UI
 settings — theme, notifications, quiet hours. `Stated preference`
 (`STATEDPREF#<memberId>#<id>`, many items per member) is a separate,
@@ -55,6 +63,18 @@ not applied automatically.
 ## Item shape examples
 
 ```jsonc
+// Family — created by POST /families; apiKeyHash is a SHA-256 hex digest,
+// never the raw key (that's returned exactly once, in the POST response)
+{
+  "PK": "FAMILY#fam_123",
+  "SK": "METADATA",
+  "entityType": "FAMILY",
+  "familyId": "fam_123",
+  "name": "The Peals",
+  "apiKeyHash": "3b2e...c1",
+  "createdAt": "2025-01-10T12:00:00Z"
+}
+
 // Task
 {
   "PK": "FAMILY#fam_123",

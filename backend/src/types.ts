@@ -153,6 +153,26 @@ export interface LearnedSubstitutionItem {
   updatedAt: string;
 }
 
+export const CreateFamilyInput = z.object({
+  name: z.string().min(1).max(100).optional(),
+});
+export type CreateFamilyInput = z.infer<typeof CreateFamilyInput>;
+
+// The only item every other entity's PK depends on, and the only thing that
+// makes a familyId a real, authenticated tenant rather than an arbitrary
+// caller-supplied string — see POST /families (families.ts) for how one gets
+// created, and lib/auth.ts for how apiKeyHash is checked on every other
+// route. The raw API key is never stored, only its SHA-256 hash.
+export interface FamilyRecord {
+  PK: string;
+  SK: "METADATA";
+  entityType: "FAMILY";
+  familyId: string;
+  name: string | null;
+  apiKeyHash: string;
+  createdAt: string;
+}
+
 export interface CalendarTokenRecord {
   PK: string;
   SK: string;

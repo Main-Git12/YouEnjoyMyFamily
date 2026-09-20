@@ -41,6 +41,24 @@ test("LaunchRequestHandler skips the APL directive on APL-less devices", () => {
   assert.equal(response.directives.length, 0);
 });
 
+test("sends the Authorization header when YOUENJOYMYFAMILY_FAMILY_API_KEY is set", async () => {
+  const previous = process.env.YOUENJOYMYFAMILY_FAMILY_API_KEY;
+  process.env.YOUENJOYMYFAMILY_FAMILY_API_KEY = "fk_test_key";
+  let seenHeaders: RequestInit["headers"];
+  mock.method(globalThis, "fetch", async (_url: string, init?: RequestInit) => {
+    seenHeaders = init?.headers;
+    return new Response(JSON.stringify([]), { status: 200 });
+  });
+
+  try {
+    await GetScheduleIntentHandler.handle(makeHandlerInput(intentRequest("GetScheduleIntent")));
+  } finally {
+    process.env.YOUENJOYMYFAMILY_FAMILY_API_KEY = previous;
+  }
+
+  assert.deepEqual(seenHeaders, { Authorization: "Bearer fk_test_key" });
+});
+
 test("GetScheduleIntentHandler speaks each entry's title", async () => {
   mock.method(globalThis, "fetch", async () =>
     new Response(JSON.stringify([{ scheduleId: "s1", title: "Soccer practice" }]), { status: 200 })
@@ -113,7 +131,7 @@ test("CompleteChoreIntentHandler asks which chore when the slot is empty", async
 
 test("CompleteChoreIntentHandler sends the child on a dragon battle and awards gems", async () => {
   mock.method(globalThis, "fetch", async (_url: string, init?: RequestInit) => {
-    if (!init) {
+    if (!init?.method) {
       return new Response(
         JSON.stringify([{ taskId: "t1", title: "Clean room", status: "pending", gemsAwarded: 0 }]),
         { status: 200 }
@@ -147,7 +165,7 @@ test("CompleteChoreIntentHandler reports when no matching open chore exists", as
 
 test("CompleteChoreIntentHandler degrades gracefully when the backend rejects the completion", async () => {
   mock.method(globalThis, "fetch", async (_url: string, init?: RequestInit) => {
-    if (!init) {
+    if (!init?.method) {
       return new Response(
         JSON.stringify([{ taskId: "t1", title: "Clean room", status: "pending", gemsAwarded: 0 }]),
         { status: 200 }

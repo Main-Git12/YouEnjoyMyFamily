@@ -4,6 +4,7 @@ import { GetCommand, PutCommand, QueryCommand, DeleteCommand } from "@aws-sdk/li
 import { docClient, TABLE_NAME } from "../lib/dynamoClient";
 import { ok, created, badRequest, notFound, serverError } from "../lib/response";
 import { parseBody, ValidationError } from "../lib/validation";
+import { authenticateFamily } from "../lib/auth";
 import { TaskInput, TaskPatch, type TaskItem } from "../types";
 
 const taskKey = (familyId: string, taskId: string) => ({ PK: `FAMILY#${familyId}`, SK: `TASK#${taskId}` });
@@ -77,6 +78,8 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
 
   try {
     if (!familyId) return badRequest("familyId is required");
+    const authError = await authenticateFamily(event, familyId);
+    if (authError) return authError;
 
     switch (method) {
       case "GET":

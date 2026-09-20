@@ -12,6 +12,14 @@ const API_BASE_URL = process.env.YOUENJOYMYFAMILY_API_BASE_URL;
 // instead of a fixed id once account linking is implemented.
 const FAMILY_ID = process.env.YOUENJOYMYFAMILY_FAMILY_ID ?? "fam_demo";
 
+// Issued once by POST /families (see backend/README.md) for this same fixed
+// family; required on every backend call now that the API checks it. Read
+// fresh (not cached at module scope) so tests can flip it per case.
+function authHeaders(): Record<string, string> {
+  const apiKey = process.env.YOUENJOYMYFAMILY_FAMILY_API_KEY;
+  return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+}
+
 interface TaskItem {
   taskId: string;
   title: string;
@@ -51,7 +59,7 @@ function renderChoreBattle(handlerInput: Alexa.HandlerInput, memberName: string,
 
 async function fetchJson<T>(path: string): Promise<T> {
   if (!API_BASE_URL) throw new Error("YOUENJOYMYFAMILY_API_BASE_URL is not configured");
-  const response = await fetch(`${API_BASE_URL}${path}`);
+  const response = await fetch(`${API_BASE_URL}${path}`, { headers: authHeaders() });
   if (!response.ok) throw new Error(`YouEnjoyMyFamily API error: ${response.status}`);
   return response.json() as Promise<T>;
 }
@@ -133,7 +141,7 @@ export const AddTaskIntentHandler: Alexa.RequestHandler = {
 
       const response = await fetch(`${API_BASE_URL}/families/${FAMILY_ID}/tasks`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ title }),
       });
       if (!response.ok) throw new Error(`YouEnjoyMyFamily API error: ${response.status}`);
@@ -180,7 +188,7 @@ export const CompleteChoreIntentHandler: Alexa.RequestHandler = {
 
       const response = await fetch(`${API_BASE_URL}/families/${FAMILY_ID}/tasks/${match.taskId}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ status: "done" }),
       });
       if (!response.ok) throw new Error(`YouEnjoyMyFamily API error: ${response.status}`);

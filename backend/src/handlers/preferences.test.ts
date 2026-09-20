@@ -4,6 +4,7 @@ import { mockClient } from "aws-sdk-client-mock";
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
 import { handler } from "./preferences";
+import { mockFamilyAuth } from "../lib/authTestSupport";
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
 
@@ -32,11 +33,19 @@ test("GET without memberId returns 400", async () => {
   assert.equal(result.statusCode, 400);
 });
 
-test("GET returns defaults when no preferences are stored", async () => {
-  ddbMock.on(GetCommand).resolves({ Item: undefined });
-
+test("rejects a request with no Authorization header", async () => {
   const result = await handler(
     makeEvent({ method: "GET", pathParameters: { familyId: "fam_1", memberId: "mem_1" } })
+  );
+  assert.equal(result.statusCode, 401);
+});
+
+test("GET returns defaults when no preferences are stored", async () => {
+  ddbMock.on(GetCommand).resolves({ Item: undefined });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({ method: "GET", pathParameters: { familyId: "fam_1", memberId: "mem_1" }, headers })
   );
 
   assert.equal(result.statusCode, 200);
@@ -49,9 +58,10 @@ test("GET returns defaults when no preferences are stored", async () => {
 test("GET returns the stored preferences when present", async () => {
   const stored = { theme: "clay", notificationsEnabled: false, quietHours: { start: "21:00", end: "06:00" } };
   ddbMock.on(GetCommand).resolves({ Item: stored });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
 
   const result = await handler(
-    makeEvent({ method: "GET", pathParameters: { familyId: "fam_1", memberId: "mem_1" } })
+    makeEvent({ method: "GET", pathParameters: { familyId: "fam_1", memberId: "mem_1" }, headers })
   );
 
   assert.equal(result.statusCode, 200);
@@ -60,11 +70,13 @@ test("GET returns the stored preferences when present", async () => {
 
 test("PUT with a partial body only overrides the given fields", async () => {
   ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
 
   const result = await handler(
     makeEvent({
       method: "PUT",
       pathParameters: { familyId: "fam_1", memberId: "mem_1" },
+      headers,
       body: JSON.stringify({ notificationsEnabled: false }),
     })
   );
@@ -77,10 +89,12 @@ test("PUT with a partial body only overrides the given fields", async () => {
 });
 
 test("PUT rejects an invalid quietHours shape", async () => {
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
   const result = await handler(
     makeEvent({
       method: "PUT",
       pathParameters: { familyId: "fam_1", memberId: "mem_1" },
+      headers,
       body: JSON.stringify({ quietHours: { start: "21:00" } }),
     })
   );
