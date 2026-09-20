@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import Dashboard from "./Dashboard";
-import { nextSevenDays } from "./MealPlan";
+import { weekFromOffset } from "../lib/dates";
 import { api } from "../lib/api";
 import type { Task } from "../types";
 
@@ -161,7 +161,7 @@ describe("Dashboard", () => {
     vi.mocked(api.listTasks).mockResolvedValue([]);
     vi.mocked(api.listSchedules).mockResolvedValue([]);
     vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
-    const today = nextSevenDays()[0] as string;
+    const today = weekFromOffset(0)[0] as string;
     vi.mocked(api.listMealPlan).mockResolvedValue([
       { date: today, slot: "dinner", mealName: "Tacos", ingredients: ["Tortillas", "Ground beef"] },
     ]);
@@ -238,11 +238,31 @@ describe("Dashboard", () => {
     expect(api.removeCartItem).toHaveBeenCalledWith("fam_demo", "c1");
   });
 
+  it("re-fetches for the new date range when the family pages to another week", async () => {
+    vi.mocked(api.listTasks).mockResolvedValue([]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+
+    render(<Dashboard />);
+    await waitFor(() => expect(screen.getByText("This week")).toBeInTheDocument());
+
+    const thisWeek = weekFromOffset(0);
+    expect(api.listMealPlan).toHaveBeenLastCalledWith("fam_demo", thisWeek[0], thisWeek[6]);
+
+    fireEvent.click(screen.getByRole("button", { name: /show the next week/i }));
+
+    // Without a re-fetch the label would change while the meals on screen
+    // still belonged to the previous week.
+    const nextWeek = weekFromOffset(1);
+    await waitFor(() => expect(api.listMealPlan).toHaveBeenLastCalledWith("fam_demo", nextWeek[0], nextWeek[6]));
+    expect(screen.getByText(/^Week of /)).toBeInTheDocument();
+  });
+
   it("picks up an edit made on another device when the screen becomes visible again", async () => {
     vi.mocked(api.listTasks).mockResolvedValue([]);
     vi.mocked(api.listSchedules).mockResolvedValue([]);
     vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
-    const today = nextSevenDays()[0] as string;
+    const today = weekFromOffset(0)[0] as string;
     // First load: nothing planned. Then someone adds Tacos on their phone.
     vi.mocked(api.listMealPlan)
       .mockResolvedValueOnce([])

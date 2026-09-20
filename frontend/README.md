@@ -42,6 +42,43 @@ npm test              # vitest run (jsdom + @testing-library/react)
 npm run build         # typecheck + production build
 ```
 
+## Deploy (so phones can reach it)
+
+`backend/template.yaml` provisions the hosting: a private S3 bucket behind a
+CloudFront distribution. Deploy the backend stack first, then upload this
+app's build output into it.
+
+```bash
+cd ../backend && sam deploy            # note the FrontendBucketName,
+                                        # FrontendDistributionId and ApiUrl outputs
+cd ../frontend
+VITE_API_BASE_URL=<ApiUrl> VITE_FAMILY_API_KEY=<family key> npm run build
+
+# Hashed assets can cache forever; index.html and the manifest must not, or
+# the family keeps loading last week's build.
+aws s3 sync dist/ s3://<FrontendBucketName>/ --delete \
+  --exclude index.html --exclude manifest.webmanifest \
+  --cache-control "public,max-age=31536000,immutable"
+aws s3 cp dist/index.html s3://<FrontendBucketName>/index.html \
+  --cache-control "no-cache"
+aws s3 cp dist/manifest.webmanifest s3://<FrontendBucketName>/manifest.webmanifest \
+  --cache-control "no-cache"
+
+aws cloudfront create-invalidation --distribution-id <FrontendDistributionId> --paths "/*"
+```
+
+Open the stack's `FrontendUrl` output on a phone and use the browser's
+**Add to Home Screen** — the web manifest makes it open chrome-less, like an
+app. Every screen re-reads the family's data every 30 seconds and whenever it
+becomes visible again, so a meal or grocery item edited on a phone shows up on
+the kitchen Echo Show without anyone reloading.
+
+> **Note on the API key.** `VITE_FAMILY_API_KEY` is baked into the built
+> JavaScript, so anyone who can load the site can read it. That's an
+> acceptable trade for a single family on an unlisted CloudFront URL, but it
+> is *not* multi-tenant-safe — don't hand the URL out, and move to per-user
+> auth (e.g. Cognito) before this ever serves more than one household.
+
 ## Known issues
 
 - `vitest`/`vite`'s dev-server-only advisories (moderate/high — path

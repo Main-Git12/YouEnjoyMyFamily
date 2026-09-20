@@ -23,3 +23,15 @@ export function localDaysFromToday(count: number, from: Date = new Date()): stri
   }
   return days;
 }
+
+/**
+ * A 7-day window, `offsetWeeks` weeks from today — 0 is the coming week,
+ * 1 is the week after, -1 the one just gone. Anchored on today rather than
+ * on a calendar Sunday, so "this week" always starts with today's meals
+ * rather than burying them behind days that have already happened.
+ */
+export function weekFromOffset(offsetWeeks: number, from: Date = new Date()): string[] {
+  const start = new Date(from);
+  start.setDate(from.getDate() + offsetWeeks * 7);
+  return localDaysFromToday(7, start);
+}

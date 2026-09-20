@@ -389,6 +389,95 @@ Resources:
             Description: Weekly conversion of each family's planned meals into grocery cart items
             Enabled: true
 
+  # ---------------------------------------------------------------------
+  # Frontend hosting — the dashboard has to be reachable from the family's
+  # phones, not just the Echo Show on the wall. Private S3 bucket behind
+  # CloudFront (HTTPS is also what makes add-to-home-screen work).
+  # ---------------------------------------------------------------------
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub youenjoymyfamily-frontend-${Stage}-${AWS::AccountId}
+      # Never public: CloudFront reads it via the origin access control below.
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  FrontendOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub youenjoymyfamily-frontend-${Stage}
+        Description: Lets only this CloudFront distribution read the frontend bucket
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  FrontendDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub YouEnjoyMyFamily dashboard (${Stage})
+        DefaultRootObject: index.html
+        # http2and3: HTTP/3 survives a phone switching between wifi and
+        # cellular mid-request, which this app does a lot of.
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: PriceClass_100
+        Origins:
+          - Id: FrontendBucketOrigin
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt FrontendOriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        DefaultCacheBehavior:
+          TargetOriginId: FrontendBucketOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          # Managed-CachingOptimized. Deploys still show up promptly because
+          # index.html is uploaded with `Cache-Control: no-cache` (see
+          # frontend/README.md) while the hashed assets cache for a year.
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+        # It's a single-page app: any path the family bookmarks has to come
+        # back as index.html rather than S3's raw NoSuchKey error.
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudFrontServicePrincipalReadOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub ${FrontendBucket.Arn}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${FrontendDistribution}
+
 Outputs:
   ApiUrl:
     Description: Base URL for the YouEnjoyMyFamily HTTP API
@@ -396,3 +485,12 @@ Outputs:
   TableName:
     Description: DynamoDB single-table name
     Value: !Ref YouEnjoyMyFamilyTable
+  FrontendUrl:
+    Description: Open this on a phone or Echo Show — the dashboard itself
+    Value: !Sub https://${FrontendDistribution.DomainName}
+  FrontendBucketName:
+    Description: Upload `frontend/dist` here (see frontend/README.md)
+    Value: !Ref FrontendBucket
+  FrontendDistributionId:
+    Description: Pass to `aws cloudfront create-invalidation` after each upload
+    Value: !Ref FrontendDistribution

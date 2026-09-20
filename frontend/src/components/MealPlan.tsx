@@ -1,9 +1,12 @@
 import { useState, type FormEvent } from "react";
 import type { MealPlanEntry, MealSlot } from "../types";
-import { localDaysFromToday } from "../lib/dates";
 
 interface MealPlanProps {
   entries: MealPlanEntry[];
+  /** The 7 dates currently on screen — owned by Dashboard, which fetches them. */
+  days: string[];
+  weekOffset: number;
+  onWeekOffsetChange: (offset: number) => void;
   onSave: (date: string, slot: MealSlot, input: { mealName: string; ingredients: string[] }) => Promise<void>;
   onRemove: (date: string, slot: MealSlot) => Promise<void>;
   onGenerateGroceryList: () => Promise<{ added: number; skipped: number }>;
@@ -12,23 +15,31 @@ interface MealPlanProps {
 const SLOTS: MealSlot[] = ["breakfast", "lunch", "dinner"];
 const SLOT_LABELS: Record<MealSlot, string> = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner" };
 
-export function nextSevenDays(): string[] {
-  return localDaysFromToday(7);
-}
-
 function formatDayLabel(isoDate: string): string {
   const date = new Date(`${isoDate}T00:00:00`);
   return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
 
+function weekLabel(offset: number, days: string[]): string {
+  if (offset === 0) return "This week";
+  const first = days[0];
+  if (!first) return offset > 0 ? "Next week" : "Last week";
+  const date = new Date(`${first}T00:00:00`);
+  return `Week of ${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+}
+
 // Only what a family member has typed in for their week — no AI-invented
 // meals or ingredients. generateGroceryListFromMealPlan (backend) is the
 // only thing that ever turns these ingredients into cart items.
-export default function MealPlan({ entries, onSave, onRemove, onGenerateGroceryList }: MealPlanProps) {
-  // Recomputed every render rather than memoized on mount: this dashboard
-  // lives on an always-on Echo Show, and a window pinned at mount would
-  // still be showing yesterday's week after midnight.
-  const days = nextSevenDays();
+export default function MealPlan({
+  entries,
+  days,
+  weekOffset,
+  onWeekOffsetChange,
+  onSave,
+  onRemove,
+  onGenerateGroceryList,
+}: MealPlanProps) {
   const [editing, setEditing] = useState<{ date: string; slot: MealSlot } | null>(null);
   const [mealName, setMealName] = useState("");
   const [ingredientsText, setIngredientsText] = useState("");
@@ -79,6 +90,26 @@ export default function MealPlan({ entries, onSave, onRemove, onGenerateGroceryL
       <p className="text-sm text-olive-600 mb-3">
         Plan the week's meals — the grocery list builds itself from what's typed in here.
       </p>
+
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <button
+          type="button"
+          onClick={() => onWeekOffsetChange(weekOffset - 1)}
+          aria-label="Show the previous week"
+          className="rounded-lg bg-olive-50 text-olive-700 px-3 py-2 text-sm hover:bg-olive-100"
+        >
+          ← Previous
+        </button>
+        <span className="text-sm font-semibold text-olive-700">{weekLabel(weekOffset, days)}</span>
+        <button
+          type="button"
+          onClick={() => onWeekOffsetChange(weekOffset + 1)}
+          aria-label="Show the next week"
+          className="rounded-lg bg-olive-50 text-olive-700 px-3 py-2 text-sm hover:bg-olive-100"
+        >
+          Next →
+        </button>
+      </div>
 
       <div className="space-y-2 mb-4">
         {days.map((date) => (
@@ -156,7 +187,7 @@ export default function MealPlan({ entries, onSave, onRemove, onGenerateGroceryL
       )}
 
       <button type="button" onClick={handleGenerate} className="rounded-lg bg-olive-500 text-white px-4 py-2 hover:bg-olive-600">
-        Generate grocery list for this week
+        {weekOffset === 0 ? "Generate grocery list for this week" : "Generate grocery list for this view"}
       </button>
       {generateResult && <p className="text-sm text-clay-700 mt-2">{generateResult}</p>}
     </div>

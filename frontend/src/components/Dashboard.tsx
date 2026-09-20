@@ -8,7 +8,8 @@ import Celebration from "./Celebration";
 import FamilyFavorites from "./FamilyFavorites";
 import GemCastle from "./GemCastle";
 import CastleAlert from "./CastleAlert";
-import MealPlan, { nextSevenDays } from "./MealPlan";
+import MealPlan from "./MealPlan";
+import { weekFromOffset } from "../lib/dates";
 import GroceryCart from "./GroceryCart";
 
 // Placeholder until family selection / auth is wired up.
@@ -30,12 +31,20 @@ export default function Dashboard() {
   const [celebration, setCelebration] = useState<{ gemsEarned: number } | null>(null);
   const [castleAlertTask, setCastleAlertTask] = useState<Task | null>(null);
   const [hasTriggeredCastleAlert, setHasTriggeredCastleAlert] = useState(false);
+  // 0 = the coming 7 days; the family can page forward to plan ahead.
+  const [weekOffset, setWeekOffset] = useState(0);
 
-  const weekDays = nextSevenDays();
+  // Recomputed every render rather than memoized, so an always-on kitchen
+  // display rolls over to the new day at midnight on its own.
+  const weekDays = weekFromOffset(weekOffset);
   const weekStart = weekDays[0];
   const weekEnd = weekDays[weekDays.length - 1];
 
-  const loadEverything = useCallback(async () => {
+  // Fetches but deliberately does not apply — the caller decides whether a
+  // response that arrived late is still the one it asked for. Paging
+  // between weeks quickly would otherwise let a slow earlier request land
+  // last and overwrite the week actually on screen.
+  const fetchEverything = useCallback(async () => {
     const [taskItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList] = await Promise.all([
       api.listTasks(DEMO_FAMILY_ID),
       api.listSchedules(DEMO_FAMILY_ID),
@@ -43,22 +52,37 @@ export default function Dashboard() {
       api.listMealPlan(DEMO_FAMILY_ID, weekStart, weekEnd),
       api.listCartItems(DEMO_FAMILY_ID),
     ]);
-    setTasks(taskItems);
-    setSchedule(scheduleItems);
-    setPreferences(preferenceItems);
-    setMealPlan(mealPlanItems);
-    setCartItems(cartItemsList);
+    return { taskItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList };
   }, [weekStart, weekEnd]);
 
-  useEffect(() => {
-    loadEverything()
-      .then(() => setError(null))
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
-      .finally(() => setIsLoading(false));
-    // Only on mount: later refreshes go through the background sync below,
-    // which must not re-show the full-page loading state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  const applyEverything = useCallback((data: Awaited<ReturnType<typeof fetchEverything>>) => {
+    setTasks(data.taskItems);
+    setSchedule(data.scheduleItems);
+    setPreferences(data.preferenceItems);
+    setMealPlan(data.mealPlanItems);
+    setCartItems(data.cartItemsList);
   }, []);
+
+  // Runs on mount and again whenever the week on screen changes, so paging
+  // to next week actually loads next week rather than relabelling this one.
+  useEffect(() => {
+    let superseded = false;
+    fetchEverything()
+      .then((data) => {
+        if (superseded) return;
+        applyEverything(data);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        if (!superseded) setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!superseded) setIsLoading(false);
+      });
+    return () => {
+      superseded = true;
+    };
+  }, [fetchEverything, applyEverything]);
 
   // Keeps every screen in the house on the same page — a meal or grocery
   // item edited on someone's phone appears here on the next tick, and a
@@ -67,8 +91,13 @@ export default function Dashboard() {
   // background sync stays silent: the last good data is better company
   // than an error banner over a screen nobody is even looking at.
   useEffect(() => {
+    let superseded = false;
     const sync = () => {
-      void loadEverything().catch(() => undefined);
+      void fetchEverything()
+        .then((data) => {
+          if (!superseded) applyEverything(data);
+        })
+        .catch(() => undefined);
     };
     const syncWhenVisible = () => {
       if (document.visibilityState === "visible") sync();
@@ -77,10 +106,11 @@ export default function Dashboard() {
     const interval = setInterval(sync, SYNC_INTERVAL_MS);
     document.addEventListener("visibilitychange", syncWhenVisible);
     return () => {
+      superseded = true;
       clearInterval(interval);
       document.removeEventListener("visibilitychange", syncWhenVisible);
     };
-  }, [loadEverything]);
+  }, [fetchEverything, applyEverything]);
 
   // Trigger the castle-attack event once per dashboard session, off data the
   // family already explicitly entered (a pending task's own assignee) —
@@ -108,7 +138,7 @@ export default function Dashboard() {
   async function handleManualRefresh() {
     setIsSyncing(true);
     try {
-      await loadEverything();
+      applyEverything(await fetchEverything());
       setError(null);
     } catch (err) {
       reportError(err);
@@ -287,6 +317,9 @@ export default function Dashboard() {
           <FamilyCard title="Meal plan">
             <MealPlan
               entries={mealPlan}
+              days={weekDays}
+              weekOffset={weekOffset}
+              onWeekOffsetChange={setWeekOffset}
               onSave={handleSaveMealPlanEntry}
               onRemove={handleRemoveMealPlanEntry}
               onGenerateGroceryList={handleGenerateGroceryList}
