@@ -28,7 +28,7 @@ src/
 ## Local development
 
 ```bash
-cp .env.example .env    # VITE_API_BASE_URL + VITE_FAMILY_API_KEY (see backend/README.md's Authentication section)
+cp .env.example .env    # VITE_API_BASE_URL, plus the family id + key for local dev only
 npm install
 npm run dev
 ```
@@ -52,7 +52,7 @@ app's build output into it.
 cd ../backend && sam deploy            # note the FrontendBucketName,
                                         # FrontendDistributionId and ApiUrl outputs
 cd ../frontend
-VITE_API_BASE_URL=<ApiUrl> VITE_FAMILY_API_KEY=<family key> npm run build
+VITE_API_BASE_URL=<ApiUrl> npm run build   # no key: each screen is linked on the device
 
 # Hashed assets can cache forever; index.html and the manifest must not, or
 # the family keeps loading last week's build.
@@ -73,11 +73,25 @@ app. Every screen re-reads the family's data every 30 seconds and whenever it
 becomes visible again, so a meal or grocery item edited on a phone shows up on
 the kitchen Echo Show without anyone reloading.
 
-> **Note on the API key.** `VITE_FAMILY_API_KEY` is baked into the built
-> JavaScript, so anyone who can load the site can read it. That's an
-> acceptable trade for a single family on an unlisted CloudFront URL, but it
-> is *not* multi-tenant-safe — don't hand the URL out, and move to per-user
-> auth (e.g. Cognito) before this ever serves more than one household.
+## Connecting a screen
+
+The family's API key is **not** in the build. A production bundle has no
+way to contain it — the branch that would read it from the environment is
+compiled out, and `npm run verify:bundle` builds with a canary key and
+fails if it ever appears in the output (CI runs this).
+
+Instead, each screen is linked once. On first load it asks for the family
+id and key (both from `POST /families`, see `backend/README.md`), keeps
+them in that device's `localStorage`, and sends the key only as the
+`Authorization` header it was always meant to be. If the key is ever
+rotated or revoked, the screen notices the rejection and returns to the
+same setup step rather than looping on an error.
+
+This is deliberately not a login. It's a household of a handful of
+devices, and inventing accounts and password resets for four people who
+live together would be more to go wrong, not less. What it does buy is
+that the URL alone is no longer enough: someone who finds the CloudFront
+address gets a setup prompt, not the children's names.
 
 ## Known issues
 

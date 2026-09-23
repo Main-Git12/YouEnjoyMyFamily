@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "../lib/api";
+import { api, ApiError } from "../lib/api";
 import type { Task, TaskCompletion, ScheduleEntry, StatedPreference, StatedPreferenceCategory, MealPlanEntry, MealSlot, CartItem, RewardGoal, GemBalance } from "../types";
 import { chooseThreatenedChore, type ThreatenedChore } from "../lib/gemThreats";
 import FamilyCard from "./FamilyCard";
@@ -14,16 +14,25 @@ import PrizeGoal from "./PrizeGoal";
 import MealPlan from "./MealPlan";
 import { toLocalIsoDate, weekFromOffset } from "../lib/dates";
 import { knownMembers } from "../lib/members";
+import { getFamilyId } from "../lib/familyKey";
 import GroceryCart from "./GroceryCart";
 
-// Placeholder until family selection / auth is wired up.
-const DEMO_FAMILY_ID = "fam_demo";
+// Which family this screen belongs to, set once per device (see
+// LinkDevice). Read at render rather than module load so a screen linked
+// mid-session doesn't need a reload.
+const FALLBACK_FAMILY_ID = "fam_demo";
 
 // How often an idle screen re-reads the family's data, so a meal added on a
 // phone shows up on the Echo Show (and vice versa) without anyone reloading.
 const SYNC_INTERVAL_MS = 30_000;
 
-export default function Dashboard() {
+interface DashboardProps {
+  /** Raised when the backend rejects this device's key outright. */
+  onSignedOut?: () => void;
+}
+
+export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
+  const familyId = getFamilyId() ?? FALLBACK_FAMILY_ID;
   const [tasks, setTasks] = useState<Task[]>([]);
   const [completions, setCompletions] = useState<TaskCompletion[]>([]);
   const [schedule, setSchedule] = useState<ScheduleEntry[]>([]);
@@ -60,17 +69,17 @@ export default function Dashboard() {
   // last and overwrite the week actually on screen.
   const fetchEverything = useCallback(async () => {
     const [taskItems, completionItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList, rewardGoalItems, gemBalanceItems] = await Promise.all([
-      api.listTasks(DEMO_FAMILY_ID, today),
-      api.listTaskCompletions(DEMO_FAMILY_ID),
-      api.listSchedules(DEMO_FAMILY_ID, today, today),
-      api.listStatedPreferences(DEMO_FAMILY_ID),
-      api.listMealPlan(DEMO_FAMILY_ID, weekStart, weekEnd),
-      api.listCartItems(DEMO_FAMILY_ID),
-      api.listRewardGoals(DEMO_FAMILY_ID),
-      api.listGemBalances(DEMO_FAMILY_ID),
+      api.listTasks(familyId, today),
+      api.listTaskCompletions(familyId),
+      api.listSchedules(familyId, today, today),
+      api.listStatedPreferences(familyId),
+      api.listMealPlan(familyId, weekStart, weekEnd),
+      api.listCartItems(familyId),
+      api.listRewardGoals(familyId),
+      api.listGemBalances(familyId),
     ]);
     return { taskItems, completionItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList, rewardGoalItems, gemBalanceItems };
-  }, [weekStart, weekEnd, today]);
+  }, [familyId, weekStart, weekEnd, today]);
 
   // Bumped at the start *and* the end of every local write. A sync that
   // overlapped a write is holding a snapshot taken before the server saw it,
@@ -183,6 +192,12 @@ export default function Dashboard() {
   // Every action funnels its failure here, and a later success clears it —
   // a stale error banner outliving the problem is its own bug.
   function reportError(err: unknown) {
+    // A rejected key is the one failure the screen can't retry its way out
+    // of, so it goes back to setup instead of looping on a banner.
+    if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+      onSignedOut?.();
+      return;
+    }
     setError(err instanceof Error ? err.message : String(err));
   }
 
@@ -238,7 +253,7 @@ export default function Dashboard() {
     if (options.celebrate !== false) setCelebration({ gemsEarned: task.gemValue });
 
     try {
-      const updated = await guardedWrite(() => api.completeTask(DEMO_FAMILY_ID, task.taskId, today));
+      const updated = await guardedWrite(() => api.completeTask(familyId, task.taskId, today));
       // The server is the authority on what was actually awarded — it pays
       // nothing the second time a chore is ticked on the same day.
       setTasks((prev) => prev.map((t) => (t.taskId === updated.taskId ? updated : t)));
@@ -262,7 +277,7 @@ export default function Dashboard() {
     try {
       const created = await guardedWrite(() =>
         api.createTask(
-          DEMO_FAMILY_ID,
+          familyId,
           {
             title: chore.title,
             gemValue: chore.gemValue,
@@ -282,7 +297,7 @@ export default function Dashboard() {
 
   async function handleAddPreference(input: { memberId: string; category: StatedPreferenceCategory; statement: string }) {
     try {
-      const created = await guardedWrite(() => api.addStatedPreference(DEMO_FAMILY_ID, input));
+      const created = await guardedWrite(() => api.addStatedPreference(familyId, input));
       setPreferences((prev) => [...prev, created]);
       setError(null);
     } catch (err) {
@@ -293,7 +308,7 @@ export default function Dashboard() {
 
   async function handleRemovePreference(preference: StatedPreference) {
     try {
-      await guardedWrite(() => api.removeStatedPreference(DEMO_FAMILY_ID, preference.preferenceId, preference.memberId));
+      await guardedWrite(() => api.removeStatedPreference(familyId, preference.preferenceId, preference.memberId));
       setPreferences((prev) => prev.filter((p) => p.preferenceId !== preference.preferenceId));
       setError(null);
     } catch (err) {
@@ -341,7 +356,7 @@ export default function Dashboard() {
 
   async function handleClaimRewardGoal(memberId: string) {
     try {
-      const { balance } = await guardedWrite(() => api.claimRewardGoal(DEMO_FAMILY_ID, memberId));
+      const { balance } = await guardedWrite(() => api.claimRewardGoal(familyId, memberId));
       // The prize is taken, so it leaves the board and the gems leave with it.
       setRewardGoals((prev) => prev.filter((goal) => goal.memberId !== memberId));
       setGemBalances((prev) => {
@@ -356,7 +371,7 @@ export default function Dashboard() {
 
   async function handleSetRewardGoal(memberId: string, goal: { title: string; gemCost: number }) {
     try {
-      const saved = await guardedWrite(() => api.setRewardGoal(DEMO_FAMILY_ID, memberId, goal));
+      const saved = await guardedWrite(() => api.setRewardGoal(familyId, memberId, goal));
       setRewardGoals((prev) => [...prev.filter((g) => g.memberId !== memberId), saved]);
       setError(null);
     } catch (err) {
@@ -367,7 +382,7 @@ export default function Dashboard() {
 
   async function handleSaveMealPlanEntry(date: string, slot: MealSlot, input: { mealName: string; ingredients: string[] }) {
     try {
-      const saved = await guardedWrite(() => api.upsertMealPlanEntry(DEMO_FAMILY_ID, date, slot, input));
+      const saved = await guardedWrite(() => api.upsertMealPlanEntry(familyId, date, slot, input));
       setMealPlan((prev) => [...prev.filter((entry) => !(entry.date === date && entry.slot === slot)), saved]);
       setError(null);
     } catch (err) {
@@ -379,7 +394,7 @@ export default function Dashboard() {
 
   async function handleRemoveMealPlanEntry(date: string, slot: MealSlot) {
     try {
-      await guardedWrite(() => api.removeMealPlanEntry(DEMO_FAMILY_ID, date, slot));
+      await guardedWrite(() => api.removeMealPlanEntry(familyId, date, slot));
       setMealPlan((prev) => prev.filter((entry) => !(entry.date === date && entry.slot === slot)));
       setError(null);
     } catch (err) {
@@ -389,8 +404,8 @@ export default function Dashboard() {
 
   async function handleGenerateGroceryList() {
     try {
-      const result = await guardedWrite(() => api.generateGroceryListFromMealPlan(DEMO_FAMILY_ID, weekStart, weekEnd));
-      setCartItems(await api.listCartItems(DEMO_FAMILY_ID));
+      const result = await guardedWrite(() => api.generateGroceryListFromMealPlan(familyId, weekStart, weekEnd));
+      setCartItems(await api.listCartItems(familyId));
       setError(null);
       return result;
     } catch (err) {
@@ -401,7 +416,7 @@ export default function Dashboard() {
 
   async function handleAddCartItem(description: string, quantity: number) {
     try {
-      const created = await guardedWrite(() => api.addCartItem(DEMO_FAMILY_ID, { description, quantity }));
+      const created = await guardedWrite(() => api.addCartItem(familyId, { description, quantity }));
       setCartItems((prev) => [...prev, created]);
       setError(null);
     } catch (err) {
@@ -411,7 +426,7 @@ export default function Dashboard() {
 
   async function handleRemoveCartItem(item: CartItem) {
     try {
-      await guardedWrite(() => api.removeCartItem(DEMO_FAMILY_ID, item.itemId));
+      await guardedWrite(() => api.removeCartItem(familyId, item.itemId));
       setCartItems((prev) => prev.filter((i) => i.itemId !== item.itemId));
       setError(null);
     } catch (err) {
@@ -421,7 +436,7 @@ export default function Dashboard() {
 
   async function handleRestoreCartItem(item: CartItem) {
     try {
-      const { item: updated } = await guardedWrite(() => api.restoreCartItem(DEMO_FAMILY_ID, item.itemId));
+      const { item: updated } = await guardedWrite(() => api.restoreCartItem(familyId, item.itemId));
       setCartItems((prev) => prev.map((i) => (i.itemId === updated.itemId ? updated : i)));
       setError(null);
     } catch (err) {
@@ -431,7 +446,7 @@ export default function Dashboard() {
 
   async function handleMarkCartItemUnavailable(item: CartItem): Promise<string | null> {
     try {
-      const { item: updated, suggestedSubstitute } = await guardedWrite(() => api.markCartItemUnavailable(DEMO_FAMILY_ID, item.itemId));
+      const { item: updated, suggestedSubstitute } = await guardedWrite(() => api.markCartItemUnavailable(familyId, item.itemId));
       setCartItems((prev) => prev.map((i) => (i.itemId === updated.itemId ? updated : i)));
       setError(null);
       return suggestedSubstitute;
@@ -443,7 +458,7 @@ export default function Dashboard() {
 
   async function handleConfirmCartItemSubstitute(item: CartItem, substituteDescription: string) {
     try {
-      const { item: updated } = await guardedWrite(() => api.confirmCartItemSubstitute(DEMO_FAMILY_ID, item.itemId, substituteDescription));
+      const { item: updated } = await guardedWrite(() => api.confirmCartItemSubstitute(familyId, item.itemId, substituteDescription));
       setCartItems((prev) => prev.map((i) => (i.itemId === updated.itemId ? updated : i)));
       setError(null);
     } catch (err) {
@@ -452,7 +467,7 @@ export default function Dashboard() {
   }
 
   async function handleCheckout(): Promise<string> {
-    const { productsLinkUrl } = await api.checkoutGroceryCart(DEMO_FAMILY_ID);
+    const { productsLinkUrl } = await api.checkoutGroceryCart(familyId);
     return productsLinkUrl;
   }
 

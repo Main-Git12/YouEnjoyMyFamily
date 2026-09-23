@@ -7,6 +7,15 @@ import { api } from "../lib/api";
 import type { Task } from "../types";
 
 vi.mock("../lib/api", () => ({
+  // The real class, so `err instanceof ApiError` behaves as it does in the app.
+  ApiError: class ApiError extends Error {
+    status: number | null;
+    constructor(message: string, status: number | null) {
+      super(message);
+      this.name = "ApiError";
+      this.status = status;
+    }
+  },
   api: {
     listTasks: vi.fn(),
     listTaskCompletions: vi.fn(),

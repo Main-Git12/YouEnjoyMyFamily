@@ -39,6 +39,9 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+      # Builds again with a canary key set, and fails if it reaches the
+      # output. This is what makes it safe to serve from a public URL.
+      - run: npm run verify:bundle
 
   alexa-skill:
     runs-on: ubuntu-latest

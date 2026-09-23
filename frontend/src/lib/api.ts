@@ -1,5 +1,7 @@
 import type { Task, TaskCompletion, ScheduleEntry, CartItem, StatedPreference, MealPlanEntry, MealSlot, RewardGoal, GemBalance } from "../types";
 
+import { getFamilyApiKey } from "./familyKey";
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 
 // Long enough for a slow phone on a weak signal, short enough that a card
@@ -40,8 +42,9 @@ function isWorthRetrying(error: unknown): boolean {
 }
 
 async function attempt<T>(path: string, options: RequestInit): Promise<T> {
-  // Read fresh (not cached at module scope) so tests can stub it per case.
-  const familyApiKey = import.meta.env.VITE_FAMILY_API_KEY;
+  // Read fresh (not cached at module scope) so a device linked mid-session
+  // starts authenticating without a reload, and so tests can stub it.
+  const familyApiKey = getFamilyApiKey();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
