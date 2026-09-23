@@ -273,6 +273,7 @@ describe("Dashboard", () => {
           quantity: 1,
           status: "pending",
           substituteDescription: null,
+          orderedAt: null,
           source: "meal_plan",
         },
       ]);
@@ -297,6 +298,7 @@ describe("Dashboard", () => {
       quantity: 1,
       status: "pending",
       substituteDescription: null,
+      orderedAt: null,
       source: "manual",
     });
 
@@ -322,6 +324,7 @@ describe("Dashboard", () => {
         quantity: 1,
         status: "pending",
         substituteDescription: null,
+        orderedAt: null,
         source: "manual",
       },
     ]);

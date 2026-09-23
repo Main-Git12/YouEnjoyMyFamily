@@ -9,6 +9,7 @@ const pendingItem: CartItem = {
   quantity: 1,
   status: "pending",
   substituteDescription: null,
+  orderedAt: null,
   source: "manual",
 };
 
@@ -21,6 +22,7 @@ function cartProps(overrides: Partial<CartProps> = {}): CartProps {
     onMarkUnavailable: vi.fn(),
     onConfirmSubstitute: vi.fn(),
     onRemove: vi.fn(),
+    onRestore: vi.fn(),
     onCheckout: vi.fn(),
     ...overrides,
   };
@@ -35,7 +37,7 @@ describe("GroceryCart", () => {
   it("renders each item's description, quantity, and a meal-plan tag when applicable", () => {
     const items: CartItem[] = [
       pendingItem,
-      { itemId: "i2", description: "Tortillas", quantity: 3, status: "pending", substituteDescription: null, source: "meal_plan" },
+      { itemId: "i2", description: "Tortillas", quantity: 3, status: "pending", substituteDescription: null, orderedAt: null, source: "meal_plan" },
     ];
     render(<GroceryCart {...cartProps({ items })} />);
 
@@ -193,5 +195,43 @@ describe("GroceryCart", () => {
     fireEvent.click(screen.getByRole("button", { name: /checkout with instacart/i }));
 
     await waitFor(() => expect(screen.getByText("The cart has no shoppable items")).toBeInTheDocument());
+  });
+
+  const orderedItem: CartItem = {
+    itemId: "i9",
+    description: "Tortillas",
+    quantity: 1,
+    status: "ordered",
+    substituteDescription: null,
+    orderedAt: "2026-09-20T10:00:00Z",
+    source: "meal_plan",
+  };
+
+  it("keeps last week's shop out of the list still to buy", () => {
+    render(<GroceryCart {...cartProps({ items: [pendingItem, orderedItem] })} />);
+
+    expect(screen.getByText("Spaghetti")).toBeInTheDocument();
+    expect(screen.getByText("Sent to Instacart (1)")).toBeInTheDocument();
+    // Still on screen, but under "sent" rather than mixed in with what's left.
+    expect(screen.getByText("Tortillas")).toHaveClass("line-through");
+  });
+
+  it("reads as an empty cart once everything has been sent", () => {
+    render(<GroceryCart {...cartProps({ items: [orderedItem] })} />);
+    expect(screen.getByText(/nothing in the cart yet/i)).toBeInTheDocument();
+  });
+
+  it("won't check out again when everything has already been sent", () => {
+    render(<GroceryCart {...cartProps({ items: [orderedItem] })} />);
+    expect(screen.getByRole("button", { name: /checkout with instacart/i })).toBeDisabled();
+  });
+
+  it("puts a forgotten item back on the list", () => {
+    const onRestore = vi.fn();
+    render(<GroceryCart {...cartProps({ items: [orderedItem], onRestore })} />);
+
+    fireEvent.click(screen.getByLabelText('Put "Tortillas" back on the list'));
+
+    expect(onRestore).toHaveBeenCalledWith(orderedItem);
   });
 });

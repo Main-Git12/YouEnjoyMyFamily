@@ -170,8 +170,14 @@ export type CartItemInput = z.infer<typeof CartItemInput>;
 // shopping; "substituted" plus substituteDescription is set only when they
 // then explicitly say what they picked instead — never inferred. See
 // LearnedSubstitutionItem below, which is the only thing derived from that.
+// "ordered" is stamped by checkout once the Instacart link has been handed
+// over; it's what keeps last week's shop from blocking next week's list.
+// Setting an ordered item back to "pending" puts it on the list again.
+export const CART_ITEM_STATUSES = ["pending", "unavailable", "substituted", "ordered"] as const;
+export type CartItemStatus = (typeof CART_ITEM_STATUSES)[number];
+
 export const CartItemPatch = z.object({
-  status: z.enum(["pending", "unavailable", "substituted"]).optional(),
+  status: z.enum(CART_ITEM_STATUSES).optional(),
   substituteDescription: z.string().min(1).max(300).optional(),
 });
 export type CartItemPatch = z.infer<typeof CartItemPatch>;
@@ -184,8 +190,10 @@ export interface CartItem {
   itemId: string;
   description: string;
   quantity: number;
-  status: "pending" | "unavailable" | "substituted";
+  status: CartItemStatus;
   substituteDescription: string | null;
+  /** When checkout handed this item over to Instacart; null until then. */
+  orderedAt: string | null;
   addedBy: string | null;
   // "meal_plan" items are generated from a family's own meal plan
   // ingredients (see mealPlans.ts) rather than typed in directly; a

@@ -13,14 +13,25 @@ export interface MealPlanGrocerySyncResult {
 // (filtered to just the Family metadata item) is the pragmatic choice over
 // adding a GSI. See backend/models/schema.md.
 async function listAllFamilies(): Promise<FamilyRecord[]> {
-  const result = await docClient.send(
-    new ScanCommand({
-      TableName: TABLE_NAME,
-      FilterExpression: "entityType = :entityType",
-      ExpressionAttributeValues: { ":entityType": "FAMILY" },
-    })
-  );
-  return (result.Items ?? []) as FamilyRecord[];
+  const families: FamilyRecord[] = [];
+  // A Scan stops at 1MB of *scanned* rows, not matched ones, so with the
+  // filter doing the work this can come back empty-handed while there are
+  // still families further down the table. Paging is the only way to be
+  // sure every household's list gets built.
+  let startKey: Record<string, unknown> | undefined;
+  do {
+    const result = await docClient.send(
+      new ScanCommand({
+        TableName: TABLE_NAME,
+        FilterExpression: "entityType = :entityType",
+        ExpressionAttributeValues: { ":entityType": "FAMILY" },
+        ExclusiveStartKey: startKey,
+      })
+    );
+    families.push(...((result.Items ?? []) as FamilyRecord[]));
+    startKey = result.LastEvaluatedKey;
+  } while (startKey);
+  return families;
 }
 
 // UTC is safe here where it wouldn't be in the UI: the schedule fires at

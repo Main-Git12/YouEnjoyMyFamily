@@ -7,6 +7,7 @@ interface GroceryCartProps {
   onMarkUnavailable: (item: CartItem) => Promise<string | null>;
   onConfirmSubstitute: (item: CartItem, substituteDescription: string) => Promise<void>;
   onRemove: (item: CartItem) => Promise<void>;
+  onRestore: (item: CartItem) => Promise<void>;
   onCheckout: () => Promise<string>;
 }
 
@@ -16,9 +17,10 @@ const STATUS_LABELS: Record<CartItem["status"], string> = {
   pending: "",
   unavailable: "Unavailable",
   substituted: "Substituted",
+  ordered: "",
 };
 
-export default function GroceryCart({ items, onAdd, onMarkUnavailable, onConfirmSubstitute, onRemove, onCheckout }: GroceryCartProps) {
+export default function GroceryCart({ items, onAdd, onMarkUnavailable, onConfirmSubstitute, onRemove, onRestore, onCheckout }: GroceryCartProps) {
   const [description, setDescription] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [suggestions, setSuggestions] = useState<Record<string, string>>({});
@@ -30,7 +32,13 @@ export default function GroceryCart({ items, onAdd, onMarkUnavailable, onConfirm
   // removal never sits there waiting to catch the next person out.
   const [pendingRemoval, setPendingRemoval] = useState<string | null>(null);
 
-  const canCheckout = items.some((item) => item.status !== "unavailable");
+  // What's still to buy, versus what already went to Instacart. Keeping the
+  // ordered ones visible (rather than deleting them at checkout) means a
+  // forgotten item can be put straight back on the list, and nobody has to
+  // wonder whether the shop went through.
+  const outstanding = items.filter((item) => item.status !== "ordered");
+  const ordered = items.filter((item) => item.status === "ordered");
+  const canCheckout = outstanding.some((item) => item.status !== "unavailable");
 
   // The Instacart link is a snapshot of the cart at checkout time — once the
   // cart changes it points at a list that no longer matches, so drop it.
@@ -99,11 +107,11 @@ export default function GroceryCart({ items, onAdd, onMarkUnavailable, onConfirm
     <div>
       <p className="text-sm text-olive-600 mb-3">Ships to Instacart for checkout — the family picks the actual store there.</p>
 
-      {items.length === 0 ? (
+      {outstanding.length === 0 ? (
         <p className="text-olive-700 italic mb-4">Nothing in the cart yet.</p>
       ) : (
         <ul className="space-y-2 mb-4">
-          {items.map((item) => (
+          {outstanding.map((item) => (
             <li key={item.itemId} className="bg-olive-50 rounded-lg px-4 py-2">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-2">
                 <span>
@@ -176,6 +184,45 @@ export default function GroceryCart({ items, onAdd, onMarkUnavailable, onConfirm
             </li>
           ))}
         </ul>
+      )}
+
+      {ordered.length > 0 && (
+        <details className="mb-4">
+          <summary className="text-sm text-olive-700 cursor-pointer py-1">
+            Sent to Instacart ({ordered.length})
+          </summary>
+          <ul className="space-y-1 mt-2">
+            {ordered.map((item) => (
+              <li key={item.itemId} className="flex items-center justify-between gap-3 px-4 py-1.5">
+                <span className="text-olive-600 line-through">{item.description}</span>
+                <span className="flex items-center gap-4 sm:gap-3 shrink-0">
+                  <button
+                    type="button"
+                    aria-label={`Put "${item.description}" back on the list`}
+                    onClick={() => void onRestore(item)}
+                    className="text-sm text-olive-700 underline underline-offset-2 py-1"
+                  >
+                    Put it back
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={
+                      pendingRemoval === item.itemId
+                        ? `Tap again to remove "${item.description}" from the cart`
+                        : `Remove "${item.description}" from the cart`
+                    }
+                    onClick={() => handleRemoveClick(item)}
+                    className={`text-sm underline underline-offset-2 py-1 ${
+                      pendingRemoval === item.itemId ? "text-clay-900 font-semibold" : "text-clay-700"
+                    }`}
+                  >
+                    {pendingRemoval === item.itemId ? "Tap again" : "Remove"}
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
 
       <form onSubmit={handleAdd} className="flex flex-wrap gap-2 mb-4">

@@ -41,6 +41,7 @@ const cartItem = (overrides: Partial<CartItem> = {}): CartItem => ({
   quantity: 1,
   status: "pending",
   substituteDescription: null,
+  orderedAt: null,
   addedBy: null,
   source: "manual",
   mealPlanSourceKey: null,
@@ -264,4 +265,116 @@ test("DELETE removes a cart item outright", async () => {
   const deleteCalls = ddbMock.commandCalls(DeleteCommand);
   assert.equal(deleteCalls.length, 1);
   assert.deepEqual(deleteCalls[0]?.args[0].input.Key, { PK: "FAMILY#fam_1", SK: "CARTITEM#i1" });
+});
+
+test("checkout stamps what it handed over, so the shop actually ends", async () => {
+  ddbMock.on(QueryCommand).resolves({
+    Items: [cartItem({ itemId: "i1", description: "Tortillas" }), cartItem({ itemId: "i2", description: "Rare cheese", status: "unavailable" })],
+  });
+  ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await routeGroceryCart(
+    makeEvent({
+      method: "POST",
+      path: "/families/fam_1/grocery-cart/checkout",
+      pathParameters: { familyId: "fam_1" },
+      headers,
+    }),
+    { createShoppingListLink: async () => "https://instacart.example/list/abc" }
+  );
+
+  assert.equal(result.statusCode, 200);
+  const written = ddbMock.commandCalls(PutCommand).map((call) => call.args[0].input.Item);
+  assert.equal(written.length, 1);
+  assert.equal(written[0]?.itemId, "i1");
+  assert.equal(written[0]?.status, "ordered");
+  assert.ok(written[0]?.orderedAt);
+});
+
+test("checkout doesn't send last week's shop to Instacart all over again", async () => {
+  ddbMock.on(QueryCommand).resolves({
+    Items: [
+      cartItem({ itemId: "i1", description: "Tortillas", status: "ordered", orderedAt: "2025-01-01T00:00:00Z" }),
+      cartItem({ itemId: "i2", description: "Milk" }),
+    ],
+  });
+  ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const sent: unknown[] = [];
+  await routeGroceryCart(
+    makeEvent({
+      method: "POST",
+      path: "/families/fam_1/grocery-cart/checkout",
+      pathParameters: { familyId: "fam_1" },
+      headers,
+    }),
+    {
+      async createShoppingListLink(_title, lineItems) {
+        sent.push(...lineItems);
+        return "https://instacart.example/list/abc";
+      },
+    }
+  );
+
+  assert.deepEqual(sent, [{ name: "Milk", quantity: 1 }]);
+});
+
+test("checkout leaves the list alone when Instacart fails, so it can be retried", async () => {
+  ddbMock.on(QueryCommand).resolves({ Items: [cartItem({ itemId: "i1" })] });
+  ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await routeGroceryCart(
+    makeEvent({
+      method: "POST",
+      path: "/families/fam_1/grocery-cart/checkout",
+      pathParameters: { familyId: "fam_1" },
+      headers,
+    }),
+    {
+      createShoppingListLink: async () => {
+        throw new Error("Instacart API error: 503");
+      },
+    }
+  );
+
+  assert.equal(result.statusCode, 500);
+  assert.equal(ddbMock.commandCalls(PutCommand).length, 0);
+});
+
+test("checkout rejects when everything outstanding has already been ordered", async () => {
+  ddbMock.on(QueryCommand).resolves({ Items: [cartItem({ status: "ordered", orderedAt: "2025-01-01T00:00:00Z" })] });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await routeGroceryCart(
+    makeEvent({
+      method: "POST",
+      path: "/families/fam_1/grocery-cart/checkout",
+      pathParameters: { familyId: "fam_1" },
+      headers,
+    }),
+    { createShoppingListLink: async () => "unused" }
+  );
+
+  assert.equal(result.statusCode, 400);
+});
+
+test("putting an ordered item back on the list clears the order stamp", async () => {
+  ddbMock.on(GetCommand).resolves({ Item: cartItem({ status: "ordered", orderedAt: "2025-01-01T00:00:00Z" }) });
+  ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", itemId: "i1" },
+      headers,
+      body: JSON.stringify({ status: "pending" }),
+    })
+  );
+
+  assert.equal(result.statusCode, 200);
+  assert.equal(JSON.parse(result.body ?? "{}").item.orderedAt, null);
 });

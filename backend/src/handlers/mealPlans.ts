@@ -5,7 +5,7 @@ import { ok, badRequest, serverError } from "../lib/response";
 import { parseBody, ValidationError } from "../lib/validation";
 import { authenticateFamily } from "../lib/auth";
 import { MealPlanEntryInput, MEAL_SLOTS, type MealPlanEntryItem, type MealSlot } from "../types";
-import { listCartItems, addMealPlanCartItem } from "./groceryCart";
+import { listCartItems, addMealPlanCartItem, outstandingCartItems } from "./groceryCart";
 
 const mealPlanKey = (familyId: string, date: string, slot: MealSlot) => ({
   PK: `FAMILY#${familyId}`,
@@ -103,7 +103,11 @@ export async function generateGroceryListFromMealPlan(
   // description) — counts as covered. Matching on the description too is
   // what stops a hand-added "Milk" and a meal plan's "milk" becoming two
   // separate lines on the same shopping trip.
-  const existingItems = await listCartItems(familyId);
+  //
+  // Items already sent to Instacart are last week's shop, not this week's
+  // list: counting them would mean the family buys tortillas once and then
+  // never sees them on a list again.
+  const existingItems = outstandingCartItems(await listCartItems(familyId));
   const alreadyOnTheList = new Set(
     existingItems.flatMap((item) => [
       ...(item.mealPlanSourceKey ? [item.mealPlanSourceKey] : []),

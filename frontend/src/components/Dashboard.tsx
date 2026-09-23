@@ -325,6 +325,16 @@ export default function Dashboard() {
     }
   }
 
+  async function handleRestoreCartItem(item: CartItem) {
+    try {
+      const { item: updated } = await guardedWrite(() => api.restoreCartItem(DEMO_FAMILY_ID, item.itemId));
+      setCartItems((prev) => prev.map((i) => (i.itemId === updated.itemId ? updated : i)));
+      setError(null);
+    } catch (err) {
+      reportError(err);
+    }
+  }
+
   async function handleMarkCartItemUnavailable(item: CartItem): Promise<string | null> {
     try {
       const { item: updated, suggestedSubstitute } = await guardedWrite(() => api.markCartItemUnavailable(DEMO_FAMILY_ID, item.itemId));
@@ -432,6 +442,7 @@ export default function Dashboard() {
               onMarkUnavailable={handleMarkCartItemUnavailable}
               onConfirmSubstitute={handleConfirmCartItemSubstitute}
               onRemove={handleRemoveCartItem}
+              onRestore={handleRestoreCartItem}
               onCheckout={handleCheckout}
             />
           </FamilyCard>

@@ -65,3 +65,21 @@ test("runs each family's generation over the coming 7-day window", async () => {
   const today = new Date().toISOString().slice(0, 10);
   assert.equal(values[":from"], `MEALPLAN#${today}`);
 });
+
+test("keeps paging the scan so a family past the first 1MB still gets a list", async () => {
+  // A Scan's 1MB cap counts rows *scanned*, not matched, so with a filter
+  // doing the work the first page can come back with nothing in it while
+  // families sit further down the table.
+  ddbMock
+    .on(ScanCommand)
+    .resolvesOnce({ Items: [], LastEvaluatedKey: { PK: "FAMILY#fam_1", SK: "TASK#x" } })
+    .resolvesOnce({ Items: [family("fam_2")] });
+  ddbMock.on(QueryCommand).resolves({ Items: [] });
+
+  const result = await runMealPlanGrocerySync();
+
+  assert.deepEqual(result, { synced: 1, failed: 0 });
+  const scanCalls = ddbMock.commandCalls(ScanCommand);
+  assert.equal(scanCalls.length, 2);
+  assert.deepEqual(scanCalls[1]?.args[0].input.ExclusiveStartKey, { PK: "FAMILY#fam_1", SK: "TASK#x" });
+});

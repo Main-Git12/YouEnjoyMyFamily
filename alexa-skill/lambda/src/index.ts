@@ -81,7 +81,9 @@ interface MealPlanEntry {
 
 interface CartItemEntry {
   description: string;
-  status: "pending" | "unavailable" | "substituted";
+  // "ordered" means checkout already handed it to Instacart — a past shop,
+  // not something still to buy.
+  status: "pending" | "unavailable" | "substituted" | "ordered";
 }
 
 const MEAL_SLOT_ORDER: MealSlot[] = ["breakfast", "lunch", "dinner"];
@@ -586,7 +588,7 @@ export const GetGroceryListIntentHandler: Alexa.RequestHandler = {
   async handle(handlerInput): Promise<Response> {
     try {
       const items = await fetchJson<CartItemEntry[]>(`/families/${FAMILY_ID}/grocery-cart`);
-      const shoppable = items.filter((item) => item.status !== "unavailable");
+      const shoppable = items.filter((item) => item.status !== "unavailable" && item.status !== "ordered");
 
       const speakOutput = shoppable.length
         ? `The grocery list has ${shoppable.length} item${shoppable.length === 1 ? "" : "s"}: ${shoppable

@@ -675,3 +675,26 @@ test("ErrorHandler always canHandle()s and produces a fallback apology", () => {
   const response = ErrorHandler.handle(makeHandlerInput({ type: "LaunchRequest" }), new Error("boom")) as FakeResponse;
   assert.match(speechOf(response), /Sorry, something went wrong/);
 });
+
+test("GetGroceryListIntentHandler leaves last week's shop off the list", async () => {
+  mock.method(
+    globalThis,
+    "fetch",
+    async () =>
+      new Response(
+        JSON.stringify([
+          { description: "Tortillas", status: "ordered" },
+          { description: "Milk", status: "pending" },
+          { description: "Rare cheese", status: "unavailable" },
+        ]),
+        { status: 200 }
+      )
+  );
+
+  const handlerInput = makeHandlerInput(intentRequest("GetGroceryListIntent"));
+  const response = (await GetGroceryListIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  const speech = speechOf(response);
+  assert.match(speech, /has 1 item: Milk/);
+  assert.doesNotMatch(speech, /Tortillas/);
+});

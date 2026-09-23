@@ -44,6 +44,11 @@ export const api = {
       `/families/${familyId}/grocery-cart/items/${itemId}`,
       { method: "PUT", body: JSON.stringify({ status: "substituted", substituteDescription }) }
     ),
+  restoreCartItem: (familyId: string, itemId: string) =>
+    request<{ item: CartItem; suggestedSubstitute: string | null }>(
+      `/families/${familyId}/grocery-cart/items/${itemId}`,
+      { method: "PUT", body: JSON.stringify({ status: "pending" }) }
+    ),
   removeCartItem: (familyId: string, itemId: string) =>
     request<{ deleted: string }>(`/families/${familyId}/grocery-cart/items/${itemId}`, { method: "DELETE" }),
   checkoutGroceryCart: (familyId: string) =>

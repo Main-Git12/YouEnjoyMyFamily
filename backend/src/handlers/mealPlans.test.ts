@@ -55,6 +55,7 @@ const cartItem = (overrides: Partial<CartItem> = {}): CartItem => ({
   quantity: 1,
   status: "pending",
   substituteDescription: null,
+  orderedAt: null,
   addedBy: null,
   source: "manual",
   mealPlanSourceKey: null,
@@ -254,4 +255,38 @@ test("generateGroceryListFromMealPlan is a no-op when the meal plan has no ingre
 
   assert.deepEqual(result, { added: 0, skipped: 0 });
   assert.equal(ddbMock.commandCalls(PutCommand).length, 0);
+});
+
+test("generation puts an ingredient back on the list once last week's shop has gone", async () => {
+  // Tortillas were bought last week. Tacos are on again this week, so they
+  // have to come back — an ordered item is history, not a standing line.
+  ddbMock.on(QueryCommand).callsFake((input: { ExpressionAttributeValues?: Record<string, string> }) => {
+    const prefix = input.ExpressionAttributeValues?.[":prefix"];
+    if (prefix === "CARTITEM#") {
+      return {
+        Items: [cartItem({ itemId: "i1", description: "Tortillas", status: "ordered", orderedAt: "2025-01-01T00:00:00Z", source: "meal_plan", mealPlanSourceKey: "tortillas" })],
+      };
+    }
+    return {
+      Items: [
+        {
+          PK: "FAMILY#fam_1",
+          SK: "MEALPLAN#2025-01-15#dinner",
+          entityType: "MEAL_PLAN_ENTRY",
+          familyId: "fam_1",
+          date: "2025-01-15",
+          slot: "dinner",
+          mealName: "Tacos",
+          ingredients: ["Tortillas"],
+          createdAt: "2025-01-01T00:00:00Z",
+          updatedAt: "2025-01-01T00:00:00Z",
+        },
+      ],
+    };
+  });
+  ddbMock.on(PutCommand).resolves({});
+
+  const result = await generateGroceryListFromMealPlan("fam_1", "2025-01-15", "2025-01-21");
+
+  assert.deepEqual(result, { added: 1, skipped: 0 });
 });

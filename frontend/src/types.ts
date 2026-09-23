@@ -40,8 +40,12 @@ export interface CartItem {
   itemId: string;
   description: string;
   quantity: number;
-  status: "pending" | "unavailable" | "substituted";
+  // "ordered" is stamped by checkout once the Instacart link exists — it's
+  // last week's shop, not a line still to buy. Putting one back on the list
+  // sets it to "pending" again.
+  status: "pending" | "unavailable" | "substituted" | "ordered";
   substituteDescription: string | null;
+  orderedAt: string | null;
   // "meal_plan" items came from generateGroceryListFromMealPlan (see
   // backend/models/schema.md), never typed in directly.
   source: "manual" | "meal_plan";

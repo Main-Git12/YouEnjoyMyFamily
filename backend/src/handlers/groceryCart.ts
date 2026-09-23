@@ -80,6 +80,7 @@ async function addCartItem(familyId: string, input: CartItemInput): Promise<Cart
     quantity: input.quantity ?? 1,
     status: "pending",
     substituteDescription: null,
+    orderedAt: null,
     addedBy: input.addedBy ?? null,
     source: "manual",
     mealPlanSourceKey: null,
@@ -114,6 +115,7 @@ export async function addMealPlanCartItem(
     quantity,
     status: "pending",
     substituteDescription: null,
+    orderedAt: null,
     addedBy: null,
     source: "meal_plan",
     mealPlanSourceKey,
@@ -166,6 +168,9 @@ async function patchCartItem(familyId: string, itemId: string, patch: CartItemPa
     ...current,
     status: nextStatus,
     substituteDescription: patch.substituteDescription ?? current.substituteDescription,
+    // Putting an item back on the list clears the order stamp, so it reads as
+    // genuinely outstanding again rather than "ordered, but pending".
+    orderedAt: nextStatus === "ordered" ? (current.orderedAt ?? new Date().toISOString()) : null,
     updatedAt: new Date().toISOString(),
   };
   await docClient.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));
@@ -184,9 +189,18 @@ async function deleteCartItem(familyId: string, itemId: string): Promise<void> {
   await docClient.send(new DeleteCommand({ TableName: TABLE_NAME, Key: cartItemKey(familyId, itemId) }));
 }
 
+/**
+ * What checkout will actually send: everything still outstanding. An item
+ * already handed over on a previous trip is not sent again, and neither is
+ * one someone marked unavailable.
+ */
+export function outstandingCartItems(items: CartItem[]): CartItem[] {
+  return items.filter((item) => item.status !== "unavailable" && item.status !== "ordered");
+}
+
 async function checkout(familyId: string, instacart: InstacartClient): Promise<string> {
   const items = await listCartItems(familyId);
-  const shoppable = items.filter((item) => item.status !== "unavailable");
+  const shoppable = outstandingCartItems(items);
   if (!shoppable.length) throw new ValidationError("The cart has no shoppable items");
 
   const lineItems: InstacartLineItem[] = shoppable.map((item) => ({
@@ -194,7 +208,23 @@ async function checkout(familyId: string, instacart: InstacartClient): Promise<s
     quantity: item.quantity,
   }));
 
-  return instacart.createShoppingListLink("YouEnjoyMyFamily grocery list", lineItems);
+  const productsLinkUrl = await instacart.createShoppingListLink("YouEnjoyMyFamily grocery list", lineItems);
+
+  // Stamped only once the link exists: if Instacart fails, the list is still
+  // there to try again. Without this the shop never ends — next week's
+  // generation sees every ingredient already on the list and adds nothing,
+  // and the cart grows until someone deletes it line by line.
+  const orderedAt = new Date().toISOString();
+  for (const item of shoppable) {
+    await docClient.send(
+      new PutCommand({
+        TableName: TABLE_NAME,
+        Item: { ...item, status: "ordered", orderedAt, updatedAt: orderedAt } satisfies CartItem,
+      })
+    );
+  }
+
+  return productsLinkUrl;
 }
 
 /**
