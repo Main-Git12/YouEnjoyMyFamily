@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
-import type { Task, TaskCompletion, ScheduleEntry, StatedPreference, StatedPreferenceCategory, MealPlanEntry, MealSlot, CartItem, RewardGoal } from "../types";
+import type { Task, TaskCompletion, ScheduleEntry, StatedPreference, StatedPreferenceCategory, MealPlanEntry, MealSlot, CartItem, RewardGoal, GemBalance } from "../types";
 import { chooseThreatenedChore, type ThreatenedChore } from "../lib/gemThreats";
 import FamilyCard from "./FamilyCard";
 import TaskList from "./TaskList";
@@ -34,6 +34,7 @@ export default function Dashboard() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [celebration, setCelebration] = useState<{ gemsEarned: number } | null>(null);
   const [rewardGoals, setRewardGoals] = useState<RewardGoal[]>([]);
+  const [gemBalances, setGemBalances] = useState<GemBalance[]>([]);
   const [threatened, setThreatened] = useState<ThreatenedChore | null>(null);
   const [dismissedThreatTaskIds, setDismissedThreatTaskIds] = useState<string[]>([]);
   // True from the moment "defend" is tapped until the scenario closes
@@ -57,7 +58,7 @@ export default function Dashboard() {
   // between weeks quickly would otherwise let a slow earlier request land
   // last and overwrite the week actually on screen.
   const fetchEverything = useCallback(async () => {
-    const [taskItems, completionItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList, rewardGoalItems] = await Promise.all([
+    const [taskItems, completionItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList, rewardGoalItems, gemBalanceItems] = await Promise.all([
       api.listTasks(DEMO_FAMILY_ID, today),
       api.listTaskCompletions(DEMO_FAMILY_ID),
       api.listSchedules(DEMO_FAMILY_ID, today, today),
@@ -65,8 +66,9 @@ export default function Dashboard() {
       api.listMealPlan(DEMO_FAMILY_ID, weekStart, weekEnd),
       api.listCartItems(DEMO_FAMILY_ID),
       api.listRewardGoals(DEMO_FAMILY_ID),
+      api.listGemBalances(DEMO_FAMILY_ID),
     ]);
-    return { taskItems, completionItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList, rewardGoalItems };
+    return { taskItems, completionItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList, rewardGoalItems, gemBalanceItems };
   }, [weekStart, weekEnd, today]);
 
   // Bumped at the start *and* the end of every local write. A sync that
@@ -93,6 +95,7 @@ export default function Dashboard() {
     setMealPlan(data.mealPlanItems);
     setCartItems(data.cartItemsList);
     setRewardGoals(data.rewardGoalItems);
+    setGemBalances(data.gemBalanceItems);
   }, []);
 
   // Runs on mount and again whenever the week on screen changes, so paging
@@ -158,17 +161,19 @@ export default function Dashboard() {
     setThreatened(candidate);
   }, [tasks, dismissedThreatTaskIds, defending]);
 
-  // Summed from every completion, not from today's chore list. A daily
-  // chore is one stored row that pays out again each day it's done, so
-  // today's list would say the kingdom was built this afternoon.
-  const totalGems = completions.reduce((sum, completion) => sum + completion.gemsAwarded, 0);
+  // What the family has saved *now* — everything earned, minus what's been
+  // claimed. The castle reflects the same thing, so taking a prize visibly
+  // costs something rather than the total only ever climbing.
+  //
+  // Counted from the completions rather than by adding up the per-child
+  // balances: a chore nobody is named on still earns gems for the kingdom,
+  // and summing balances would quietly drop them.
+  const gemsEarned = completions.reduce((sum, completion) => sum + completion.gemsAwarded, 0);
+  const gemsSpent = gemBalances.reduce((sum, balance) => sum + balance.spent, 0);
+  const totalGems = gemsEarned - gemsSpent;
 
-  // Each child's own total, so their prize bar means something.
-  const gemsByChild = completions.reduce<Record<string, number>>((totals, completion) => {
-    if (!completion.memberId || completion.gemsAwarded === 0) return totals;
-    totals[completion.memberId] = (totals[completion.memberId] ?? 0) + completion.gemsAwarded;
-    return totals;
-  }, {});
+  // Each child's own spendable total, so their prize bar means something.
+  const gemsByChild = Object.fromEntries(gemBalances.map((balance) => [balance.memberId, balance.balance]));
 
   // Every action funnels its failure here, and a later success clears it —
   // a stale error banner outliving the problem is its own bug.
@@ -199,20 +204,20 @@ export default function Dashboard() {
       setTasks((prev) => prev.map((t) => (t.taskId === updated.taskId ? updated : t)));
       // Mirrors the completion row the backend just wrote, so the gem total
       // and the prize bar move now rather than on the next sync.
-      setCompletions((prev) =>
-        prev.some((c) => c.taskId === updated.taskId && c.date === updated.date)
-          ? prev
-          : [
-              ...prev,
-              {
-                taskId: updated.taskId,
-                date: updated.date,
-                title: updated.title,
-                memberId: updated.assignedTo,
-                gemsAwarded: updated.gemsAwarded,
-              },
-            ]
-      );
+      const alreadyCounted = completions.some((c) => c.taskId === updated.taskId && c.date === updated.date);
+      if (!alreadyCounted) {
+        setCompletions((prev) => [
+          ...prev,
+          {
+            taskId: updated.taskId,
+            date: updated.date,
+            title: updated.title,
+            memberId: updated.assignedTo,
+            gemsAwarded: updated.gemsAwarded,
+          },
+        ]);
+        creditGems(updated.assignedTo, updated.gemsAwarded);
+      }
       // A chore finished from inside a threat scenario has its own
       // celebration in the overlay; two at once is just noise.
       if (options.celebrate !== false) setCelebration({ gemsEarned: updated.gemsAwarded - task.gemsAwarded });
@@ -284,6 +289,37 @@ export default function Dashboard() {
     if (taskId) setDismissedThreatTaskIds((prev) => (prev.includes(taskId) ? prev : [...prev, taskId]));
     setDefending(false);
     setThreatened(null);
+  }
+
+  /** Moves a child's balance locally, so the prize bar responds to the tap. */
+  function creditGems(memberId: string | null, gems: number) {
+    if (!memberId || gems === 0) return;
+    setGemBalances((prev) => {
+      const existing = prev.find((balance) => balance.memberId === memberId);
+      if (!existing) {
+        return [...prev, { memberId, earned: gems, spent: 0, balance: gems }];
+      }
+      return prev.map((balance) =>
+        balance.memberId === memberId
+          ? { ...balance, earned: balance.earned + gems, balance: balance.balance + gems }
+          : balance
+      );
+    });
+  }
+
+  async function handleClaimRewardGoal(memberId: string) {
+    try {
+      const { balance } = await guardedWrite(() => api.claimRewardGoal(DEMO_FAMILY_ID, memberId));
+      // The prize is taken, so it leaves the board and the gems leave with it.
+      setRewardGoals((prev) => prev.filter((goal) => goal.memberId !== memberId));
+      setGemBalances((prev) => {
+        const seen = prev.some((existing) => existing.memberId === memberId);
+        return seen ? prev.map((existing) => (existing.memberId === memberId ? balance : existing)) : [...prev, balance];
+      });
+      setError(null);
+    } catch (err) {
+      reportError(err);
+    }
   }
 
   async function handleSetRewardGoal(memberId: string, goal: { title: string; gemCost: number }) {
@@ -442,7 +478,12 @@ export default function Dashboard() {
           </FamilyCard>
 
           <FamilyCard title="Working toward">
-            <PrizeGoal goals={rewardGoals} gemsByChild={gemsByChild} onSetGoal={handleSetRewardGoal} />
+            <PrizeGoal
+              goals={rewardGoals}
+              gemsByChild={gemsByChild}
+              onSetGoal={handleSetRewardGoal}
+              onClaim={handleClaimRewardGoal}
+            />
           </FamilyCard>
 
           <FamilyCard title="Gem Castle">

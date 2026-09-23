@@ -1,4 +1,4 @@
-import type { Task, TaskCompletion, ScheduleEntry, CartItem, StatedPreference, MealPlanEntry, MealSlot, RewardGoal } from "../types";
+import type { Task, TaskCompletion, ScheduleEntry, CartItem, StatedPreference, MealPlanEntry, MealSlot, RewardGoal, GemBalance } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 
@@ -86,6 +86,12 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(goal),
     }),
+  listGemBalances: (familyId: string) => request<GemBalance[]>(`/families/${familyId}/gem-balances`),
+  claimRewardGoal: (familyId: string, memberId: string) =>
+    request<{ claim: { title: string; gemCost: number }; balance: GemBalance }>(
+      `/families/${familyId}/reward-goals/${encodeURIComponent(memberId)}/claim`,
+      { method: "POST" }
+    ),
   clearRewardGoal: (familyId: string, memberId: string) =>
     request<{ deleted: string }>(`/families/${familyId}/reward-goals/${encodeURIComponent(memberId)}`, {
       method: "DELETE",

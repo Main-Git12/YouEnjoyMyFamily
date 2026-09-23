@@ -27,6 +27,8 @@ vi.mock("../lib/api", () => ({
     removeCartItem: vi.fn(),
     checkoutGroceryCart: vi.fn(),
     listRewardGoals: vi.fn(),
+    listGemBalances: vi.fn(),
+    claimRewardGoal: vi.fn(),
     setRewardGoal: vi.fn(),
   },
 }));
@@ -39,6 +41,7 @@ describe("Dashboard", () => {
     vi.mocked(api.listCartItems).mockResolvedValue([]);
     vi.mocked(api.listRewardGoals).mockResolvedValue([]);
     vi.mocked(api.listTaskCompletions).mockResolvedValue([]);
+    vi.mocked(api.listGemBalances).mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -250,10 +253,8 @@ describe("Dashboard", () => {
     vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
     // Three days of the same daily chore — the point being that a recurring
     // chore pays out again each day, which today's list can't tell you.
-    vi.mocked(api.listTaskCompletions).mockResolvedValue([
-      { taskId: "t1", date: "2026-09-21", title: "Homework", memberId: "Parker", gemsAwarded: 10 },
-      { taskId: "t1", date: "2026-09-22", title: "Homework", memberId: "Parker", gemsAwarded: 10 },
-      { taskId: "t1", date: "2026-09-23", title: "Homework", memberId: "Parker", gemsAwarded: 10 },
+    vi.mocked(api.listGemBalances).mockResolvedValue([
+      { memberId: "Parker", earned: 30, spent: 0, balance: 30 },
     ]);
     vi.mocked(api.listRewardGoals).mockResolvedValue([
       { memberId: "Parker", title: "LEGO set", gemCost: 50, note: null },
@@ -549,6 +550,9 @@ describe("Dashboard", () => {
       { taskId: "t1", date: "2026-09-21", title: "Wipe Table", memberId: "Parker", gemsAwarded: 10 },
       { taskId: "t1", date: "2026-09-22", title: "Wipe Table", memberId: "Parker", gemsAwarded: 10 },
     ]);
+    vi.mocked(api.listGemBalances).mockResolvedValue([
+      { memberId: "Parker", earned: 20, spent: 0, balance: 20 },
+    ]);
 
     render(<Dashboard />);
 
@@ -576,5 +580,34 @@ describe("Dashboard", () => {
     fireEvent.click(screen.getByLabelText('Mark "Wipe Table" done'));
 
     await waitFor(() => expect(screen.getByText("10 gems collected")).toBeInTheDocument());
+  });
+
+  it("claims a prize, spending the gems and clearing the board", async () => {
+    vi.mocked(api.listTasks).mockResolvedValue([]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+    vi.mocked(api.listTaskCompletions).mockResolvedValue([
+      { taskId: "t1", date: "2026-09-22", title: "Homework", memberId: "Parker", gemsAwarded: 60 },
+    ]);
+    vi.mocked(api.listGemBalances).mockResolvedValue([
+      { memberId: "Parker", earned: 60, spent: 0, balance: 60 },
+    ]);
+    vi.mocked(api.listRewardGoals).mockResolvedValue([
+      { memberId: "Parker", title: "LEGO set", gemCost: 50, note: null },
+    ]);
+    vi.mocked(api.claimRewardGoal).mockResolvedValue({
+      claim: { title: "LEGO set", gemCost: 50 },
+      balance: { memberId: "Parker", earned: 60, spent: 50, balance: 10 },
+    });
+
+    render(<Dashboard />);
+
+    await waitFor(() => expect(screen.getByText("60 gems collected")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Claim LEGO set" }));
+
+    // The gems are spent, so the total comes down and the prize leaves the board.
+    await waitFor(() => expect(screen.getByText("10 gems collected")).toBeInTheDocument());
+    expect(screen.queryByText("LEGO set")).not.toBeInTheDocument();
+    expect(screen.getByText(/no prizes set yet/i)).toBeInTheDocument();
   });
 });

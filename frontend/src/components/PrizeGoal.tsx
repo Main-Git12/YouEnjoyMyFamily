@@ -7,6 +7,7 @@ interface PrizeGoalProps {
   goals: RewardGoal[];
   gemsByChild: Record<string, number>;
   onSetGoal: (memberId: string, goal: { title: string; gemCost: number }) => Promise<void>;
+  onClaim: (memberId: string) => Promise<void>;
 }
 
 /**
@@ -15,11 +16,21 @@ interface PrizeGoalProps {
  * its own means very little to a six-year-old, but "eleven more gems until
  * the LEGO set" means everything.
  */
-export default function PrizeGoal({ goals, gemsByChild, onSetGoal }: PrizeGoalProps) {
+export default function PrizeGoal({ goals, gemsByChild, onSetGoal, onClaim }: PrizeGoalProps) {
   const [memberId, setMemberId] = useState("");
   const [title, setTitle] = useState("");
   const [gemCost, setGemCost] = useState("");
   const [saving, setSaving] = useState(false);
+  const [claiming, setClaiming] = useState<string | null>(null);
+
+  async function handleClaim(who: string) {
+    setClaiming(who);
+    try {
+      await onClaim(who);
+    } finally {
+      setClaiming(null);
+    }
+  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -83,11 +94,26 @@ export default function PrizeGoal({ goals, gemsByChild, onSetGoal }: PrizeGoalPr
                   />
                 </div>
 
-                <p className={`mt-2 font-semibold ${reached ? "text-clay-700" : "text-olive-700"}`}>
-                  {reached
-                    ? `Earned it! ${goal.memberId} can claim ${goal.title}.`
-                    : `${remaining} more gem${remaining === 1 ? "" : "s"} to go!`}
-                </p>
+                {reached ? (
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <p className="font-semibold text-clay-700">Earned it!</p>
+                    <button
+                      type="button"
+                      disabled={claiming !== null}
+                      onClick={() => void handleClaim(goal.memberId)}
+                      className="font-display bg-clay-700 text-white rounded-full px-6 py-3 shadow-[var(--shadow-card)] hover:bg-clay-900 disabled:bg-olive-300"
+                    >
+                      {claiming === goal.memberId ? "Claiming…" : `Claim ${goal.title}`}
+                    </button>
+                    <p className="text-sm text-olive-700 w-full">
+                      Claiming spends {goal.gemCost} gems and clears the board for the next prize.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="mt-2 font-semibold text-olive-700">
+                    {remaining} more gem{remaining === 1 ? "" : "s"} to go!
+                  </p>
+                )}
               </li>
             );
           })}

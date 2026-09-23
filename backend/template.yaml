@@ -423,6 +423,18 @@ Resources:
             ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}/reward-goals/{memberId}
             Method: PUT
+        ClaimRewardGoal:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /families/{familyId}/reward-goals/{memberId}/claim
+            Method: POST
+        ListGemBalances:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /families/{familyId}/gem-balances
+            Method: GET
         Delete:
           Type: HttpApi
           Properties:

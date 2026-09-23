@@ -135,6 +135,26 @@ export interface RewardGoalItem {
   updatedAt: string;
 }
 
+/**
+ * A prize a child has actually claimed, and the gems it cost them.
+ *
+ * This is the other half of the gem economy: without a record of what was
+ * spent, a total can only ever go up, and "Earned it!" stays on the board
+ * for good. Balance is earned (completions) minus spent (claims), so it
+ * goes down when a prize is taken and the saving starts again.
+ */
+export interface RewardClaimItem {
+  PK: string;
+  SK: string;
+  entityType: "REWARD_CLAIM";
+  familyId: string;
+  claimId: string;
+  memberId: string;
+  title: string;
+  gemCost: number;
+  claimedAt: string;
+}
+
 export const ScheduleInput = z.object({
   date: z.string().date(),
   title: z.string().min(1).max(200),

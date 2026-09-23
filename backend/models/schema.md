@@ -20,6 +20,7 @@ items returned from a `Query` without a second read.
 | Learned substitution| `FAMILY#<familyId>`   | `SUBSTITUTION#<normalizedDescription>`| —             | —                          |
 | Meal plan entry     | `FAMILY#<familyId>`   | `MEALPLAN#<isoDate>#<slot>` | —                       | —                          |
 | Reward goal         | `FAMILY#<familyId>`   | `REWARDGOAL#<memberId>`     | —                       | —                          |
+| Reward claim        | `FAMILY#<familyId>`   | `REWARDCLAIM#<claimId>`     | —                       | —                          |
 | OAuth token set     | `FAMILY#<familyId>`   | `TOKEN#<provider>`          | —                       | —                          |
 
 `Family` (`METADATA`) is the tenant record every other item's `PK` depends
@@ -92,6 +93,7 @@ plan, never an AI-invented meal or ingredient. A manually-added cart item
 - Find what a checkout should actually send, and what a fresh generation should treat as already covered: the cart items whose `status` is neither `unavailable` nor `ordered` (`outstandingCartItems` in `groceryCart.ts`). An `ordered` item is a past shop, not a standing line — without that distinction the weekly generation sees every ingredient already on the list and quietly adds nothing from the second week onward.
 - List every child's reward goal: `Query PK = FAMILY#<familyId>, SK begins_with REWARDGOAL#`.
 - Set or clear one child's goal: `PutItem`/`DeleteItem PK = FAMILY#<familyId>, SK = REWARDGOAL#<memberId>` — the key holds one live goal per child, so setting a new prize replaces the old one rather than accumulating a history.
+- List what's been claimed: `Query PK = FAMILY#<familyId>, SK begins_with REWARDCLAIM#`. A child's balance is everything they've earned (completions) minus everything they've claimed — derived on read, never stored, so it can't drift out of step with the records behind it. Without the claim rows a total could only ever go up, and "Earned it!" would stay on the board for good.
 - List a family's meal plan for a date range: `Query PK = FAMILY#<familyId>, SK between MEALPLAN#<start> and MEALPLAN#<end>`.
 - Look up or replace one day+slot's planned meal: `GetItem`/`PutItem PK = FAMILY#<familyId>, SK = MEALPLAN#<isoDate>#<slot>`.
 - List every family (weekly meal-plan grocery sync only): `Scan filter entityType = FAMILY`, paging on `LastEvaluatedKey` — the one access pattern here with no natural partition to query across; a Scan is the pragmatic choice for a job that runs once a week over what's expected to be a small number of families. The paging is not optional: the 1MB cap counts rows *scanned*, not matched, so a filtered Scan can return an empty page while families sit further down the table.
@@ -208,6 +210,19 @@ until someone does it, then shows only on the day it was done.
   "mealPlanSourceKey": null, // the ingredient's normalized text, set only on a "meal_plan" item — makes regeneration idempotent
   "addedAt": "2025-01-10T12:00:00Z",
   "updatedAt": "2025-01-10T12:00:00Z"
+}
+
+// Reward claim — the prize a child actually took, and what it cost them
+{
+  "PK": "FAMILY#fam_123",
+  "SK": "REWARDCLAIM#01J...ULID",
+  "entityType": "REWARD_CLAIM",
+  "familyId": "fam_123",
+  "claimId": "01J...ULID",
+  "memberId": "Parker",
+  "title": "LEGO Bricks Set",
+  "gemCost": 50,
+  "claimedAt": "2025-01-20T18:30:00Z"
 }
 
 // Meal plan entry — a meal a family member explicitly planned for one day+slot

@@ -45,6 +45,18 @@ export interface TaskCompletion {
   gemsAwarded: number;
 }
 
+/**
+ * What a child has right now: everything earned, minus everything claimed.
+ * A total that can only go up isn't a reward economy — claiming the prize
+ * spends the gems and the saving starts again.
+ */
+export interface GemBalance {
+  memberId: string;
+  earned: number;
+  spent: number;
+  balance: number;
+}
+
 /** The big prize a child is saving up for. One live goal each. */
 export interface RewardGoal {
   memberId: string;
