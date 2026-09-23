@@ -504,3 +504,19 @@ test("GET /task-completions with no range covers everything, rather than nothing
     .find((values) => typeof values?.[":from"] === "string" && values[":from"].startsWith("COMPLETION#"));
   assert.equal(range?.[":from"], "COMPLETION#0000-00-00");
 });
+
+test("a chore assigned with a stray space belongs to the same child", async () => {
+  ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  await handler(
+    makeEvent({
+      method: "POST",
+      pathParameters: { familyId: "fam_1" },
+      headers,
+      body: JSON.stringify({ title: "Wipe Table", assignedTo: "  Parker  " }),
+    })
+  );
+
+  assert.equal(ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item?.assignedTo, "Parker");
+});

@@ -13,6 +13,7 @@ import GemThreatAlert from "./GemThreatAlert";
 import PrizeGoal from "./PrizeGoal";
 import MealPlan from "./MealPlan";
 import { toLocalIsoDate, weekFromOffset } from "../lib/dates";
+import { knownMembers } from "../lib/members";
 import GroceryCart from "./GroceryCart";
 
 // Placeholder until family selection / auth is wired up.
@@ -174,6 +175,10 @@ export default function Dashboard() {
 
   // Each child's own spendable total, so their prize bar means something.
   const gemsByChild = Object.fromEntries(gemBalances.map((balance) => [balance.memberId, balance.balance]));
+
+  // Gathered from what the family has already entered, not a registry of
+  // children the app keeps on its own.
+  const members = knownMembers({ tasks, completions, goals: rewardGoals, balances: gemBalances });
 
   // Every action funnels its failure here, and a later success clears it —
   // a stale error banner outliving the problem is its own bug.
@@ -493,7 +498,7 @@ export default function Dashboard() {
         <>
           <FamilyCard title="Today's chores" hero>
             <TaskList tasks={tasks} onComplete={handleComplete} />
-            <ChoreLibrary onAdd={handleAddChore} />
+            <ChoreLibrary onAdd={handleAddChore} members={members} />
           </FamilyCard>
 
           <FamilyCard title="Working toward">
@@ -502,6 +507,7 @@ export default function Dashboard() {
               gemsByChild={gemsByChild}
               onSetGoal={handleSetRewardGoal}
               onClaim={handleClaimRewardGoal}
+              members={members}
             />
           </FamilyCard>
 

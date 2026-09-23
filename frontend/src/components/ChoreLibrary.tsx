@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import type { DueWindow, Recurrence } from "../types";
 import { CHORE_CATALOG, DUE_WINDOW_LABELS, DUE_WINDOW_ORDER, choresByWindow } from "../lib/choreCatalog";
+import MemberPicker from "./MemberPicker";
 
 export interface NewChore {
   title: string;
@@ -21,6 +22,8 @@ const RECURRENCE_ORDER: Recurrence[] = ["daily", "weekdays", "weekends", "none"]
 
 interface ChoreLibraryProps {
   onAdd: (chore: NewChore) => Promise<void>;
+  /** The names already in use, offered as one taps instead of typing. */
+  members: string[];
 }
 
 /**
@@ -29,7 +32,7 @@ interface ChoreLibraryProps {
  * a chore typed into the bottom row is worth exactly as much as one from
  * the list, and either can be re-priced later.
  */
-export default function ChoreLibrary({ onAdd }: ChoreLibraryProps) {
+export default function ChoreLibrary({ onAdd, members }: ChoreLibraryProps) {
   const [open, setOpen] = useState(false);
   const [assignedTo, setAssignedTo] = useState("");
   const [adding, setAdding] = useState<string | null>(null);
@@ -76,16 +79,20 @@ export default function ChoreLibrary({ onAdd }: ChoreLibraryProps) {
   return (
     <div className="mt-4 rounded-card bg-olive-50 p-4">
       <div className="flex items-center justify-between gap-3 mb-3">
-        <label className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0">
           <span className="block text-xs uppercase tracking-wide text-olive-700 mb-1">Who's it for?</span>
-          <input
-            type="text"
-            placeholder="Leave blank for anyone"
-            value={assignedTo}
-            onChange={(e) => setAssignedTo(e.target.value)}
-            className="w-full rounded-lg border border-olive-500 px-3 py-2"
-          />
-        </label>
+          <MemberPicker members={members} value={assignedTo} onChange={setAssignedTo} anyoneLabel="Anyone" />
+          <label>
+            <span className="sr-only">Who&apos;s it for?</span>
+            <input
+              type="text"
+              placeholder="Leave blank for anyone"
+              value={assignedTo}
+              onChange={(e) => setAssignedTo(e.target.value)}
+              className="w-full rounded-lg border border-olive-500 px-3 py-2"
+            />
+          </label>
+        </div>
         <button
           type="button"
           onClick={() => setOpen(false)}

@@ -153,7 +153,11 @@ async function claimRewardGoal(familyId: string, memberId: string): Promise<Clai
 }
 
 export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> => {
-  const { familyId, memberId } = event.pathParameters ?? {};
+  const { familyId } = event.pathParameters ?? {};
+  // Trimmed here too: this one arrives in the URL, so it never passes
+  // through the zod schema that trims the rest. "Parker%20" would otherwise
+  // be a second child with their own prize bar and half the gems.
+  const memberId = event.pathParameters?.memberId?.trim() || undefined;
   const method = event.requestContext.http.method;
   const isClaim = event.rawPath.endsWith("/claim");
   const isBalances = event.rawPath.endsWith("/gem-balances");

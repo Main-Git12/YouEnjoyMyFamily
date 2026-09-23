@@ -26,6 +26,19 @@ export const DUE_WINDOW_ENDS_AT_MINUTE: Record<DueWindow, number | null> = {
 // itself rather than a single flat number.
 export const DEFAULT_GEM_VALUE = 5;
 
+/**
+ * A family member's name, as typed. Trimmed at the boundary because a
+ * trailing space is invisible and would split a child in two: "Parker" and
+ * "Parker " are different keys everywhere gems are counted, so Parker would
+ * silently end up with two half-totals and two prize bars.
+ *
+ * Case is deliberately left alone — it's the family's own name for their
+ * own child, and the app has no business re-spelling it. The screen offers
+ * the names already in use as one-tap chips, which is what actually stops
+ * variants being typed in the first place.
+ */
+export const MemberName = z.string().trim().min(1).max(60);
+
 // How often a chore comes back. Most of this family's chores are daily;
 // homework and the bookbag are weekday-only. A "none" chore is a one-off.
 //
@@ -40,7 +53,7 @@ export type Recurrence = (typeof RECURRENCES)[number];
 
 export const TaskInput = z.object({
   title: z.string().min(1).max(200),
-  assignedTo: z.string().min(1).nullable().optional(),
+  assignedTo: MemberName.nullable().optional(),
   dueDate: z.string().date().nullable().optional(),
   gemValue: z.number().int().min(0).max(1000).optional(),
   dueWindow: z.enum(DUE_WINDOWS).optional(),
@@ -215,7 +228,7 @@ export interface PreferencesItem {
 export const STATED_PREFERENCE_CATEGORIES = ["meal", "activity", "chore"] as const;
 
 export const StatedPreferenceInput = z.object({
-  memberId: z.string().min(1),
+  memberId: MemberName,
   category: z.enum(STATED_PREFERENCE_CATEGORIES),
   statement: z.string().min(1).max(200),
 });

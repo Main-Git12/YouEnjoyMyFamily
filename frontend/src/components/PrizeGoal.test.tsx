@@ -13,12 +13,12 @@ const goal = (overrides: Partial<RewardGoal> = {}): RewardGoal => ({
 
 describe("PrizeGoal", () => {
   it("invites the family to pick a prize when nobody has one yet", () => {
-    render(<PrizeGoal goals={[]} gemsByChild={{}} onSetGoal={vi.fn()} onClaim={vi.fn()} />);
+    render(<PrizeGoal goals={[]} gemsByChild={{}} onSetGoal={vi.fn()} onClaim={vi.fn()} members={[]} />);
     expect(screen.getByText(/no prizes set yet/i)).toBeInTheDocument();
   });
 
   it("counts down the gems still to go", () => {
-    render(<PrizeGoal goals={[goal()]} gemsByChild={{ Parker: 30 }} onSetGoal={vi.fn()} onClaim={vi.fn()} />);
+    render(<PrizeGoal goals={[goal()]} gemsByChild={{ Parker: 30 }} onSetGoal={vi.fn()} onClaim={vi.fn()} members={[]} />);
 
     expect(screen.getByText("LEGO set")).toBeInTheDocument();
     expect(screen.getByText("20 more gems to go!")).toBeInTheDocument();
@@ -26,12 +26,12 @@ describe("PrizeGoal", () => {
   });
 
   it("says gem, not gems, when only one is left", () => {
-    render(<PrizeGoal goals={[goal()]} gemsByChild={{ Parker: 49 }} onSetGoal={vi.fn()} onClaim={vi.fn()} />);
+    render(<PrizeGoal goals={[goal()]} gemsByChild={{ Parker: 49 }} onSetGoal={vi.fn()} onClaim={vi.fn()} members={[]} />);
     expect(screen.getByText("1 more gem to go!")).toBeInTheDocument();
   });
 
   it("offers the prize once it's earned, rather than saying so forever", () => {
-    render(<PrizeGoal goals={[goal()]} gemsByChild={{ Parker: 80 }} onSetGoal={vi.fn()} onClaim={vi.fn()} />);
+    render(<PrizeGoal goals={[goal()]} gemsByChild={{ Parker: 80 }} onSetGoal={vi.fn()} onClaim={vi.fn()} members={[]} />);
 
     expect(screen.getByText("Earned it!")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Claim LEGO set" })).toBeInTheDocument();
@@ -40,7 +40,7 @@ describe("PrizeGoal", () => {
   });
 
   it("says out loud that claiming costs the gems", () => {
-    render(<PrizeGoal goals={[goal()]} gemsByChild={{ Parker: 80 }} onSetGoal={vi.fn()} onClaim={vi.fn()} />);
+    render(<PrizeGoal goals={[goal()]} gemsByChild={{ Parker: 80 }} onSetGoal={vi.fn()} onClaim={vi.fn()} members={[]} />);
     expect(screen.getByText(/Claiming spends 50 gems/)).toBeInTheDocument();
   });
 
@@ -52,6 +52,7 @@ describe("PrizeGoal", () => {
         gemsByChild={{ Parker: 80, Isla: 30 }}
         onSetGoal={vi.fn()}
         onClaim={onClaim}
+        members={[]}
       />
     );
 
@@ -61,12 +62,12 @@ describe("PrizeGoal", () => {
   });
 
   it("offers no claim while the gems are still short", () => {
-    render(<PrizeGoal goals={[goal()]} gemsByChild={{ Parker: 49 }} onSetGoal={vi.fn()} onClaim={vi.fn()} />);
+    render(<PrizeGoal goals={[goal()]} gemsByChild={{ Parker: 49 }} onSetGoal={vi.fn()} onClaim={vi.fn()} members={[]} />);
     expect(screen.queryByRole("button", { name: /^Claim/ })).not.toBeInTheDocument();
   });
 
   it("starts a child with no gems yet at zero rather than blank", () => {
-    render(<PrizeGoal goals={[goal({ memberId: "Isla", title: "Roller skates", gemCost: 40 })]} gemsByChild={{}} onSetGoal={vi.fn()} onClaim={vi.fn()} />);
+    render(<PrizeGoal goals={[goal({ memberId: "Isla", title: "Roller skates", gemCost: 40 })]} gemsByChild={{}} onSetGoal={vi.fn()} onClaim={vi.fn()} members={[]} />);
 
     expect(screen.getByText("40 more gems to go!")).toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "0");
@@ -74,7 +75,7 @@ describe("PrizeGoal", () => {
 
   it("saves a new prize and clears the form", async () => {
     const onSetGoal = vi.fn().mockResolvedValue(undefined);
-    render(<PrizeGoal goals={[]} gemsByChild={{}} onSetGoal={onSetGoal} onClaim={vi.fn()} />);
+    render(<PrizeGoal goals={[]} gemsByChild={{}} onSetGoal={onSetGoal} onClaim={vi.fn()} members={[]} />);
 
     fireEvent.change(screen.getByLabelText("Whose prize"), { target: { value: "Isla" } });
     fireEvent.change(screen.getByLabelText("The prize"), { target: { value: "Roller skates" } });
@@ -87,7 +88,7 @@ describe("PrizeGoal", () => {
 
   it("does not save a prize with no gem cost", () => {
     const onSetGoal = vi.fn();
-    render(<PrizeGoal goals={[]} gemsByChild={{}} onSetGoal={onSetGoal} onClaim={vi.fn()} />);
+    render(<PrizeGoal goals={[]} gemsByChild={{}} onSetGoal={onSetGoal} onClaim={vi.fn()} members={[]} />);
 
     fireEvent.change(screen.getByLabelText("Whose prize"), { target: { value: "Isla" } });
     fireEvent.change(screen.getByLabelText("The prize"), { target: { value: "Roller skates" } });
@@ -98,7 +99,7 @@ describe("PrizeGoal", () => {
 
   it("keeps what was typed when saving fails, so nothing has to be retyped", async () => {
     const onSetGoal = vi.fn().mockRejectedValue(new Error("offline"));
-    render(<PrizeGoal goals={[]} gemsByChild={{}} onSetGoal={onSetGoal} onClaim={vi.fn()} />);
+    render(<PrizeGoal goals={[]} gemsByChild={{}} onSetGoal={onSetGoal} onClaim={vi.fn()} members={[]} />);
 
     fireEvent.change(screen.getByLabelText("Whose prize"), { target: { value: "Isla" } });
     fireEvent.change(screen.getByLabelText("The prize"), { target: { value: "Roller skates" } });

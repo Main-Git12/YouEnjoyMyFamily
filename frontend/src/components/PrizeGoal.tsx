@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import type { RewardGoal } from "../types";
 import King from "./mascots/King";
+import MemberPicker from "./MemberPicker";
 
 interface PrizeGoalProps {
   /** One row per child who has gems or a goal, with their own running total. */
@@ -8,6 +9,8 @@ interface PrizeGoalProps {
   gemsByChild: Record<string, number>;
   onSetGoal: (memberId: string, goal: { title: string; gemCost: number }) => Promise<void>;
   onClaim: (memberId: string) => Promise<void>;
+  /** The names already in use, offered as one taps instead of typing. */
+  members: string[];
 }
 
 /**
@@ -16,7 +19,7 @@ interface PrizeGoalProps {
  * its own means very little to a six-year-old, but "eleven more gems until
  * the LEGO set" means everything.
  */
-export default function PrizeGoal({ goals, gemsByChild, onSetGoal, onClaim }: PrizeGoalProps) {
+export default function PrizeGoal({ goals, gemsByChild, onSetGoal, onClaim, members }: PrizeGoalProps) {
   const [memberId, setMemberId] = useState("");
   const [title, setTitle] = useState("");
   const [gemCost, setGemCost] = useState("");
@@ -119,6 +122,8 @@ export default function PrizeGoal({ goals, gemsByChild, onSetGoal, onClaim }: Pr
           })}
         </ul>
       )}
+
+      <MemberPicker members={members} value={memberId} onChange={setMemberId} />
 
       <form onSubmit={handleSubmit} className="flex flex-wrap gap-2">
         <input

@@ -281,3 +281,38 @@ test("GET /gem-balances reports what each child has right now", async () => {
   assert.equal(body.find((b) => b.memberId === "Parker")?.balance, 25);
   assert.equal(body.find((b) => b.memberId === "Isla")?.balance, 20);
 });
+
+test("a name with a stray space is the same child, not a second one", async () => {
+  ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", memberId: "Parker " },
+      headers,
+      body: JSON.stringify({ title: "LEGO set", gemCost: 50 }),
+    })
+  );
+
+  // An invisible trailing space would otherwise key a whole second child,
+  // with their own prize bar and half of Parker's gems.
+  const written = ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item;
+  assert.equal(written?.SK, "REWARDGOAL#Parker");
+  assert.equal(written?.memberId, "Parker");
+});
+
+test("a name that is nothing but spaces is refused", async () => {
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", memberId: "   " },
+      headers,
+      body: JSON.stringify({ title: "LEGO set", gemCost: 50 }),
+    })
+  );
+
+  assert.equal(result.statusCode, 400);
+});
