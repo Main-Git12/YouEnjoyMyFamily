@@ -5,13 +5,13 @@ import { docClient, TABLE_NAME } from "../lib/dynamoClient";
 import { ok, created, badRequest, notFound, serverError } from "../lib/response";
 import { parseBody, ValidationError } from "../lib/validation";
 import { authenticateFamily } from "../lib/auth";
-import { TaskInput, TaskPatch, type TaskItem } from "../types";
+import { TaskInput, TaskPatch, DEFAULT_GEM_VALUE, type TaskItem } from "../types";
 
 const taskKey = (familyId: string, taskId: string) => ({ PK: `FAMILY#${familyId}`, SK: `TASK#${taskId}` });
 
-// Flat reward per completed task — no per-member ledger yet, so a task's own
-// gemsAwarded (summed client-side) is the running total until one exists.
-const GEMS_PER_COMPLETED_TASK = 10;
+// A completed chore pays out its own gemValue — "sleep in my own bed" is
+// worth more than "fill my water bottle". A task's gemsAwarded, summed per
+// child via assignedTo, is the running total until a real ledger exists.
 
 async function listTasks(familyId: string): Promise<TaskItem[]> {
   const result = await docClient.send(
@@ -37,6 +37,8 @@ async function createTask(familyId: string, input: TaskInput): Promise<TaskItem>
     title: input.title,
     assignedTo: input.assignedTo ?? null,
     dueDate: input.dueDate ?? null,
+    gemValue: input.gemValue ?? DEFAULT_GEM_VALUE,
+    dueWindow: input.dueWindow ?? "anytime",
     status: "pending",
     gemsAwarded: 0,
     createdAt: now,
@@ -60,8 +62,10 @@ async function updateTask(familyId: string, taskId: string, patch: TaskPatch): P
     title: patch.title ?? current.title,
     assignedTo: patch.assignedTo !== undefined ? patch.assignedTo : current.assignedTo,
     dueDate: patch.dueDate !== undefined ? patch.dueDate : current.dueDate,
+    gemValue: patch.gemValue ?? current.gemValue,
+    dueWindow: patch.dueWindow ?? current.dueWindow,
     status: nextStatus,
-    gemsAwarded: justCompleted ? current.gemsAwarded + GEMS_PER_COMPLETED_TASK : current.gemsAwarded,
+    gemsAwarded: justCompleted ? current.gemsAwarded + (patch.gemValue ?? current.gemValue) : current.gemsAwarded,
     updatedAt: new Date().toISOString(),
   };
   await docClient.send(new PutCommand({ TableName: TABLE_NAME, Item: updated }));

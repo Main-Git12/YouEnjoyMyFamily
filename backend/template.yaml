@@ -389,6 +389,41 @@ Resources:
             Description: Weekly conversion of each family's planned meals into grocery cart items
             Enabled: true
 
+  RewardGoalsFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/rewardGoals.ts]
+    Properties:
+      Handler: src/handlers/rewardGoals.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref YouEnjoyMyFamilyTable
+      Events:
+        List:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/reward-goals
+            Method: GET
+        Upsert:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/reward-goals/{memberId}
+            Method: PUT
+        Delete:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/reward-goals/{memberId}
+            Method: DELETE
+
   # ---------------------------------------------------------------------
   # Frontend hosting — the dashboard has to be reachable from the family's
   # phones, not just the Echo Show on the wall. Private S3 bucket behind

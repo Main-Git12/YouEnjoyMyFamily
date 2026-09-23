@@ -60,6 +60,8 @@ test("GET lists tasks for a family", async () => {
       title: "Pack bag",
       assignedTo: null,
       dueDate: "2025-01-01",
+      gemValue: 10,
+      dueWindow: "anytime",
       status: "pending",
       gemsAwarded: 0,
       createdAt: "2025-01-01T00:00:00Z",
@@ -130,6 +132,8 @@ test("PUT preserves existing fields not present in the patch", async () => {
     title: "Pack bag",
     assignedTo: "member_1",
     dueDate: "2025-01-01",
+    gemValue: 10,
+    dueWindow: "anytime",
     status: "pending",
     gemsAwarded: 0,
     createdAt: "2025-01-01T00:00:00Z",
@@ -155,6 +159,60 @@ test("PUT preserves existing fields not present in the patch", async () => {
   assert.equal(body.assignedTo, "member_1");
 });
 
+test("each chore pays out its own gem value, not a flat rate", async () => {
+  // "Sleep in my own bed" is worth 20 to this family; "fill my water bottle" 5.
+  const bigChore: TaskItem = {
+    PK: "FAMILY#fam_1",
+    SK: "TASK#t9",
+    GSI1PK: "TASK#t9",
+    GSI1SK: "DUE#2025-01-01",
+    entityType: "TASK",
+    familyId: "fam_1",
+    taskId: "t9",
+    title: "Sleep in my own bed",
+    assignedTo: "Parker",
+    dueDate: "2025-01-01",
+    gemValue: 20,
+    dueWindow: "bedtime",
+    status: "pending",
+    gemsAwarded: 0,
+    createdAt: "2025-01-01T00:00:00Z",
+    updatedAt: "2025-01-01T00:00:00Z",
+  };
+  ddbMock.on(GetCommand).resolves({ Item: bigChore });
+  ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", taskId: "t9" },
+      headers,
+      body: JSON.stringify({ status: "done" }),
+    })
+  );
+
+  assert.equal(JSON.parse(result.body ?? "{}").gemsAwarded, 20);
+});
+
+test("POST keeps the gem value and due window the family chose", async () => {
+  ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({
+      method: "POST",
+      pathParameters: { familyId: "fam_1" },
+      headers,
+      body: JSON.stringify({ title: "Wipe Table", assignedTo: "Parker", gemValue: 10, dueWindow: "after_dinner" }),
+    })
+  );
+
+  const body = JSON.parse(result.body ?? "{}");
+  assert.equal(body.gemValue, 10);
+  assert.equal(body.dueWindow, "after_dinner");
+});
+
 test("PUT awards gems the first time a task is completed", async () => {
   const existing: TaskItem = {
     PK: "FAMILY#fam_1",
@@ -167,6 +225,8 @@ test("PUT awards gems the first time a task is completed", async () => {
     title: "Pack bag",
     assignedTo: "member_1",
     dueDate: "2025-01-01",
+    gemValue: 10,
+    dueWindow: "anytime",
     status: "pending",
     gemsAwarded: 0,
     createdAt: "2025-01-01T00:00:00Z",
@@ -201,6 +261,8 @@ test("PUT does not re-award gems on a task that's already done", async () => {
     title: "Pack bag",
     assignedTo: "member_1",
     dueDate: "2025-01-01",
+    gemValue: 10,
+    dueWindow: "anytime",
     status: "done",
     gemsAwarded: 10,
     createdAt: "2025-01-01T00:00:00Z",

@@ -4,10 +4,34 @@ import { z } from "zod";
 // key-design rationale. Handlers validate incoming bodies against the
 // `*Input` schemas and persist the corresponding `*Item` shape.
 
+// The part of the day a chore belongs to. A family picks this once when they
+// set the chore up ("wipe the table — after dinner"), which is what lets the
+// app know a chore is overdue without ever watching or profiling a child:
+// it compares the clock to a window someone typed in, nothing more.
+export const DUE_WINDOWS = ["morning", "after_school", "after_dinner", "bedtime", "anytime"] as const;
+export type DueWindow = (typeof DUE_WINDOWS)[number];
+
+// What each window means on a clock, as 24h minutes-from-midnight. A chore is
+// "overdue" only once its window has closed.
+export const DUE_WINDOW_ENDS_AT_MINUTE: Record<DueWindow, number | null> = {
+  morning: 9 * 60,
+  after_school: 17 * 60,
+  after_dinner: 19 * 60 + 30,
+  bedtime: 20 * 60 + 30,
+  anytime: null,
+};
+
+// Chores are worth different amounts — sleeping in your own bed is not the
+// same ask as filling a water bottle — so the value rides on the chore
+// itself rather than a single flat number.
+export const DEFAULT_GEM_VALUE = 5;
+
 export const TaskInput = z.object({
   title: z.string().min(1).max(200),
   assignedTo: z.string().min(1).nullable().optional(),
   dueDate: z.string().date().nullable().optional(),
+  gemValue: z.number().int().min(0).max(1000).optional(),
+  dueWindow: z.enum(DUE_WINDOWS).optional(),
 });
 export type TaskInput = z.infer<typeof TaskInput>;
 
@@ -28,7 +52,31 @@ export interface TaskItem {
   assignedTo: string | null;
   dueDate: string | null;
   status: "pending" | "in_progress" | "done";
+  gemValue: number;
+  dueWindow: DueWindow;
   gemsAwarded: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// What a child is actually saving up for. One live goal per child, set by
+// whoever sets it up with them — the app never invents or infers a prize.
+export const RewardGoalInput = z.object({
+  title: z.string().min(1).max(120),
+  gemCost: z.number().int().positive().max(100000),
+  note: z.string().max(200).nullable().optional(),
+});
+export type RewardGoalInput = z.infer<typeof RewardGoalInput>;
+
+export interface RewardGoalItem {
+  PK: string;
+  SK: string;
+  entityType: "REWARD_GOAL";
+  familyId: string;
+  memberId: string;
+  title: string;
+  gemCost: number;
+  note: string | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -18,6 +18,7 @@ items returned from a `Query` without a second read.
 | Grocery cart item   | `FAMILY#<familyId>`   | `CARTITEM#<itemId>`         | —                       | —                          |
 | Learned substitution| `FAMILY#<familyId>`   | `SUBSTITUTION#<normalizedDescription>`| —             | —                          |
 | Meal plan entry     | `FAMILY#<familyId>`   | `MEALPLAN#<isoDate>#<slot>` | —                       | —                          |
+| Reward goal         | `FAMILY#<familyId>`   | `REWARDGOAL#<memberId>`     | —                       | —                          |
 | OAuth token set     | `FAMILY#<familyId>`   | `TOKEN#<provider>`          | —                       | —                          |
 
 `Family` (`METADATA`) is the tenant record every other item's `PK` depends
@@ -85,6 +86,8 @@ plan, never an AI-invented meal or ingredient. A manually-added cart item
 - List one member's stated preferences: `Query PK = FAMILY#<familyId>, SK begins_with STATEDPREF#<memberId>#`.
 - Look up a learned substitute for an item by its (lowercased, trimmed) description: `GetItem PK = FAMILY#<familyId>, SK = SUBSTITUTION#<normalizedDescription>`.
 - Remove a grocery cart item outright by id (not just marking it unavailable): `DeleteItem PK = FAMILY#<familyId>, SK = CARTITEM#<itemId>`.
+- List every child's reward goal: `Query PK = FAMILY#<familyId>, SK begins_with REWARDGOAL#`.
+- Set or clear one child's goal: `PutItem`/`DeleteItem PK = FAMILY#<familyId>, SK = REWARDGOAL#<memberId>` — the key holds one live goal per child, so setting a new prize replaces the old one rather than accumulating a history.
 - List a family's meal plan for a date range: `Query PK = FAMILY#<familyId>, SK between MEALPLAN#<start> and MEALPLAN#<end>`.
 - Look up or replace one day+slot's planned meal: `GetItem`/`PutItem PK = FAMILY#<familyId>, SK = MEALPLAN#<isoDate>#<slot>`.
 - List every family (weekly meal-plan grocery sync only): `Scan filter entityType = FAMILY` — the one access pattern here with no natural partition to query across; a Scan is the pragmatic choice for a job that runs once a week over what's expected to be a small number of families.
@@ -116,8 +119,10 @@ plan, never an AI-invented meal or ingredient. A manually-added cart item
   "title": "Pack soccer bag",
   "assignedTo": "member_456",
   "dueDate": "2025-01-15",
+  "gemValue": 10, // what this chore pays — "sleep in my own bed" is worth more than "fill my water bottle"
+  "dueWindow": "after_dinner", // morning | after_school | after_dinner | bedtime | anytime — set by the family, never inferred
   "status": "pending",
-  "gemsAwarded": 0, // bumped by GEMS_PER_COMPLETED_TASK the first time status becomes "done"
+  "gemsAwarded": 0, // bumped by the chore's own gemValue the first time status becomes "done"
   "createdAt": "2025-01-10T12:00:00Z",
   "updatedAt": "2025-01-10T12:00:00Z"
 }
