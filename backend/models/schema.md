@@ -12,7 +12,8 @@ items returned from a `Query` without a second read.
 | Family member      | `FAMILY#<familyId>`   | `MEMBER#<memberId>`         | `MEMBER#<memberId>`    | `FAMILY#<familyId>`        |
 | Member preferences | `FAMILY#<familyId>`   | `PREFS#<memberId>`          | —                       | —                          |
 | Stated preference  | `FAMILY#<familyId>`   | `STATEDPREF#<memberId>#<id>`| —                       | —                          |
-| Task               | `FAMILY#<familyId>`   | `TASK#<taskId>`             | `TASK#<taskId>`        | `DUE#<isoDate>`            |
+| Task (definition)  | `FAMILY#<familyId>`   | `TASK#<taskId>`             | `TASK#<taskId>`        | `DUE#<isoDate>`            |
+| Task completion    | `FAMILY#<familyId>`   | `COMPLETION#<isoDate>#<taskId>`| —                    | —                          |
 | Schedule entry      | `FAMILY#<familyId>`   | `SCHEDULE#<isoDate>#<id>`   | —                       | —                          |
 | Synced calendar evt | `FAMILY#<familyId>`   | `CALEVENT#<isoDate>#<id>`   | `EXTID#<googleEventId>`| `FAMILY#<familyId>`        |
 | Grocery cart item   | `FAMILY#<familyId>`   | `CARTITEM#<itemId>`         | —                       | —                          |
@@ -77,7 +78,8 @@ plan, never an AI-invented meal or ingredient. A manually-added cart item
 ## Access patterns
 
 - Get a family + all members: `Query PK = FAMILY#<familyId>`, filter/prefix on `SK`.
-- List a family's tasks: `Query PK = FAMILY#<familyId>, SK begins_with TASK#`.
+- List a family's chore definitions: `Query PK = FAMILY#<familyId>, SK begins_with TASK#`.
+- List what got done over a date range: `Query PK = FAMILY#<familyId>, SK between COMPLETION#<start> and COMPLETION#<end>#\uffff`.
 - List a family's schedule for a date range: `Query PK = FAMILY#<familyId>, SK between SCHEDULE#<start> and SCHEDULE#<end>`.
 - Find a task by id across the table (e.g. Alexa deep link): `Query GSI1PK = TASK#<taskId>`.
 - Upsert a synced Google Calendar event idempotently by external id: `Query GSI1PK = EXTID#<googleEventId>`.
@@ -94,6 +96,37 @@ plan, never an AI-invented meal or ingredient. A manually-added cart item
 - Look up or replace one day+slot's planned meal: `GetItem`/`PutItem PK = FAMILY#<familyId>, SK = MEALPLAN#<isoDate>#<slot>`.
 - List every family (weekly meal-plan grocery sync only): `Scan filter entityType = FAMILY`, paging on `LastEvaluatedKey` — the one access pattern here with no natural partition to query across; a Scan is the pragmatic choice for a job that runs once a week over what's expected to be a small number of families. The paging is not optional: the 1MB cap counts rows *scanned*, not matched, so a filtered Scan can return an empty page while families sit further down the table.
 
+## Chores: definition vs. completion
+
+A `Task` row is a chore *definition* — its title, what it pays, whose it is,
+which part of the day it belongs to, and how often it comes back
+(`recurrence`: `none` | `daily` | `weekdays` | `weekends`). It deliberately
+carries no `status` and no `gemsAwarded`, because a chore isn't done or
+undone in the abstract — only on a particular day.
+
+Whether it got done on a given day is a separate `COMPLETION#<isoDate>#<taskId>`
+row, written when someone ticks it off and deleted when they un-tick it.
+`GET /families/{id}/tasks?date=<isoDate>` reads both and merges them, so the
+API still returns the `status` and `gemsAwarded` a caller expects, for the
+day it asked about.
+
+This is why there is no nightly "reset the chores" job:
+
+- Nothing has to be mutated at midnight, so there is no cron to fall over
+  and no race between a rollover and a child ticking something off.
+- Nothing has to guess which timezone the family woke up in — the caller
+  passes its own local date, which is the only device that actually knows.
+- Ticking the same chore twice in a day is naturally idempotent: the
+  completion row already exists, so it pays once.
+- Last Tuesday stays answerable, which is what streaks and any gem ledger
+  need.
+
+The one denormalized field is `completedOn` on the definition, set only for
+one-off (`recurrence: "none"`) chores in the same operation as the
+completion row. It's what lets "does this chore apply today?" be answered
+without a second query: an unfinished one-off keeps appearing every day
+until someone does it, then shows only on the day it was done.
+
 ## Item shape examples
 
 ```jsonc
@@ -109,7 +142,8 @@ plan, never an AI-invented meal or ingredient. A manually-added cart item
   "createdAt": "2025-01-10T12:00:00Z"
 }
 
-// Task
+// Task — the chore *definition*. No status, no gemsAwarded: see "Chores:
+// definition vs. completion" above.
 {
   "PK": "FAMILY#fam_123",
   "SK": "TASK#01J...ULID",
@@ -118,15 +152,30 @@ plan, never an AI-invented meal or ingredient. A manually-added cart item
   "entityType": "TASK",
   "familyId": "fam_123",
   "taskId": "01J...ULID",
-  "title": "Pack soccer bag",
-  "assignedTo": "member_456",
-  "dueDate": "2025-01-15",
+  "title": "Wipe Table",
+  "assignedTo": "Parker",
+  "dueDate": null, // only meaningful for a one-off
   "gemValue": 10, // what this chore pays — "sleep in my own bed" is worth more than "fill my water bottle"
   "dueWindow": "after_dinner", // morning | after_school | after_dinner | bedtime | anytime — set by the family, never inferred
-  "status": "pending",
-  "gemsAwarded": 0, // bumped by the chore's own gemValue the first time status becomes "done"
+  "recurrence": "daily", // none | daily | weekdays | weekends
+  "completedOn": null, // one-offs only; the day it was finished, so it stops reappearing
   "createdAt": "2025-01-10T12:00:00Z",
   "updatedAt": "2025-01-10T12:00:00Z"
+}
+
+// Task completion — "this chore was done on this day, for this many gems".
+// One per chore per day, so ticking twice pays once.
+{
+  "PK": "FAMILY#fam_123",
+  "SK": "COMPLETION#2025-01-15#01J...ULID",
+  "entityType": "TASK_COMPLETION",
+  "familyId": "fam_123",
+  "taskId": "01J...ULID",
+  "date": "2025-01-15",
+  "title": "Wipe Table", // copied so a day's history reads without re-joining
+  "memberId": "Parker",
+  "gemsAwarded": 10,
+  "completedAt": "2025-01-15T19:04:00Z"
 }
 
 // Stated preference — recorded only when a family member explicitly says it

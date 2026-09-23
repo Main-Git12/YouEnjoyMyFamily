@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent, act, within } from "@testing-library/react";
 import Dashboard from "./Dashboard";
-import { weekFromOffset } from "../lib/dates";
+import { weekFromOffset, toLocalIsoDate } from "../lib/dates";
 import { threatForChore } from "../lib/gemThreats";
 import { api } from "../lib/api";
 import type { Task } from "../types";
@@ -9,6 +9,7 @@ import type { Task } from "../types";
 vi.mock("../lib/api", () => ({
   api: {
     listTasks: vi.fn(),
+    listTaskCompletions: vi.fn(),
     createTask: vi.fn(),
     listSchedules: vi.fn(),
     completeTask: vi.fn(),
@@ -37,6 +38,7 @@ describe("Dashboard", () => {
     vi.mocked(api.listMealPlan).mockResolvedValue([]);
     vi.mocked(api.listCartItems).mockResolvedValue([]);
     vi.mocked(api.listRewardGoals).mockResolvedValue([]);
+    vi.mocked(api.listTaskCompletions).mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -48,7 +50,7 @@ describe("Dashboard", () => {
 
   it("renders fetched tasks and schedule entries", async () => {
     vi.mocked(api.listTasks).mockResolvedValue([
-      { taskId: "t1", title: "Pack soccer bag", assignedTo: null, dueDate: null, gemValue: 10, dueWindow: "anytime", status: "pending", gemsAwarded: 0 },
+      { taskId: "t1", title: "Pack soccer bag", assignedTo: null, dueDate: null, gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
     ]);
     vi.mocked(api.listSchedules).mockResolvedValue([
       { scheduleId: "s1", date: "2025-01-15", title: "Soccer practice", startTime: null, endTime: null, memberIds: [] },
@@ -75,7 +77,7 @@ describe("Dashboard", () => {
 
   it("shows the gem celebration and updated total after completing a task", async () => {
     vi.mocked(api.listTasks).mockResolvedValue([
-      { taskId: "t1", title: "Pack soccer bag", assignedTo: null, dueDate: null, gemValue: 10, dueWindow: "anytime", status: "pending", gemsAwarded: 0 },
+      { taskId: "t1", title: "Pack soccer bag", assignedTo: null, dueDate: null, gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
     ]);
     vi.mocked(api.listSchedules).mockResolvedValue([]);
     vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
@@ -85,7 +87,7 @@ describe("Dashboard", () => {
       assignedTo: null,
       dueDate: null,
       gemValue: 10,
-      dueWindow: "anytime",
+      dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null,
       status: "done",
       gemsAwarded: 10,
     });
@@ -134,7 +136,7 @@ describe("Dashboard", () => {
     // knows only the clock and the window someone chose for this chore.
     vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date(2026, 8, 23, 21, 30) });
     vi.mocked(api.listTasks).mockResolvedValue([
-      { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "after_dinner", status: "pending", gemsAwarded: 0 },
+      { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "after_dinner", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
     ]);
     vi.mocked(api.listSchedules).mockResolvedValue([]);
     vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
@@ -144,7 +146,7 @@ describe("Dashboard", () => {
       assignedTo: "Parker",
       dueDate: null,
       gemValue: 10,
-      dueWindow: "after_dinner",
+      dueWindow: "after_dinner", date: "2026-09-23", recurrence: "daily", completedOn: null,
       status: "done",
       gemsAwarded: 10,
     });
@@ -159,7 +161,9 @@ describe("Dashboard", () => {
 
     fireEvent.click(scenario.getByRole("button", { name: threatForChore("Wipe Table").callToAction }));
 
-    await waitFor(() => expect(api.completeTask).toHaveBeenCalledWith("fam_demo", "t1"));
+    await waitFor(() =>
+      expect(api.completeTask).toHaveBeenCalledWith("fam_demo", "t1", toLocalIsoDate(new Date()))
+    );
     // The victory beat has to survive the chore going green — the scenario
     // closes itself a moment later, it isn't yanked off screen.
     await waitFor(() => expect(within(screen.getByRole("alertdialog")).getByText("Gems saved!")).toBeInTheDocument());
@@ -169,7 +173,7 @@ describe("Dashboard", () => {
     // Seven in the morning: a bedtime chore is not late, it's early.
     vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date(2026, 8, 23, 7, 0) });
     vi.mocked(api.listTasks).mockResolvedValue([
-      { taskId: "t1", title: "Sleep in my own bed", assignedTo: "Parker", dueDate: null, gemValue: 20, dueWindow: "bedtime", status: "pending", gemsAwarded: 0 },
+      { taskId: "t1", title: "Sleep in my own bed", assignedTo: "Parker", dueDate: null, gemValue: 20, dueWindow: "bedtime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
     ]);
     vi.mocked(api.listSchedules).mockResolvedValue([]);
     vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
@@ -183,8 +187,8 @@ describe("Dashboard", () => {
   it("does not bring a waved-away scenario straight back as the next chore", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date(2026, 8, 23, 21, 30) });
     vi.mocked(api.listTasks).mockResolvedValue([
-      { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "after_dinner", status: "pending", gemsAwarded: 0 },
-      { taskId: "t2", title: "Put on pajamas", assignedTo: "Isla", dueDate: null, gemValue: 5, dueWindow: "bedtime", status: "pending", gemsAwarded: 0 },
+      { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "after_dinner", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
+      { taskId: "t2", title: "Put on pajamas", assignedTo: "Isla", dueDate: null, gemValue: 5, dueWindow: "bedtime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
     ]);
     vi.mocked(api.listSchedules).mockResolvedValue([]);
     vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
@@ -213,7 +217,7 @@ describe("Dashboard", () => {
       assignedTo: "Parker",
       dueDate: null,
       gemValue: 10,
-      dueWindow: "after_dinner",
+      dueWindow: "after_dinner", date: "2026-09-23", recurrence: "daily", completedOn: null,
       status: "pending",
       gemsAwarded: 0,
     });
@@ -226,21 +230,31 @@ describe("Dashboard", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Wipe Table/ }));
 
     await waitFor(() =>
-      expect(api.createTask).toHaveBeenCalledWith("fam_demo", {
-        title: "Wipe Table",
-        gemValue: 10,
-        dueWindow: "after_dinner",
-        assignedTo: "Parker",
-      })
+      expect(api.createTask).toHaveBeenCalledWith(
+        "fam_demo",
+        {
+          title: "Wipe Table",
+          gemValue: 10,
+          dueWindow: "after_dinner",
+          recurrence: "daily",
+          assignedTo: "Parker",
+        },
+        toLocalIsoDate(new Date())
+      )
     );
   });
 
   it("shows how close each child is to the prize they picked", async () => {
-    vi.mocked(api.listTasks).mockResolvedValue([
-      { taskId: "t1", title: "Homework", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "anytime", status: "done", gemsAwarded: 30 },
-    ]);
+    vi.mocked(api.listTasks).mockResolvedValue([]);
     vi.mocked(api.listSchedules).mockResolvedValue([]);
     vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+    // Three days of the same daily chore — the point being that a recurring
+    // chore pays out again each day, which today's list can't tell you.
+    vi.mocked(api.listTaskCompletions).mockResolvedValue([
+      { taskId: "t1", date: "2026-09-21", title: "Homework", memberId: "Parker", gemsAwarded: 10 },
+      { taskId: "t1", date: "2026-09-22", title: "Homework", memberId: "Parker", gemsAwarded: 10 },
+      { taskId: "t1", date: "2026-09-23", title: "Homework", memberId: "Parker", gemsAwarded: 10 },
+    ]);
     vi.mocked(api.listRewardGoals).mockResolvedValue([
       { memberId: "Parker", title: "LEGO set", gemCost: 50, note: null },
     ]);
@@ -368,7 +382,7 @@ describe("Dashboard", () => {
       assignedTo: null,
       dueDate: null,
       gemValue: 10,
-      dueWindow: "anytime",
+      dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null,
       status: "pending",
       gemsAwarded: 0,
     };
@@ -391,7 +405,7 @@ describe("Dashboard", () => {
     });
 
     // Mid-flight, a child ticks the chore off and sees the gems land.
-    vi.mocked(api.completeTask).mockResolvedValue({ ...pending, gemValue: 10, dueWindow: "anytime", status: "done", gemsAwarded: 10 });
+    vi.mocked(api.completeTask).mockResolvedValue({ ...pending, gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "done", gemsAwarded: 10 });
     fireEvent.click(screen.getByLabelText('Mark "Feed the dog" done'));
     await waitFor(() => expect(screen.getByText("10 gems collected")).toBeInTheDocument());
 
@@ -453,7 +467,7 @@ describe("Dashboard", () => {
 
   it("keeps showing the last good data when a background sync fails", async () => {
     vi.mocked(api.listTasks).mockResolvedValue([
-      { taskId: "t1", title: "Pack soccer bag", assignedTo: null, dueDate: null, gemValue: 10, dueWindow: "anytime", status: "pending", gemsAwarded: 0 },
+      { taskId: "t1", title: "Pack soccer bag", assignedTo: null, dueDate: null, gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
     ]);
     vi.mocked(api.listSchedules).mockResolvedValue([]);
     vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
@@ -505,5 +519,62 @@ describe("Dashboard", () => {
 
     await waitFor(() => expect(screen.getByText("Today's tasks")).toBeInTheDocument());
     expect(screen.queryByText(/loading your family's day/i)).not.toBeInTheDocument();
+  });
+
+  it("asks for today's chores by the screen's own date, not the server's", async () => {
+    // A kitchen screen in Ohio asking at 9pm means *its* today. If the
+    // server were left to guess from a UTC clock it would answer with
+    // tomorrow's list, and every chore would read as undone.
+    vi.stubEnv("TZ", "America/Chicago");
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date("2026-09-24T02:30:00Z") });
+    vi.mocked(api.listTasks).mockResolvedValue([]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+
+    render(<Dashboard />);
+
+    // 02:30 UTC on the 24th is 21:30 on the 23rd in Chicago.
+    await waitFor(() => expect(api.listTasks).toHaveBeenCalledWith("fam_demo", "2026-09-23"));
+  });
+
+  it("counts gems from every day a chore was done, not just today's list", async () => {
+    // The regression this model change exists to prevent: yesterday's gems
+    // must still be in the total when today's chores reset to pending.
+    vi.mocked(api.listTasks).mockResolvedValue([
+      { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
+    ]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+    vi.mocked(api.listTaskCompletions).mockResolvedValue([
+      { taskId: "t1", date: "2026-09-21", title: "Wipe Table", memberId: "Parker", gemsAwarded: 10 },
+      { taskId: "t1", date: "2026-09-22", title: "Wipe Table", memberId: "Parker", gemsAwarded: 10 },
+    ]);
+
+    render(<Dashboard />);
+
+    await waitFor(() => expect(screen.getByText("20 gems collected")).toBeInTheDocument());
+    // Today's chore is waiting again, with nothing awarded yet.
+    expect(screen.getByLabelText('Mark "Wipe Table" done')).toBeInTheDocument();
+  });
+
+  it("moves the gem total the moment a chore is ticked, not on the next sync", async () => {
+    vi.mocked(api.listTasks).mockResolvedValue([
+      { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
+    ]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+    vi.mocked(api.listTaskCompletions).mockResolvedValue([]);
+    vi.mocked(api.completeTask).mockResolvedValue({
+      taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10,
+      dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null,
+      status: "done", gemsAwarded: 10,
+    });
+
+    render(<Dashboard />);
+    await waitFor(() => expect(screen.getByText("0 gems collected")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByLabelText('Mark "Wipe Table" done'));
+
+    await waitFor(() => expect(screen.getByText("10 gems collected")).toBeInTheDocument());
   });
 });

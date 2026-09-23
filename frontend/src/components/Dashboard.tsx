@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
-import type { Task, ScheduleEntry, StatedPreference, StatedPreferenceCategory, MealPlanEntry, MealSlot, CartItem, RewardGoal } from "../types";
+import type { Task, TaskCompletion, ScheduleEntry, StatedPreference, StatedPreferenceCategory, MealPlanEntry, MealSlot, CartItem, RewardGoal } from "../types";
 import { chooseThreatenedChore, type ThreatenedChore } from "../lib/gemThreats";
 import FamilyCard from "./FamilyCard";
 import TaskList from "./TaskList";
@@ -24,6 +24,7 @@ const SYNC_INTERVAL_MS = 30_000;
 
 export default function Dashboard() {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [completions, setCompletions] = useState<TaskCompletion[]>([]);
   const [schedule, setSchedule] = useState<ScheduleEntry[]>([]);
   const [preferences, setPreferences] = useState<StatedPreference[]>([]);
   const [mealPlan, setMealPlan] = useState<MealPlanEntry[]>([]);
@@ -56,15 +57,16 @@ export default function Dashboard() {
   // between weeks quickly would otherwise let a slow earlier request land
   // last and overwrite the week actually on screen.
   const fetchEverything = useCallback(async () => {
-    const [taskItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList, rewardGoalItems] = await Promise.all([
-      api.listTasks(DEMO_FAMILY_ID),
+    const [taskItems, completionItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList, rewardGoalItems] = await Promise.all([
+      api.listTasks(DEMO_FAMILY_ID, today),
+      api.listTaskCompletions(DEMO_FAMILY_ID),
       api.listSchedules(DEMO_FAMILY_ID, today, today),
       api.listStatedPreferences(DEMO_FAMILY_ID),
       api.listMealPlan(DEMO_FAMILY_ID, weekStart, weekEnd),
       api.listCartItems(DEMO_FAMILY_ID),
       api.listRewardGoals(DEMO_FAMILY_ID),
     ]);
-    return { taskItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList, rewardGoalItems };
+    return { taskItems, completionItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList, rewardGoalItems };
   }, [weekStart, weekEnd, today]);
 
   // Bumped at the start *and* the end of every local write. A sync that
@@ -85,6 +87,7 @@ export default function Dashboard() {
 
   const applyEverything = useCallback((data: Awaited<ReturnType<typeof fetchEverything>>) => {
     setTasks(data.taskItems);
+    setCompletions(data.completionItems);
     setSchedule(data.scheduleItems);
     setPreferences(data.preferenceItems);
     setMealPlan(data.mealPlanItems);
@@ -155,13 +158,15 @@ export default function Dashboard() {
     setThreatened(candidate);
   }, [tasks, dismissedThreatTaskIds, defending]);
 
-  const totalGems = tasks.reduce((sum, task) => sum + task.gemsAwarded, 0);
+  // Summed from every completion, not from today's chore list. A daily
+  // chore is one stored row that pays out again each day it's done, so
+  // today's list would say the kingdom was built this afternoon.
+  const totalGems = completions.reduce((sum, completion) => sum + completion.gemsAwarded, 0);
 
-  // Each child's own total, so their prize bar means something. Summed from
-  // the chores assigned to them — no separate ledger to drift out of sync.
-  const gemsByChild = tasks.reduce<Record<string, number>>((totals, task) => {
-    if (!task.assignedTo || task.gemsAwarded === 0) return totals;
-    totals[task.assignedTo] = (totals[task.assignedTo] ?? 0) + task.gemsAwarded;
+  // Each child's own total, so their prize bar means something.
+  const gemsByChild = completions.reduce<Record<string, number>>((totals, completion) => {
+    if (!completion.memberId || completion.gemsAwarded === 0) return totals;
+    totals[completion.memberId] = (totals[completion.memberId] ?? 0) + completion.gemsAwarded;
     return totals;
   }, {});
 
@@ -190,8 +195,24 @@ export default function Dashboard() {
   // unhandled rejection.
   async function handleComplete(task: Task, options: { celebrate?: boolean } = {}): Promise<boolean> {
     try {
-      const updated = await guardedWrite(() => api.completeTask(DEMO_FAMILY_ID, task.taskId));
+      const updated = await guardedWrite(() => api.completeTask(DEMO_FAMILY_ID, task.taskId, today));
       setTasks((prev) => prev.map((t) => (t.taskId === updated.taskId ? updated : t)));
+      // Mirrors the completion row the backend just wrote, so the gem total
+      // and the prize bar move now rather than on the next sync.
+      setCompletions((prev) =>
+        prev.some((c) => c.taskId === updated.taskId && c.date === updated.date)
+          ? prev
+          : [
+              ...prev,
+              {
+                taskId: updated.taskId,
+                date: updated.date,
+                title: updated.title,
+                memberId: updated.assignedTo,
+                gemsAwarded: updated.gemsAwarded,
+              },
+            ]
+      );
       // A chore finished from inside a threat scenario has its own
       // celebration in the overlay; two at once is just noise.
       if (options.celebrate !== false) setCelebration({ gemsEarned: updated.gemsAwarded - task.gemsAwarded });
@@ -206,12 +227,17 @@ export default function Dashboard() {
   async function handleAddChore(chore: NewChore) {
     try {
       const created = await guardedWrite(() =>
-        api.createTask(DEMO_FAMILY_ID, {
-          title: chore.title,
-          gemValue: chore.gemValue,
-          dueWindow: chore.dueWindow,
-          assignedTo: chore.assignedTo,
-        })
+        api.createTask(
+          DEMO_FAMILY_ID,
+          {
+            title: chore.title,
+            gemValue: chore.gemValue,
+            dueWindow: chore.dueWindow,
+            assignedTo: chore.assignedTo,
+            recurrence: chore.recurrence,
+          },
+          today
+        )
       );
       setTasks((prev) => [...prev, created]);
       setError(null);

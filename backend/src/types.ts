@@ -26,20 +26,43 @@ export const DUE_WINDOW_ENDS_AT_MINUTE: Record<DueWindow, number | null> = {
 // itself rather than a single flat number.
 export const DEFAULT_GEM_VALUE = 5;
 
+// How often a chore comes back. Most of this family's chores are daily;
+// homework and the bookbag are weekday-only. A "none" chore is a one-off.
+//
+// A recurring chore is NOT re-created each morning by a scheduled job. The
+// task row is a *definition* that simply applies on the days it applies to,
+// and whether it got done on a given day is a separate COMPLETION row (see
+// TaskCompletionItem). That means no cron to fall over, no guessing which
+// timezone a family woke up in, no race between a rollover and a child
+// ticking something off — and last Tuesday stays answerable.
+export const RECURRENCES = ["none", "daily", "weekdays", "weekends"] as const;
+export type Recurrence = (typeof RECURRENCES)[number];
+
 export const TaskInput = z.object({
   title: z.string().min(1).max(200),
   assignedTo: z.string().min(1).nullable().optional(),
   dueDate: z.string().date().nullable().optional(),
   gemValue: z.number().int().min(0).max(1000).optional(),
   dueWindow: z.enum(DUE_WINDOWS).optional(),
+  recurrence: z.enum(RECURRENCES).optional(),
 });
 export type TaskInput = z.infer<typeof TaskInput>;
 
 export const TaskPatch = TaskInput.partial().extend({
   status: z.enum(["pending", "in_progress", "done"]).optional(),
+  // Which day a status change belongs to. Ticking off "wipe the table" is
+  // always a statement about a particular day, and the caller knows its own
+  // local date — the server must not infer one from a UTC clock.
+  date: z.string().date().optional(),
 });
 export type TaskPatch = z.infer<typeof TaskPatch>;
 
+/**
+ * The stored chore *definition*. Deliberately carries no `status` or
+ * `gemsAwarded`: a chore isn't done or undone in the abstract, only on a
+ * given day. Those live on the completion row and are merged in per day by
+ * `TaskForDay`.
+ */
 export interface TaskItem {
   PK: string;
   SK: string;
@@ -51,12 +74,43 @@ export interface TaskItem {
   title: string;
   assignedTo: string | null;
   dueDate: string | null;
-  status: "pending" | "in_progress" | "done";
   gemValue: number;
   dueWindow: DueWindow;
-  gemsAwarded: number;
+  recurrence: Recurrence;
+  /**
+   * Denormalized from the completion row, for one-off chores only. It's what
+   * lets "does this chore apply today?" be answered without a second query:
+   * an undone one-off keeps showing up every day until someone does it, and
+   * then stops. Written in the same operation as the completion row.
+   */
+  completedOn: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** A chore definition as it stands on one particular day. */
+export interface TaskForDay extends Omit<TaskItem, "PK" | "SK" | "GSI1PK" | "GSI1SK"> {
+  date: string;
+  status: "pending" | "done";
+  gemsAwarded: number;
+}
+
+/**
+ * "This chore was done on this day, for this many gems." The record of what
+ * actually happened — the thing gem balances and streaks are built from.
+ * One per chore per day, so ticking the same chore twice is a no-op.
+ */
+export interface TaskCompletionItem {
+  PK: string;
+  SK: string;
+  entityType: "TASK_COMPLETION";
+  familyId: string;
+  taskId: string;
+  date: string;
+  title: string;
+  memberId: string | null;
+  gemsAwarded: number;
+  completedAt: string;
 }
 
 // What a child is actually saving up for. One live goal per child, set by

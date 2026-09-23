@@ -225,14 +225,25 @@ test("familyMinutesIntoDay falls back to UTC rather than taking the response dow
   process.env.YOUENJOYMYFAMILY_TIME_ZONE = "UTC";
 });
 
-test("gemsByChild sums each child's own chores and ignores unassigned ones", () => {
+test("gemsByChild sums each child's own completions and ignores unassigned ones", () => {
   const totals = gemsByChild([
-    { taskId: "t1", title: "a", assignedTo: "Parker", status: "done", gemsAwarded: 10 },
-    { taskId: "t2", title: "b", assignedTo: "Parker", status: "done", gemsAwarded: 20 },
-    { taskId: "t3", title: "c", assignedTo: "Isla", status: "done", gemsAwarded: 5 },
-    { taskId: "t4", title: "d", assignedTo: null, status: "done", gemsAwarded: 100 },
+    { taskId: "t1", memberId: "Parker", gemsAwarded: 10 },
+    { taskId: "t2", memberId: "Parker", gemsAwarded: 20 },
+    { taskId: "t3", memberId: "Isla", gemsAwarded: 5 },
+    { taskId: "t4", memberId: null, gemsAwarded: 100 },
   ]);
   assert.deepEqual(totals, { Parker: 30, Isla: 5 });
+});
+
+test("gemsByChild counts every day's completions, not just today's chores", () => {
+  // The same chore done on three days is three payouts — the whole reason
+  // gem totals come from completion records rather than the chore list.
+  const totals = gemsByChild([
+    { taskId: "t1", memberId: "Parker", gemsAwarded: 10 },
+    { taskId: "t1", memberId: "Parker", gemsAwarded: 10 },
+    { taskId: "t1", memberId: "Parker", gemsAwarded: 10 },
+  ]);
+  assert.deepEqual(totals, { Parker: 30 });
 });
 
 test("describePrizeProgress counts down, and stops at earned rather than going negative", () => {
@@ -252,8 +263,8 @@ test("GetPrizeProgressIntentHandler reads one child's progress when asked about 
         )
       : new Response(
           JSON.stringify([
-            { taskId: "t1", title: "a", assignedTo: "Parker", status: "done", gemValue: 10, gemsAwarded: 30 },
-            { taskId: "t2", title: "b", assignedTo: "Isla", status: "done", gemValue: 5, gemsAwarded: 25 },
+            { taskId: "t1", memberId: "Parker", gemsAwarded: 30 },
+            { taskId: "t2", memberId: "Isla", gemsAwarded: 25 },
           ]),
           { status: 200 }
         )
@@ -271,10 +282,7 @@ test("GetPrizeProgressIntentHandler reads the whole board when nobody is named",
   mock.method(globalThis, "fetch", async (input: string) =>
     input.includes("reward-goals")
       ? new Response(JSON.stringify([{ memberId: "Isla", title: "roller skates", gemCost: 25 }]), { status: 200 })
-      : new Response(
-          JSON.stringify([{ taskId: "t2", title: "b", assignedTo: "Isla", status: "done", gemValue: 5, gemsAwarded: 25 }]),
-          { status: 200 }
-        )
+      : new Response(JSON.stringify([{ taskId: "t2", memberId: "Isla", gemsAwarded: 25 }]), { status: 200 })
   );
 
   const handlerInput = makeHandlerInput(intentRequest("GetPrizeProgressIntent"));
@@ -398,7 +406,7 @@ test("every CHORE_CELEBRATION_LINES variant keeps the member name and the litera
 
 test("GetGemCastleIntentHandler reports the current stage, its residents, and progress toward the next one", async () => {
   mock.method(globalThis, "fetch", async () =>
-    new Response(JSON.stringify([{ taskId: "t1", title: "Pack bag", status: "done", gemsAwarded: 50 }]), { status: 200 })
+    new Response(JSON.stringify([{ taskId: "t1", memberId: "Parker", gemsAwarded: 50 }]), { status: 200 })
   );
 
   const handlerInput = makeHandlerInput(intentRequest("GetGemCastleIntent"), { supportsApl: true });
@@ -413,7 +421,7 @@ test("GetGemCastleIntentHandler reports the current stage, its residents, and pr
 
 test("GetGemCastleIntentHandler reports the completed kingdom at the top stage with singular phrasing intact", async () => {
   mock.method(globalThis, "fetch", async () =>
-    new Response(JSON.stringify([{ taskId: "t1", title: "Pack bag", status: "done", gemsAwarded: 300 }]), { status: 200 })
+    new Response(JSON.stringify([{ taskId: "t1", memberId: "Parker", gemsAwarded: 300 }]), { status: 200 })
   );
 
   const handlerInput = makeHandlerInput(intentRequest("GetGemCastleIntent"));
@@ -697,4 +705,23 @@ test("GetGroceryListIntentHandler leaves last week's shop off the list", async (
   const speech = speechOf(response);
   assert.match(speech, /has 1 item: Milk/);
   assert.doesNotMatch(speech, /Tortillas/);
+});
+
+test("GetTasksIntentHandler asks about the family's own day, not the Lambda's", async () => {
+  // 02:30 UTC on the 24th is still the evening of the 23rd in Chicago.
+  // Asking the server for its own date would answer with tomorrow's chores,
+  // every one of them undone.
+  process.env.YOUENJOYMYFAMILY_TIME_ZONE = "America/Chicago";
+  mock.timers.enable({ apis: ["Date"], now: Date.UTC(2026, 8, 24, 2, 30) });
+  const urls: string[] = [];
+  mock.method(globalThis, "fetch", async (input: string) => {
+    urls.push(input);
+    return new Response(JSON.stringify([]), { status: 200 });
+  });
+
+  await GetTasksIntentHandler.handle(makeHandlerInput(intentRequest("GetTasksIntent")));
+
+  assert.ok(urls[0]?.includes("date=2026-09-23"), `expected the family's date, got ${urls[0]}`);
+  mock.timers.reset();
+  process.env.YOUENJOYMYFAMILY_TIME_ZONE = "UTC";
 });

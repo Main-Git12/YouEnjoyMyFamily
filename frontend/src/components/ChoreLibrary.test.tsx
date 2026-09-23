@@ -16,11 +16,22 @@ describe("ChoreLibrary", () => {
     fireEvent.click(screen.getByRole("button", { name: /add a chore/i }));
 
     for (const chore of CHORE_CATALOG) {
-      expect(screen.getByRole("button", { name: new RegExp(`^${chore.title} ${chore.gemValue}$`) })).toBeInTheDocument();
+      const chip = screen.getByRole("button", { name: new RegExp(`^${chore.title}\\b`) });
+      expect(chip).toHaveTextContent(String(chore.gemValue));
     }
   });
 
-  it("adds a library chore at its own gem value and time of day", async () => {
+  it("flags the chores that only happen on school days", () => {
+    render(<ChoreLibrary onAdd={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /add a chore/i }));
+
+    // Homework is a weekdays chore; wiping the table is every day, and
+    // shouldn't be cluttered with a label saying so.
+    expect(screen.getByRole("button", { name: /^Homework/ })).toHaveTextContent("School days");
+    expect(screen.getByRole("button", { name: /^Wipe Table/ })).not.toHaveTextContent("Every day");
+  });
+
+  it("adds a library chore at its own gem value, time of day and rhythm", async () => {
     const onAdd = vi.fn().mockResolvedValue(undefined);
     render(<ChoreLibrary onAdd={onAdd} />);
     fireEvent.click(screen.getByRole("button", { name: /add a chore/i }));
@@ -33,6 +44,7 @@ describe("ChoreLibrary", () => {
         title: "Sleep in my own bed",
         gemValue: 20,
         dueWindow: "bedtime",
+        recurrence: "daily",
         assignedTo: "Parker",
       })
     );
@@ -55,6 +67,7 @@ describe("ChoreLibrary", () => {
     fireEvent.change(screen.getByLabelText("New chore"), { target: { value: "Water the tomatoes" } });
     fireEvent.change(screen.getByLabelText("Gems it pays"), { target: { value: "15" } });
     fireEvent.change(screen.getByLabelText("When it's due"), { target: { value: "after_school" } });
+    fireEvent.change(screen.getByLabelText("How often"), { target: { value: "weekends" } });
     fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
 
     await waitFor(() =>
@@ -62,6 +75,7 @@ describe("ChoreLibrary", () => {
         title: "Water the tomatoes",
         gemValue: 15,
         dueWindow: "after_school",
+        recurrence: "weekends",
         assignedTo: null,
       })
     );

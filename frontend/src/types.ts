@@ -7,15 +7,41 @@
 // without ever watching or profiling a child.
 export type DueWindow = "morning" | "after_school" | "after_dinner" | "bedtime" | "anytime";
 
+// How often a chore comes back. A recurring chore is one stored definition,
+// not a row re-created every morning — see backend/models/schema.md.
+export type Recurrence = "none" | "daily" | "weekdays" | "weekends";
+
+/**
+ * A chore as it stands on one particular day. `status` and `gemsAwarded`
+ * are that day's state, merged in by the backend from the day's completion
+ * record — the same chore is "pending" again tomorrow.
+ */
 export interface Task {
   taskId: string;
   title: string;
   assignedTo: string | null;
   dueDate: string | null;
-  status: "pending" | "in_progress" | "done";
+  /** The day this view of the chore is about. */
+  date: string;
+  status: "pending" | "done";
   /** What this chore pays out — not every chore is worth the same. */
   gemValue: number;
   dueWindow: DueWindow;
+  recurrence: Recurrence;
+  completedOn: string | null;
+  gemsAwarded: number;
+}
+
+/**
+ * "This chore was done on this day, for this many gems." Gem totals are
+ * summed from these rather than from the chore list, because a chore that
+ * recurs is one row that pays out again every day it's done.
+ */
+export interface TaskCompletion {
+  taskId: string;
+  date: string;
+  title: string;
+  memberId: string | null;
   gemsAwarded: number;
 }
 

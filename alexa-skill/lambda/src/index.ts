@@ -38,6 +38,12 @@ interface TaskItem {
   gemsAwarded: number;
 }
 
+interface TaskCompletionEntry {
+  taskId: string;
+  memberId?: string | null;
+  gemsAwarded: number;
+}
+
 interface RewardGoalItem {
   memberId: string;
   title: string;
@@ -166,12 +172,16 @@ export function describeChore(task: TaskItem): string {
   return task.assignedTo ? `${task.assignedTo}'s ${task.title}${worth}` : `${task.title}${worth}`;
 }
 
-/** Each child's running total, summed from the chores they finished. */
-export function gemsByChild(tasks: TaskItem[]): Record<string, number> {
+/**
+ * Each child's running total, summed from the completion records — every
+ * chore they have ever finished, not just today's list. Chores recur, so
+ * today's rows say nothing about what was earned last week.
+ */
+export function gemsByChild(completions: TaskCompletionEntry[]): Record<string, number> {
   const totals: Record<string, number> = {};
-  for (const task of tasks) {
-    if (!task.assignedTo || !task.gemsAwarded) continue;
-    totals[task.assignedTo] = (totals[task.assignedTo] ?? 0) + task.gemsAwarded;
+  for (const completion of completions) {
+    if (!completion.memberId || !completion.gemsAwarded) continue;
+    totals[completion.memberId] = (totals[completion.memberId] ?? 0) + completion.gemsAwarded;
   }
   return totals;
 }
@@ -363,7 +373,9 @@ export const GetTasksIntentHandler: Alexa.RequestHandler = {
   },
   async handle(handlerInput): Promise<Response> {
     try {
-      const tasks = await fetchJson<TaskItem[]>(`/families/${FAMILY_ID}/tasks`);
+      // Per-day now: chores recur, so "what's left" has to name a day, and
+      // the only right one is the family's own (see familyToday).
+      const tasks = await fetchJson<TaskItem[]>(`/families/${FAMILY_ID}/tasks?date=${familyToday()}`);
       const open = tasks.filter((task) => task.status !== "done");
 
       // Anything whose part of the day has already gone gets called out, so
@@ -446,7 +458,8 @@ export const CompleteChoreIntentHandler: Alexa.RequestHandler = {
     try {
       if (!API_BASE_URL) throw new Error("YOUENJOYMYFAMILY_API_BASE_URL is not configured");
 
-      const tasks = await fetchJson<TaskItem[]>(`/families/${FAMILY_ID}/tasks`);
+      const today = familyToday();
+      const tasks = await fetchJson<TaskItem[]>(`/families/${FAMILY_ID}/tasks?date=${today}`);
       const match = tasks.find(
         (task) => task.status !== "done" && task.title.toLowerCase().includes(taskTitle.toLowerCase())
       );
@@ -460,7 +473,7 @@ export const CompleteChoreIntentHandler: Alexa.RequestHandler = {
       const response = await fetch(`${API_BASE_URL}/families/${FAMILY_ID}/tasks/${match.taskId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ status: "done" }),
+        body: JSON.stringify({ status: "done", date: today }),
       });
       if (!response.ok) throw new Error(`YouEnjoyMyFamily API error: ${response.status}`);
       const completed = (await response.json()) as TaskItem;
@@ -484,8 +497,8 @@ export const GetGemCastleIntentHandler: Alexa.RequestHandler = {
   },
   async handle(handlerInput): Promise<Response> {
     try {
-      const tasks = await fetchJson<TaskItem[]>(`/families/${FAMILY_ID}/tasks`);
-      const totalGems = tasks.reduce((sum, task) => sum + task.gemsAwarded, 0);
+      const completions = await fetchJson<TaskCompletionEntry[]>(`/families/${FAMILY_ID}/task-completions`);
+      const totalGems = completions.reduce((sum, completion) => sum + completion.gemsAwarded, 0);
       const { stage, nextStage, gemsToNextStage } = getCastleProgress(totalGems);
       const residents = getResidentsPhrase(stage.id);
       const residentsClause = residents ? ` ${residents}.` : "";
@@ -654,11 +667,11 @@ export const GetPrizeProgressIntentHandler: Alexa.RequestHandler = {
     const askedAbout = Alexa.getSlotValue(handlerInput.requestEnvelope, "memberName");
 
     try {
-      const [tasks, goals] = await Promise.all([
-        fetchJson<TaskItem[]>(`/families/${FAMILY_ID}/tasks`),
+      const [completions, goals] = await Promise.all([
+        fetchJson<TaskCompletionEntry[]>(`/families/${FAMILY_ID}/task-completions`),
         fetchJson<RewardGoalItem[]>(`/families/${FAMILY_ID}/reward-goals`),
       ]);
-      const earned = gemsByChild(tasks);
+      const earned = gemsByChild(completions);
 
       const wanted = askedAbout
         ? goals.filter((goal) => goal.memberId.toLowerCase() === askedAbout.toLowerCase())

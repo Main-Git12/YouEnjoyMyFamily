@@ -135,6 +135,12 @@ Resources:
             ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}/tasks/{taskId}
             Method: DELETE
+        ListTaskCompletions:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /families/{familyId}/task-completions
+            Method: GET
 
   SchedulesFunction:
     Type: AWS::Serverless::Function

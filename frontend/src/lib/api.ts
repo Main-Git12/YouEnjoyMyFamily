@@ -1,4 +1,4 @@
-import type { Task, ScheduleEntry, CartItem, StatedPreference, MealPlanEntry, MealSlot, RewardGoal } from "../types";
+import type { Task, TaskCompletion, ScheduleEntry, CartItem, StatedPreference, MealPlanEntry, MealSlot, RewardGoal } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 
@@ -21,13 +21,26 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
-  listTasks: (familyId: string) => request<Task[]>(`/families/${familyId}/tasks`),
-  createTask: (familyId: string, task: Pick<Task, "title"> & Partial<Task>) =>
-    request<Task>(`/families/${familyId}/tasks`, { method: "POST", body: JSON.stringify(task) }),
-  completeTask: (familyId: string, taskId: string) =>
+  // `date` is always the caller's own local date. The server can't work it
+  // out — a kitchen screen in Ohio asking at 9pm means *its* today, not
+  // UTC's tomorrow.
+  listTasks: (familyId: string, date: string) =>
+    request<Task[]>(`/families/${familyId}/tasks?date=${date}`),
+  createTask: (familyId: string, task: Pick<Task, "title"> & Partial<Task>, date: string) =>
+    request<Task>(`/families/${familyId}/tasks?date=${date}`, { method: "POST", body: JSON.stringify(task) }),
+  completeTask: (familyId: string, taskId: string, date: string) =>
     request<Task>(`/families/${familyId}/tasks/${taskId}`, {
       method: "PUT",
-      body: JSON.stringify({ status: "done" }),
+      body: JSON.stringify({ status: "done", date }),
+    }),
+  // Everything ever earned. Gem totals can't come from today's chore list:
+  // a daily chore is one row that pays out again every day it's done.
+  listTaskCompletions: (familyId: string) =>
+    request<TaskCompletion[]>(`/families/${familyId}/task-completions`),
+  reopenTask: (familyId: string, taskId: string, date: string) =>
+    request<Task>(`/families/${familyId}/tasks/${taskId}`, {
+      method: "PUT",
+      body: JSON.stringify({ status: "pending", date }),
     }),
   listSchedules: (familyId: string, start?: string, end?: string) =>
     request<ScheduleEntry[]>(`/families/${familyId}/schedules?start=${start ?? ""}&end=${end ?? ""}`),

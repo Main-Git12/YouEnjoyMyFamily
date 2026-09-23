@@ -14,18 +14,18 @@ describe("api client", () => {
     vi.unstubAllEnvs();
   });
 
-  it("listTasks calls the family's tasks endpoint and parses the JSON body", async () => {
-    const tasks = await api.listTasks("fam_1");
+  it("listTasks asks for one particular day, not every task ever", async () => {
+    const tasks = await api.listTasks("fam_1", "2026-09-23");
 
     expect(fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/families/fam_1/tasks"),
+      expect.stringContaining("/families/fam_1/tasks?date=2026-09-23"),
       expect.objectContaining({ headers: expect.objectContaining({ "Content-Type": "application/json" }) })
     );
     expect(tasks).toEqual([{ taskId: "t1", title: "Pack bag" }]);
   });
 
   it("createTask POSTs a JSON-encoded body", async () => {
-    await api.createTask("fam_1", { title: "Buy milk" });
+    await api.createTask("fam_1", { title: "Buy milk" }, "2026-09-23");
 
     expect(fetch).toHaveBeenCalledWith(
       expect.stringContaining("/families/fam_1/tasks"),
@@ -33,12 +33,21 @@ describe("api client", () => {
     );
   });
 
-  it("completeTask PUTs a done status to the task's own endpoint", async () => {
-    await api.completeTask("fam_1", "t1");
+  it("completeTask says which day it's talking about", async () => {
+    await api.completeTask("fam_1", "t1", "2026-09-23");
 
     expect(fetch).toHaveBeenCalledWith(
       expect.stringContaining("/families/fam_1/tasks/t1"),
-      expect.objectContaining({ method: "PUT", body: JSON.stringify({ status: "done" }) })
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ status: "done", date: "2026-09-23" }) })
+    );
+  });
+
+  it("reopenTask un-ticks that same day rather than the chore for good", async () => {
+    await api.reopenTask("fam_1", "t1", "2026-09-23");
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/families/fam_1/tasks/t1"),
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ status: "pending", date: "2026-09-23" }) })
     );
   });
 
@@ -75,7 +84,7 @@ describe("api client", () => {
   it("sends an Authorization header when VITE_FAMILY_API_KEY is set", async () => {
     vi.stubEnv("VITE_FAMILY_API_KEY", "fk_test_key");
 
-    await api.listTasks("fam_1");
+    await api.listTasks("fam_1", "2026-09-23");
 
     expect(fetch).toHaveBeenCalledWith(
       expect.anything(),
@@ -86,7 +95,7 @@ describe("api client", () => {
   it("omits the Authorization header when VITE_FAMILY_API_KEY is unset", async () => {
     vi.stubEnv("VITE_FAMILY_API_KEY", "");
 
-    await api.listTasks("fam_1");
+    await api.listTasks("fam_1", "2026-09-23");
 
     const headers = (vi.mocked(fetch).mock.calls[0]?.[1]?.headers ?? {}) as Record<string, string>;
     expect("Authorization" in headers).toBe(false);
@@ -98,6 +107,6 @@ describe("api client", () => {
       vi.fn(async () => new Response("nope", { status: 500 }))
     );
 
-    await expect(api.listTasks("fam_1")).rejects.toThrow(/500/);
+    await expect(api.listTasks("fam_1", "2026-09-23")).rejects.toThrow(/500/);
   });
 });

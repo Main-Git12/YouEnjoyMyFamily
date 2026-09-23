@@ -9,7 +9,7 @@ function task(overrides: Partial<Task> = {}): Task {
     assignedTo: "Parker",
     dueDate: null,
     gemValue: 10,
-    dueWindow: "after_dinner",
+    dueWindow: "after_dinner", date: "2026-09-23", recurrence: "daily", completedOn: null,
     status: "pending",
     gemsAwarded: 0,
     ...overrides,

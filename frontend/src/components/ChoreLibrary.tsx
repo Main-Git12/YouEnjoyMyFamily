@@ -1,13 +1,23 @@
 import { useState, type FormEvent } from "react";
-import type { DueWindow } from "../types";
+import type { DueWindow, Recurrence } from "../types";
 import { CHORE_CATALOG, DUE_WINDOW_LABELS, DUE_WINDOW_ORDER, choresByWindow } from "../lib/choreCatalog";
 
 export interface NewChore {
   title: string;
   gemValue: number;
   dueWindow: DueWindow;
+  recurrence: Recurrence;
   assignedTo: string | null;
 }
+
+const RECURRENCE_LABELS: Record<Recurrence, string> = {
+  daily: "Every day",
+  weekdays: "School days",
+  weekends: "Weekends",
+  none: "Just once",
+};
+
+const RECURRENCE_ORDER: Recurrence[] = ["daily", "weekdays", "weekends", "none"];
 
 interface ChoreLibraryProps {
   onAdd: (chore: NewChore) => Promise<void>;
@@ -26,6 +36,7 @@ export default function ChoreLibrary({ onAdd }: ChoreLibraryProps) {
   const [customTitle, setCustomTitle] = useState("");
   const [customGems, setCustomGems] = useState("5");
   const [customWindow, setCustomWindow] = useState<DueWindow>("anytime");
+  const [customRecurrence, setCustomRecurrence] = useState<Recurrence>("daily");
 
   async function add(chore: NewChore) {
     setAdding(chore.title);
@@ -44,6 +55,7 @@ export default function ChoreLibrary({ onAdd }: ChoreLibraryProps) {
       title: customTitle.trim(),
       gemValue: Math.floor(gems),
       dueWindow: customWindow,
+      recurrence: customRecurrence,
       assignedTo: assignedTo.trim() || null,
     });
     setCustomTitle("");
@@ -97,12 +109,18 @@ export default function ChoreLibrary({ onAdd }: ChoreLibraryProps) {
                     title: chore.title,
                     gemValue: chore.gemValue,
                     dueWindow: chore.window,
+                    recurrence: chore.recurrence,
                     assignedTo: assignedTo.trim() || null,
                   })
                 }
                 className="rounded-full bg-white border border-olive-500 px-3 py-2 text-left hover:bg-olive-100 disabled:opacity-60"
               >
                 {chore.title}
+                {chore.recurrence !== "daily" && (
+                  <span className="ml-2 text-xs uppercase tracking-wide text-olive-600">
+                    {RECURRENCE_LABELS[chore.recurrence]}
+                  </span>
+                )}
                 <span className="ml-2 font-display text-sm bg-gem-amber text-olive-900 rounded-full px-2 py-0.5">
                   {chore.gemValue}
                 </span>
@@ -138,6 +156,18 @@ export default function ChoreLibrary({ onAdd }: ChoreLibraryProps) {
           {DUE_WINDOW_ORDER.map((window) => (
             <option key={window} value={window}>
               {DUE_WINDOW_LABELS[window]}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="How often"
+          value={customRecurrence}
+          onChange={(e) => setCustomRecurrence(e.target.value as Recurrence)}
+          className="rounded-lg border border-olive-500 px-3 py-2 bg-white"
+        >
+          {RECURRENCE_ORDER.map((recurrence) => (
+            <option key={recurrence} value={recurrence}>
+              {RECURRENCE_LABELS[recurrence]}
             </option>
           ))}
         </select>
