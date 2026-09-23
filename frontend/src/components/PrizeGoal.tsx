@@ -101,7 +101,7 @@ export default function PrizeGoal({ goals, gemsByChild, onSetGoal }: PrizeGoalPr
           placeholder="Who's saving?"
           value={memberId}
           onChange={(e) => setMemberId(e.target.value)}
-          className="flex-1 min-w-[8rem] rounded-lg border border-olive-300 px-3 py-2"
+          className="flex-1 min-w-[8rem] rounded-lg border border-olive-500 px-3 py-2"
         />
         <input
           type="text"
@@ -109,7 +109,7 @@ export default function PrizeGoal({ goals, gemsByChild, onSetGoal }: PrizeGoalPr
           placeholder="The big prize"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          className="flex-[2] min-w-[10rem] rounded-lg border border-olive-300 px-3 py-2"
+          className="flex-[2] min-w-[10rem] rounded-lg border border-olive-500 px-3 py-2"
         />
         <input
           type="number"
@@ -118,7 +118,7 @@ export default function PrizeGoal({ goals, gemsByChild, onSetGoal }: PrizeGoalPr
           placeholder="Gems"
           value={gemCost}
           onChange={(e) => setGemCost(e.target.value)}
-          className="w-24 rounded-lg border border-olive-300 px-3 py-2"
+          className="w-24 rounded-lg border border-olive-500 px-3 py-2"
         />
         <button
           type="submit"

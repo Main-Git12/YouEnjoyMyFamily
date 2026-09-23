@@ -45,7 +45,7 @@ export default function GemCastle({ totalGems }: GemCastleProps) {
             className="h-3 w-full rounded-full bg-olive-100 overflow-hidden"
           >
             <div
-              className="h-full rounded-full bg-olive-500 transition-[width]"
+              className="h-full rounded-full bg-olive-600 transition-[width]"
               style={{ width: `${Math.min(100, Math.max(0, progressFraction * 100))}%` }}
             />
           </div>

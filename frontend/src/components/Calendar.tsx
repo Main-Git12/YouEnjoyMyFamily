@@ -6,7 +6,7 @@ interface CalendarProps {
 
 export default function Calendar({ entries }: CalendarProps) {
   if (!entries.length) {
-    return <p className="text-olive-700 italic">Nothing scheduled.</p>;
+    return <p className="italic opacity-90">Nothing scheduled.</p>;
   }
 
   return (

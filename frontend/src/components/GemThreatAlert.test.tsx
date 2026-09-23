@@ -73,4 +73,18 @@ describe("GemThreatAlert", () => {
     expect(onDismiss).toHaveBeenCalled();
     expect(onDefend).not.toHaveBeenCalled();
   });
+
+  it("closes on Escape, the way any other dialog would", () => {
+    const onDismiss = vi.fn();
+    render(<GemThreatAlert threatened={threatened} onDefend={vi.fn()} onDismiss={onDismiss} />);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(onDismiss).toHaveBeenCalled();
+  });
+
+  it("puts focus on the action, rather than leaving it behind the overlay", () => {
+    render(<GemThreatAlert threatened={threatened} onDefend={vi.fn()} onDismiss={vi.fn()} />);
+    expect(screen.getByRole("button", { name: threatened.threat.callToAction })).toHaveFocus();
+  });
 });

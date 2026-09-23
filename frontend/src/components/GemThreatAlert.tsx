@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useDismissableOverlay } from "../lib/useDismissableOverlay";
 import type { ThreatenedChore } from "../lib/gemThreats";
 import ThreatArt from "./threats/ThreatArt";
 import King from "./mascots/King";
@@ -20,6 +21,9 @@ export default function GemThreatAlert({ threatened, onDefend, onDismiss }: GemT
   const { task, threat, assignee } = threatened;
   const [defeated, setDefeated] = useState(false);
   const [saving, setSaving] = useState(false);
+  // While the victory is playing there's nothing left to answer, so Escape
+  // just closes it early rather than being ignored.
+  const containerRef = useDismissableOverlay<HTMLDivElement>(onDismiss);
 
   async function handleDefend() {
     setSaving(true);
@@ -37,10 +41,11 @@ export default function GemThreatAlert({ threatened, onDefend, onDismiss }: GemT
   return (
     <div
       role="alertdialog"
+      aria-modal="true"
       aria-label={defeated ? "The gems are safe" : `${threat.name} is after the gems`}
       className="fixed inset-0 z-50 flex items-center justify-center bg-olive-900/70 p-4"
     >
-      <div className="relative bg-white rounded-card shadow-[var(--shadow-card)] px-6 sm:px-10 py-8 text-center max-w-md w-full animate-pop-in">
+      <div ref={containerRef} tabIndex={-1} className="relative bg-white rounded-card shadow-[var(--shadow-card)] px-6 sm:px-10 py-8 text-center max-w-md w-full animate-pop-in">
         {defeated ? (
           <>
             <div className="flex items-end justify-center gap-2">

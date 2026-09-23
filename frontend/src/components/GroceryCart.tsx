@@ -126,7 +126,7 @@ export default function GroceryCart({ items, onAdd, onMarkUnavailable, onConfirm
                       <span className="text-olive-600"> ×{item.quantity}</span>
                     ))}
                   {item.source === "meal_plan" && (
-                    <span className="text-xs uppercase tracking-wide text-olive-500 ml-2">from meal plan</span>
+                    <span className="text-xs uppercase tracking-wide text-olive-600 ml-2">from meal plan</span>
                   )}
                   {STATUS_LABELS[item.status] && (
                     <span className="text-xs uppercase tracking-wide text-clay-700 ml-2">{STATUS_LABELS[item.status]}</span>
@@ -167,12 +167,12 @@ export default function GroceryCart({ items, onAdd, onMarkUnavailable, onConfirm
                     placeholder="What did you pick instead?"
                     value={substituteDrafts[item.itemId] ?? ""}
                     onChange={(e) => setSubstituteDrafts((prev) => ({ ...prev, [item.itemId]: e.target.value }))}
-                    className="flex-1 rounded-lg border border-olive-300 px-3 py-1.5 text-sm"
+                    className="flex-1 rounded-lg border border-olive-500 px-3 py-1.5 text-sm"
                   />
                   <button
                     type="button"
                     onClick={() => handleConfirmSubstitute(item)}
-                    className="text-sm rounded-lg bg-olive-500 text-white px-3 py-1.5 hover:bg-olive-600"
+                    className="text-sm rounded-lg bg-olive-600 text-white px-3 py-1.5 hover:bg-olive-700"
                   >
                     Confirm
                   </button>
@@ -232,7 +232,7 @@ export default function GroceryCart({ items, onAdd, onMarkUnavailable, onConfirm
           placeholder="Add an item"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          className="flex-1 min-w-[10rem] rounded-lg border border-olive-300 px-3 py-2"
+          className="flex-1 min-w-[10rem] rounded-lg border border-olive-500 px-3 py-2"
         />
         <input
           type="number"
@@ -240,9 +240,9 @@ export default function GroceryCart({ items, onAdd, onMarkUnavailable, onConfirm
           aria-label="Quantity"
           value={quantity}
           onChange={(e) => setQuantity(e.target.value)}
-          className="w-16 rounded-lg border border-olive-300 px-2 py-2"
+          className="w-16 rounded-lg border border-olive-500 px-2 py-2"
         />
-        <button type="submit" className="rounded-lg bg-olive-500 text-white px-4 py-2 hover:bg-olive-600">
+        <button type="submit" className="rounded-lg bg-olive-600 text-white px-4 py-2 hover:bg-olive-700">
           Add
         </button>
       </form>
@@ -251,7 +251,7 @@ export default function GroceryCart({ items, onAdd, onMarkUnavailable, onConfirm
         type="button"
         onClick={handleCheckout}
         disabled={!canCheckout}
-        className="rounded-lg bg-clay-500 text-white px-4 py-2 hover:bg-clay-700 disabled:bg-olive-200 disabled:text-olive-500 disabled:cursor-not-allowed"
+        className="rounded-lg bg-clay-700 text-white px-4 py-2 hover:bg-clay-900 disabled:bg-olive-200 disabled:text-olive-700 disabled:cursor-not-allowed"
       >
         Checkout with Instacart
       </button>

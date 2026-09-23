@@ -378,11 +378,11 @@ export default function Dashboard() {
             onClick={handleManualRefresh}
             disabled={isSyncing}
             aria-label="Refresh from the family's other devices"
-            className="text-sm text-olive-600 underline underline-offset-2 py-2 disabled:no-underline disabled:text-olive-400"
+            className="text-sm text-olive-600 underline underline-offset-2 py-2 disabled:no-underline disabled:text-olive-600"
           >
             {isSyncing ? "Refreshing…" : "Refresh"}
           </button>
-          <p className="font-display text-base sm:text-lg bg-olive-500 text-white rounded-full px-4 sm:px-5 py-2 shadow-[var(--shadow-card)]">
+          <p className="font-display text-base sm:text-lg bg-olive-600 text-white rounded-full px-4 sm:px-5 py-2 shadow-[var(--shadow-card)]">
             {totalGems} gems collected
           </p>
         </div>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from "react";
+import { useDismissableOverlay } from "../lib/useDismissableOverlay";
 import { randomMascot } from "./mascots";
 
 interface CelebrationProps {
@@ -33,6 +34,7 @@ function makeConfetti(count: number): ConfettiPiece[] {
 // characters, see frontend/src/components/mascots/.
 export default function Celebration({ gemsEarned, totalGems, onDismiss }: CelebrationProps) {
   const mascot = useMemo(() => randomMascot(), []);
+  const containerRef = useDismissableOverlay<HTMLDivElement>(onDismiss);
   const confetti = useMemo(() => makeConfetti(CONFETTI_PIECE_COUNT), []);
   const Mascot = mascot.Component;
 
@@ -42,7 +44,7 @@ export default function Celebration({ gemsEarned, totalGems, onDismiss }: Celebr
   }, [onDismiss]);
 
   return (
-    <div role="alert" className="fixed inset-0 z-50 flex items-center justify-center bg-olive-900/70 overflow-hidden">
+    <div role="alert" aria-live="assertive" className="fixed inset-0 z-50 flex items-center justify-center bg-olive-900/70 overflow-hidden">
       {confetti.map((piece) => (
         <span
           key={piece.id}
@@ -51,7 +53,7 @@ export default function Celebration({ gemsEarned, totalGems, onDismiss }: Celebr
         />
       ))}
 
-      <div className="relative bg-white rounded-card shadow-[var(--shadow-card)] px-10 py-8 text-center animate-pop-in">
+      <div ref={containerRef} tabIndex={-1} className="relative bg-white rounded-card shadow-[var(--shadow-card)] px-10 py-8 text-center animate-pop-in">
         <Mascot size={120} className="mx-auto" />
         <p className="font-display text-2xl text-olive-700 mt-3">{mascot.name} cheers you on!</p>
         <p className="text-xl text-olive-600 font-semibold mt-1">+{gemsEarned} gems</p>

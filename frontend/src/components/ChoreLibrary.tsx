@@ -54,7 +54,7 @@ export default function ChoreLibrary({ onAdd }: ChoreLibraryProps) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="mt-4 w-full rounded-lg border-2 border-dashed border-olive-300 text-olive-700 px-4 py-3 hover:bg-olive-50"
+        className="mt-4 w-full rounded-lg border-2 border-dashed border-olive-500 text-olive-700 px-4 py-3 hover:bg-olive-50"
       >
         + Add a chore ({CHORE_CATALOG.length} in the library)
       </button>
@@ -71,7 +71,7 @@ export default function ChoreLibrary({ onAdd }: ChoreLibraryProps) {
             placeholder="Leave blank for anyone"
             value={assignedTo}
             onChange={(e) => setAssignedTo(e.target.value)}
-            className="w-full rounded-lg border border-olive-300 px-3 py-2"
+            className="w-full rounded-lg border border-olive-500 px-3 py-2"
           />
         </label>
         <button
@@ -100,7 +100,7 @@ export default function ChoreLibrary({ onAdd }: ChoreLibraryProps) {
                     assignedTo: assignedTo.trim() || null,
                   })
                 }
-                className="rounded-full bg-white border border-olive-300 px-3 py-2 text-left hover:bg-olive-100 disabled:opacity-60"
+                className="rounded-full bg-white border border-olive-500 px-3 py-2 text-left hover:bg-olive-100 disabled:opacity-60"
               >
                 {chore.title}
                 <span className="ml-2 font-display text-sm bg-gem-amber text-olive-900 rounded-full px-2 py-0.5">
@@ -119,7 +119,7 @@ export default function ChoreLibrary({ onAdd }: ChoreLibraryProps) {
           placeholder="Something else…"
           value={customTitle}
           onChange={(e) => setCustomTitle(e.target.value)}
-          className="flex-[2] min-w-[10rem] rounded-lg border border-olive-300 px-3 py-2"
+          className="flex-[2] min-w-[10rem] rounded-lg border border-olive-500 px-3 py-2"
         />
         <input
           type="number"
@@ -127,13 +127,13 @@ export default function ChoreLibrary({ onAdd }: ChoreLibraryProps) {
           aria-label="Gems it pays"
           value={customGems}
           onChange={(e) => setCustomGems(e.target.value)}
-          className="w-20 rounded-lg border border-olive-300 px-3 py-2"
+          className="w-20 rounded-lg border border-olive-500 px-3 py-2"
         />
         <select
           aria-label="When it's due"
           value={customWindow}
           onChange={(e) => setCustomWindow(e.target.value as DueWindow)}
-          className="rounded-lg border border-olive-300 px-3 py-2 bg-white"
+          className="rounded-lg border border-olive-500 px-3 py-2 bg-white"
         >
           {DUE_WINDOW_ORDER.map((window) => (
             <option key={window} value={window}>

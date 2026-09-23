@@ -141,7 +141,7 @@ export default function MealPlan({
                     title={entry ? `${entry.mealName}${entry.ingredients.length ? ` — ${entry.ingredients.join(", ")}` : ""}` : undefined}
                     onClick={() => startEditing(date, slot)}
                     className={`rounded-lg px-2 sm:px-3 py-2 text-xs sm:text-sm truncate ${
-                      entry ? "bg-olive-100 text-olive-800" : "bg-olive-50 text-olive-500 italic"
+                      entry ? "bg-olive-100 text-olive-800" : "bg-olive-50 text-olive-600 italic"
                     }`}
                   >
                     {entry
@@ -168,7 +168,7 @@ export default function MealPlan({
             placeholder="Meal name (e.g. Tacos)"
             value={mealName}
             onChange={(e) => setMealName(e.target.value)}
-            className="w-full rounded-lg border border-olive-300 px-3 py-2"
+            className="w-full rounded-lg border border-olive-500 px-3 py-2"
           />
           <input
             type="text"
@@ -176,10 +176,10 @@ export default function MealPlan({
             placeholder="Ingredients, comma separated (e.g. Tortillas, Ground beef, Cheddar)"
             value={ingredientsText}
             onChange={(e) => setIngredientsText(e.target.value)}
-            className="w-full rounded-lg border border-olive-300 px-3 py-2"
+            className="w-full rounded-lg border border-olive-500 px-3 py-2"
           />
           <div className="flex gap-2">
-            <button type="submit" className="rounded-lg bg-olive-500 text-white px-4 py-2 hover:bg-olive-600">
+            <button type="submit" className="rounded-lg bg-olive-600 text-white px-4 py-2 hover:bg-olive-700">
               Save
             </button>
             {entryFor(editing.date, editing.slot) && (
@@ -198,7 +198,7 @@ export default function MealPlan({
         </form>
       )}
 
-      <button type="button" onClick={handleGenerate} className="rounded-lg bg-olive-500 text-white px-4 py-2 hover:bg-olive-600">
+      <button type="button" onClick={handleGenerate} className="rounded-lg bg-olive-600 text-white px-4 py-2 hover:bg-olive-700">
         {weekOffset === 0 ? "Generate grocery list for this week" : "Generate grocery list for this view"}
       </button>
       {generateResult && <p className="text-sm text-clay-700 mt-2">{generateResult}</p>}

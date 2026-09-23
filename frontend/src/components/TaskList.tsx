@@ -37,7 +37,7 @@ export default function TaskList({ tasks, onComplete }: TaskListProps) {
                 />
               )}
               <span className="min-w-0">
-                <span className={`text-lg ${done ? "line-through text-olive-500" : ""}`}>{task.title}</span>
+                <span className={`text-lg ${done ? "line-through text-olive-600" : ""}`}>{task.title}</span>
                 <span className="block text-xs uppercase tracking-wide text-olive-600">
                   {task.assignedTo ? `${task.assignedTo} · ` : ""}
                   {DUE_WINDOW_LABELS[task.dueWindow]}
