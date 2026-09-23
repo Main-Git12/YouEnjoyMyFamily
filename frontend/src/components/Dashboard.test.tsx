@@ -68,14 +68,16 @@ describe("Dashboard", () => {
   });
 
   it("shows an error message when the backend is unreachable", async () => {
-    vi.mocked(api.listTasks).mockRejectedValue(new Error("Request failed: 500 /families/fam_demo/tasks"));
+    vi.mocked(api.listTasks).mockRejectedValue(new Error("The family account is having a moment."));
     vi.mocked(api.listSchedules).mockResolvedValue([]);
     vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
 
     render(<Dashboard />);
 
-    await waitFor(() => expect(screen.getByText(/couldn't reach the backend/i)).toBeInTheDocument());
-    expect(screen.getByText(/500/)).toBeInTheDocument();
+    // The message says what actually happened, in words a family can read —
+    // no status codes, no URLs.
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/having a moment/i));
+    expect(screen.queryByText(/families\/fam_demo/)).not.toBeInTheDocument();
   });
 
   it("shows the gem celebration and updated total after completing a task", async () => {
@@ -227,7 +229,7 @@ describe("Dashboard", () => {
 
     render(<Dashboard />);
 
-    await waitFor(() => expect(screen.getByText("Today's tasks")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Today's chores")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /add a chore/i }));
     fireEvent.change(screen.getByPlaceholderText(/leave blank for anyone/i), { target: { value: "Parker" } });
     fireEvent.click(screen.getByRole("button", { name: /^Wipe Table/ }));
@@ -477,14 +479,14 @@ describe("Dashboard", () => {
     await waitFor(() => expect(screen.getByText("Pack soccer bag")).toBeInTheDocument());
 
     // The phone drops off the network mid-sync.
-    vi.mocked(api.listTasks).mockRejectedValue(new Error("Failed to fetch"));
+    vi.mocked(api.listTasks).mockRejectedValue(new Error("Can't reach the family account — check the wi-fi."));
     await act(async () => {
       document.dispatchEvent(new Event("visibilitychange"));
     });
 
     await waitFor(() => expect(api.listTasks).toHaveBeenCalledTimes(2));
     expect(screen.getByText("Pack soccer bag")).toBeInTheDocument();
-    expect(screen.queryByText(/couldn't reach the backend/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("surfaces the failure when someone asks for a refresh themselves", async () => {
@@ -493,12 +495,12 @@ describe("Dashboard", () => {
     vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
 
     render(<Dashboard />);
-    await waitFor(() => expect(screen.getByText("Today's tasks")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Today's chores")).toBeInTheDocument());
 
-    vi.mocked(api.listTasks).mockRejectedValue(new Error("Failed to fetch"));
+    vi.mocked(api.listTasks).mockRejectedValue(new Error("Can't reach the family account — check the wi-fi."));
     fireEvent.click(screen.getByRole("button", { name: /refresh from the family's other devices/i }));
 
-    await waitFor(() => expect(screen.getByText(/couldn't reach the backend/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/check the wi-fi/i));
   });
 
   it("shows a loading state until the first fetch resolves, instead of flashing empty cards", async () => {
@@ -514,11 +516,11 @@ describe("Dashboard", () => {
     render(<Dashboard />);
 
     expect(screen.getByText(/loading your family's day/i)).toBeInTheDocument();
-    expect(screen.queryByText("Today's tasks")).not.toBeInTheDocument();
+    expect(screen.queryByText("Today's chores")).not.toBeInTheDocument();
 
     resolveTasks([]);
 
-    await waitFor(() => expect(screen.getByText("Today's tasks")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Today's chores")).toBeInTheDocument());
     expect(screen.queryByText(/loading your family's day/i)).not.toBeInTheDocument();
   });
 
@@ -609,5 +611,56 @@ describe("Dashboard", () => {
     await waitFor(() => expect(screen.getByText("10 gems collected")).toBeInTheDocument());
     expect(screen.queryByText("LEGO set")).not.toBeInTheDocument();
     expect(screen.getByText(/no prizes set yet/i)).toBeInTheDocument();
+  });
+
+  it("ticks a chore off instantly, before the server has answered", async () => {
+    vi.mocked(api.listTasks).mockResolvedValue([
+      { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
+    ]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+    vi.mocked(api.listTaskCompletions).mockResolvedValue([]);
+    vi.mocked(api.listGemBalances).mockResolvedValue([]);
+
+    // A slow write, still in flight.
+    let settle: (task: Task) => void = () => {};
+    vi.mocked(api.completeTask).mockReturnValue(new Promise<Task>((resolve) => { settle = resolve; }));
+
+    render(<Dashboard />);
+    await waitFor(() => expect(screen.getByText("Wipe Table")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByLabelText('Mark "Wipe Table" done'));
+
+    // A child taps and the gems land. No pause, no dead-looking button.
+    await waitFor(() => expect(screen.getByText("10 gems collected")).toBeInTheDocument());
+    expect(screen.queryByLabelText('Mark "Wipe Table" done')).not.toBeInTheDocument();
+
+    await act(async () => {
+      settle({ taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "done", gemsAwarded: 10 });
+    });
+    expect(screen.getByText("10 gems collected")).toBeInTheDocument();
+  });
+
+  it("puts a chore back exactly as it was when the write fails", async () => {
+    vi.mocked(api.listTasks).mockResolvedValue([
+      { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
+    ]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+    vi.mocked(api.listTaskCompletions).mockResolvedValue([]);
+    vi.mocked(api.listGemBalances).mockResolvedValue([]);
+    vi.mocked(api.completeTask).mockRejectedValue(new Error("Can't reach the family account — check the wi-fi."));
+
+    render(<Dashboard />);
+    await waitFor(() => expect(screen.getByText("0 gems collected")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByLabelText('Mark "Wipe Table" done'));
+
+    // The gems go back and the chore is waiting again, with the reason shown.
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/check the wi-fi/i));
+    expect(screen.getByText("0 gems collected")).toBeInTheDocument();
+    expect(screen.getByLabelText('Mark "Wipe Table" done')).toBeInTheDocument();
+    // And no celebration for something that didn't happen.
+    expect(screen.queryByText("+10 gems")).not.toBeInTheDocument();
   });
 });

@@ -33,7 +33,10 @@ export default function TaskList({ tasks, onComplete }: TaskListProps) {
                   type="button"
                   aria-label={`Mark "${task.title}" done`}
                   onClick={() => onComplete(task)}
-                  className="h-7 w-7 shrink-0 rounded-full border-2 border-olive-600 hover:bg-olive-200"
+                  // A full 44px target, not a 28px dot with padding around
+                  // it: the ring a child aims at should be the thing that
+                  // actually takes the tap.
+                  className="h-11 w-11 shrink-0 rounded-full border-[3px] border-olive-600 hover:bg-olive-200 active:bg-olive-300 transition-colors"
                 />
               )}
               <span className="min-w-0">

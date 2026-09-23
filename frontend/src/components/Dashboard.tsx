@@ -198,32 +198,56 @@ export default function Dashboard() {
   // Returns whether it landed rather than throwing: the task list fires this
   // without awaiting, and a rejected promise nobody is holding is an
   // unhandled rejection.
+  /**
+   * Ticks the chore off straight away and reconciles behind it.
+   *
+   * A child taps a circle and expects the gems, not a pause. Waiting for a
+   * round-trip on kitchen wi-fi reads as a dead button, and the usual next
+   * move is to tap it again. If the write fails, everything goes back
+   * exactly as it was and the banner explains why.
+   *
+   * Returns whether it landed rather than throwing: the task list fires
+   * this without awaiting, and a rejected promise nobody is holding is an
+   * unhandled rejection.
+   */
   async function handleComplete(task: Task, options: { celebrate?: boolean } = {}): Promise<boolean> {
+    const alreadyCounted = completions.some((c) => c.taskId === task.taskId && c.date === task.date);
+    const optimistic: Task = { ...task, status: "done", gemsAwarded: task.gemValue };
+
+    setTasks((prev) => prev.map((t) => (t.taskId === task.taskId ? optimistic : t)));
+    if (!alreadyCounted) {
+      setCompletions((prev) => [
+        ...prev,
+        {
+          taskId: task.taskId,
+          date: task.date,
+          title: task.title,
+          memberId: task.assignedTo,
+          gemsAwarded: task.gemValue,
+        },
+      ]);
+      creditGems(task.assignedTo, task.gemValue);
+    }
+    // A chore finished from inside a threat scenario has its own
+    // celebration in the overlay; two at once is just noise.
+    if (options.celebrate !== false) setCelebration({ gemsEarned: task.gemValue });
+
     try {
       const updated = await guardedWrite(() => api.completeTask(DEMO_FAMILY_ID, task.taskId, today));
+      // The server is the authority on what was actually awarded — it pays
+      // nothing the second time a chore is ticked on the same day.
       setTasks((prev) => prev.map((t) => (t.taskId === updated.taskId ? updated : t)));
-      // Mirrors the completion row the backend just wrote, so the gem total
-      // and the prize bar move now rather than on the next sync.
-      const alreadyCounted = completions.some((c) => c.taskId === updated.taskId && c.date === updated.date);
-      if (!alreadyCounted) {
-        setCompletions((prev) => [
-          ...prev,
-          {
-            taskId: updated.taskId,
-            date: updated.date,
-            title: updated.title,
-            memberId: updated.assignedTo,
-            gemsAwarded: updated.gemsAwarded,
-          },
-        ]);
-        creditGems(updated.assignedTo, updated.gemsAwarded);
-      }
-      // A chore finished from inside a threat scenario has its own
-      // celebration in the overlay; two at once is just noise.
-      if (options.celebrate !== false) setCelebration({ gemsEarned: updated.gemsAwarded - task.gemsAwarded });
       setError(null);
       return true;
     } catch (err) {
+      // Put it all back. A chore that silently un-ticks itself later is
+      // worse than one that never appeared to tick at all.
+      setTasks((prev) => prev.map((t) => (t.taskId === task.taskId ? task : t)));
+      if (!alreadyCounted) {
+        setCompletions((prev) => prev.filter((c) => !(c.taskId === task.taskId && c.date === task.date)));
+        creditGems(task.assignedTo, -task.gemValue);
+      }
+      setCelebration(null);
       reportError(err);
       return false;
     }
@@ -291,7 +315,10 @@ export default function Dashboard() {
     setThreatened(null);
   }
 
-  /** Moves a child's balance locally, so the prize bar responds to the tap. */
+  /**
+   * Moves a child's balance locally, so the prize bar responds to the tap.
+   * Takes a negative to undo itself when an optimistic write is rolled back.
+   */
   function creditGems(memberId: string | null, gems: number) {
     if (!memberId || gems === 0) return;
     setGemBalances((prev) => {
@@ -425,7 +452,7 @@ export default function Dashboard() {
   }
 
   return (
-    <main className="min-h-screen bg-white p-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+    <main className="min-h-screen bg-white p-4 sm:p-6 lg:p-8 grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 items-start">
       <header className="md:col-span-2 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <img src="/brand-mark.png" alt="" className="h-12 w-12 sm:h-14 sm:w-14 shrink-0 rounded-full ring-4 ring-olive-100" />
@@ -451,8 +478,8 @@ export default function Dashboard() {
       </header>
 
       {error && (
-        <p className="md:col-span-2 text-clay-700 bg-clay-100 rounded-card px-4 py-3">
-          Couldn&apos;t reach the backend: {error}
+        <p role="alert" className="md:col-span-2 text-clay-900 bg-clay-100 rounded-card px-4 py-3">
+          {error}
         </p>
       )}
 
@@ -464,17 +491,9 @@ export default function Dashboard() {
 
       {!isLoading && (
         <>
-          <FamilyCard title="Today's tasks">
+          <FamilyCard title="Today's chores" hero>
             <TaskList tasks={tasks} onComplete={handleComplete} />
             <ChoreLibrary onAdd={handleAddChore} />
-          </FamilyCard>
-
-          <FamilyCard title="Today's schedule" accent>
-            <Calendar entries={schedule} />
-          </FamilyCard>
-
-          <FamilyCard title="Family favorites">
-            <FamilyFavorites preferences={preferences} onAdd={handleAddPreference} onRemove={handleRemovePreference} />
           </FamilyCard>
 
           <FamilyCard title="Working toward">
@@ -484,6 +503,14 @@ export default function Dashboard() {
               onSetGoal={handleSetRewardGoal}
               onClaim={handleClaimRewardGoal}
             />
+          </FamilyCard>
+
+          <FamilyCard title="Today's schedule" accent>
+            <Calendar entries={schedule} />
+          </FamilyCard>
+
+          <FamilyCard title="Family favorites">
+            <FamilyFavorites preferences={preferences} onAdd={handleAddPreference} onRemove={handleRemovePreference} />
           </FamilyCard>
 
           <FamilyCard title="Gem Castle">

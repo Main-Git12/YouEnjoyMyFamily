@@ -2,22 +2,81 @@ import type { Task, TaskCompletion, ScheduleEntry, CartItem, StatedPreference, M
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+// Long enough for a slow phone on a weak signal, short enough that a card
+// doesn't sit there spinning for good. Without it a hung request never
+// settles and the screen waits forever.
+const REQUEST_TIMEOUT_MS = 12_000;
+
+/**
+ * An API failure with something a family can actually read.
+ *
+ * The raw form — "Request failed: 401 /families/fam_demo/tasks" — is both
+ * wrong and useless on a kitchen wall: a 401 means the backend answered
+ * and turned us away, not that it couldn't be reached. `status` is kept so
+ * callers can still tell the cases apart.
+ */
+export class ApiError extends Error {
+  readonly status: number | null;
+
+  constructor(message: string, status: number | null) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+function friendlyMessage(status: number): string {
+  if (status === 401 || status === 403) return "This screen isn't signed in to the family account any more.";
+  if (status === 404) return "That isn't there any more — someone may have removed it on another device.";
+  if (status === 429) return "The family account is being asked for too much at once. Try again in a moment.";
+  if (status >= 500) return "The family account is having a moment. It usually sorts itself out shortly.";
+  return "Something about that request wasn't right.";
+}
+
+/** A blip is worth one quiet retry; a refusal is not. */
+function isWorthRetrying(error: unknown): boolean {
+  if (error instanceof ApiError) return error.status === null || error.status >= 500;
+  return true;
+}
+
+async function attempt<T>(path: string, options: RequestInit): Promise<T> {
   // Read fresh (not cached at module scope) so tests can stub it per case.
   const familyApiKey = import.meta.env.VITE_FAMILY_API_KEY;
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(familyApiKey ? { Authorization: `Bearer ${familyApiKey}` } : {}),
-    },
-    ...options,
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status} ${path}`);
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...(familyApiKey ? { Authorization: `Bearer ${familyApiKey}` } : {}),
+      },
+      ...options,
+    });
+
+    if (!response.ok) throw new ApiError(friendlyMessage(response.status), response.status);
+    return (await response.json()) as T;
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError("The family account took too long to answer.", null);
+    }
+    throw new ApiError("Can't reach the family account — check the wi-fi.", null);
+  } finally {
+    clearTimeout(timer);
   }
+}
 
-  return response.json() as Promise<T>;
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  try {
+    return await attempt<T>(path, options);
+  } catch (err) {
+    // One retry, and only for the failures a retry can actually fix. A 401
+    // or a 404 will say exactly the same thing the second time.
+    if (!isWorthRetrying(err)) throw err;
+    return attempt<T>(path, options);
+  }
 }
 
 export const api = {

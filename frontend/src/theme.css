@@ -46,3 +46,45 @@ body {
   background: #ffffff;
   color: var(--color-bark);
 }
+
+/*
+ * This is a touch-first display on a kitchen wall, tapped by children with
+ * jam on their hands and by adults holding something else. Apple and
+ * Google both put the floor at 44–48px; several controls here were 36–40.
+ * Applied globally rather than class by class so a new button can't quietly
+ * land under the bar.
+ */
+button,
+[role="button"],
+select,
+input:not([type="checkbox"]):not([type="radio"]),
+a.tap-target {
+  min-height: 44px;
+}
+
+/*
+ * A visible focus ring, because the browser default is a 1px black hairline
+ * that vanishes against olive. Only for keyboard focus — :focus-visible
+ * keeps it off a touch tap, where a persistent ring just looks broken.
+ */
+:focus-visible {
+  outline: 3px solid var(--color-clay-700);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/*
+ * Some people get motion sick, and an Echo Show is often at eye level
+ * across a room. Honour the system setting: the scenarios and celebrations
+ * still appear and still say what they say, they just stop moving.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

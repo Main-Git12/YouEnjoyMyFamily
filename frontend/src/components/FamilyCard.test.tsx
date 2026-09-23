@@ -28,4 +28,22 @@ describe("FamilyCard", () => {
     expect(container.firstElementChild).toHaveClass("bg-white");
     expect(container.firstElementChild).not.toHaveClass("bg-olive-600");
   });
+
+  it("gives the hero card the full width and a louder heading", () => {
+    const { container } = render(
+      <FamilyCard title="Today's chores" hero>
+        contents
+      </FamilyCard>
+    );
+
+    expect(container.firstElementChild).toHaveClass("md:col-span-2");
+    expect(screen.getByRole("heading", { name: "Today's chores" })).toHaveClass("text-2xl");
+  });
+
+  it("leaves an ordinary card at ordinary weight", () => {
+    const { container } = render(<FamilyCard title="Gem Castle">contents</FamilyCard>);
+
+    expect(container.firstElementChild).not.toHaveClass("md:col-span-2");
+    expect(screen.getByRole("heading", { name: "Gem Castle" })).toHaveClass("text-xl");
+  });
 });

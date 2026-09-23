@@ -124,10 +124,10 @@ export default function PrizeGoal({ goals, gemsByChild, onSetGoal, onClaim }: Pr
         <input
           type="text"
           aria-label="Whose prize"
-          placeholder="Who's saving?"
+          placeholder="Who's it for?"
           value={memberId}
           onChange={(e) => setMemberId(e.target.value)}
-          className="flex-1 min-w-[8rem] rounded-lg border border-olive-500 px-3 py-2"
+          className="flex-1 min-w-[9rem] rounded-lg border border-olive-500 px-3 py-2"
         />
         <input
           type="text"
@@ -135,7 +135,7 @@ export default function PrizeGoal({ goals, gemsByChild, onSetGoal, onClaim }: Pr
           placeholder="The big prize"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          className="flex-[2] min-w-[10rem] rounded-lg border border-olive-500 px-3 py-2"
+          className="flex-[2] min-w-[11rem] rounded-lg border border-olive-500 px-3 py-2"
         />
         <input
           type="number"

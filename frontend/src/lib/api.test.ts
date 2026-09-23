@@ -101,12 +101,63 @@ describe("api client", () => {
     expect("Authorization" in headers).toBe(false);
   });
 
-  it("throws with the status code when the response is not ok", async () => {
+  it("explains a failure in words a family can read, and keeps the status", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("nope", { status: 500 }))
     );
 
-    await expect(api.listTasks("fam_1", "2026-09-23")).rejects.toThrow(/500/);
+    await expect(api.listTasks("fam_1", "2026-09-23")).rejects.toThrow(/having a moment/i);
+    await expect(api.listTasks("fam_1", "2026-09-23")).rejects.toMatchObject({ status: 500 });
+  });
+
+  it("says the screen is signed out on a 401, rather than blaming the network", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("no", { status: 401 }))
+    );
+
+    await expect(api.listTasks("fam_1", "2026-09-23")).rejects.toThrow(/isn't signed in/i);
+  });
+
+  it("retries once on a server blip, and gives the good answer", async () => {
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        calls += 1;
+        return calls === 1
+          ? new Response("nope", { status: 503 })
+          : new Response(JSON.stringify([{ taskId: "t1" }]), { status: 200 });
+      })
+    );
+
+    await expect(api.listTasks("fam_1", "2026-09-23")).resolves.toEqual([{ taskId: "t1" }]);
+    expect(calls).toBe(2);
+  });
+
+  it("does not retry a refusal, which would say exactly the same thing again", async () => {
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        calls += 1;
+        return new Response("no", { status: 401 });
+      })
+    );
+
+    await expect(api.listTasks("fam_1", "2026-09-23")).rejects.toThrow();
+    expect(calls).toBe(1);
+  });
+
+  it("blames the wi-fi when the network itself fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Failed to fetch");
+      })
+    );
+
+    await expect(api.listTasks("fam_1", "2026-09-23")).rejects.toThrow(/check the wi-fi/i);
   });
 });
