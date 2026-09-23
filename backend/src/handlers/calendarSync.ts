@@ -1,5 +1,5 @@
 import { google, calendar_v3 } from "googleapis";
-import { QueryCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { QueryCommand, PutCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import { docClient, TABLE_NAME } from "../lib/dynamoClient";
 import type { CalendarTokenRecord, CalendarEventItem } from "../types";
 
@@ -60,7 +60,8 @@ export async function runCalendarSync(
 /**
  * EventBridge-triggered handler (rate(15 minutes) by default, see template.yaml).
  * Pulls each connected family's Google Calendar and upserts events into the
- * single table, keyed by the Google event id via GSI1 so re-syncs are idempotent.
+ * single table, keyed by the Google event id so re-syncs are idempotent —
+ * including when an event moves day, which changes its sort key.
  */
 export const handler = async (): Promise<CalendarSyncResult> => runCalendarSync();
 
@@ -90,8 +91,18 @@ export async function syncFamilyCalendar(
   });
 
   const now = new Date().toISOString();
-  const writes = (data.items ?? []).map((event) => {
-    if (!event.id) return Promise.resolve();
+
+  // What we already hold for this family, by Google event id. The date is
+  // part of the sort key (`CALEVENT#<date>#<externalId>`), so an event moved
+  // from Tuesday to Wednesday writes a *new* row: without this the family
+  // would see it on both days, for good. One query per sync rather than one
+  // per event.
+  const storedByExternalId = new Map(
+    (await listSyncedCalendarEvents(tokenRecord.familyId)).map((item) => [item.externalId, item])
+  );
+
+  const writes = (data.items ?? []).map(async (event) => {
+    if (!event.id) return;
 
     const isoDate = (event.start?.date ?? event.start?.dateTime ?? now).slice(0, 10);
     const item: CalendarEventItem = {
@@ -109,8 +120,25 @@ export async function syncFamilyCalendar(
       syncedAt: now,
     };
 
-    return docClient.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));
+    await docClient.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));
+
+    const stored = storedByExternalId.get(event.id);
+    if (stored && stored.date !== isoDate) {
+      await docClient.send(new DeleteCommand({ TableName: TABLE_NAME, Key: { PK: stored.PK, SK: stored.SK } }));
+    }
   });
 
   await Promise.all(writes);
+}
+
+/** Every calendar event this family has synced so far. */
+export async function listSyncedCalendarEvents(familyId: string): Promise<CalendarEventItem[]> {
+  const result = await docClient.send(
+    new QueryCommand({
+      TableName: TABLE_NAME,
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)",
+      ExpressionAttributeValues: { ":pk": `FAMILY#${familyId}`, ":prefix": "CALEVENT#" },
+    })
+  );
+  return (result.Items ?? []) as CalendarEventItem[];
 }

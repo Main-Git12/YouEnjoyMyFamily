@@ -81,6 +81,7 @@ plan, never an AI-invented meal or ingredient. A manually-added cart item
 - List a family's schedule for a date range: `Query PK = FAMILY#<familyId>, SK between SCHEDULE#<start> and SCHEDULE#<end>`.
 - Find a task by id across the table (e.g. Alexa deep link): `Query GSI1PK = TASK#<taskId>`.
 - Upsert a synced Google Calendar event idempotently by external id: `Query GSI1PK = EXTID#<googleEventId>`.
+- Re-sync a family's calendar: `Query PK = FAMILY#<familyId>, SK begins_with CALEVENT#` once per sync, to find what's already held. The date is part of the sort key, so an event moved to another day writes a *new* row — the old one has to be deleted or the family sees it on both days for good. Idempotency by external id alone isn't enough here.
 - Look up a family's stored OAuth tokens for a provider (`google`): `GetItem PK = FAMILY#<familyId>, SK = TOKEN#<provider>`.
 - List all of a family's stated preferences: `Query PK = FAMILY#<familyId>, SK begins_with STATEDPREF#`.
 - List one member's stated preferences: `Query PK = FAMILY#<familyId>, SK begins_with STATEDPREF#<memberId>#`.
