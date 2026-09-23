@@ -2,13 +2,29 @@
 // Kept as plain interfaces (not shared code) since frontend and backend
 // deploy independently; update both sides together when the API changes.
 
+// The part of the day a chore belongs to — chosen by the family when they
+// set the chore up, which is what lets the app tell a chore has slipped
+// without ever watching or profiling a child.
+export type DueWindow = "morning" | "after_school" | "after_dinner" | "bedtime" | "anytime";
+
 export interface Task {
   taskId: string;
   title: string;
   assignedTo: string | null;
   dueDate: string | null;
   status: "pending" | "in_progress" | "done";
+  /** What this chore pays out — not every chore is worth the same. */
+  gemValue: number;
+  dueWindow: DueWindow;
   gemsAwarded: number;
+}
+
+/** The big prize a child is saving up for. One live goal each. */
+export interface RewardGoal {
+  memberId: string;
+  title: string;
+  gemCost: number;
+  note: string | null;
 }
 
 export interface ScheduleEntry {

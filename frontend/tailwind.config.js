@@ -54,6 +54,40 @@ export default {
           "0%": { transform: "translateY(-10vh) rotate(0deg)", opacity: "1" },
           "100%": { transform: "translateY(60vh) rotate(360deg)", opacity: "0" },
         },
+        // A threat creeping in from the edge of the screen.
+        "sneak-in": {
+          "0%": { transform: "translateX(-120%) rotate(-8deg)", opacity: "0" },
+          "60%": { transform: "translateX(8%) rotate(3deg)", opacity: "1" },
+          "100%": { transform: "translateX(0) rotate(0deg)", opacity: "1" },
+        },
+        // ...and scurrying back out once the chore is done.
+        "flee-out": {
+          "0%": { transform: "translateX(0) rotate(0deg)", opacity: "1" },
+          "100%": { transform: "translateX(140%) rotate(14deg)", opacity: "0" },
+        },
+        // A nervous shuffle while the gems are still at risk.
+        prowl: {
+          "0%, 100%": { transform: "translateX(-3px) rotate(-2deg)" },
+          "50%": { transform: "translateX(3px) rotate(2deg)" },
+        },
+        // The King's approving nod.
+        "king-nod": {
+          "0%, 100%": { transform: "translateY(0) rotate(0deg)" },
+          "30%": { transform: "translateY(-8px) rotate(-4deg)" },
+          "60%": { transform: "translateY(0) rotate(4deg)" },
+        },
+        // Wren's celebration twirl.
+        "princess-twirl": {
+          "0%": { transform: "rotate(0deg) scale(1)" },
+          "50%": { transform: "rotate(180deg) scale(1.12)" },
+          "100%": { transform: "rotate(360deg) scale(1)" },
+        },
+        // A gem counter ticking up.
+        "gem-count": {
+          "0%": { transform: "scale(1)" },
+          "40%": { transform: "scale(1.35)" },
+          "100%": { transform: "scale(1)" },
+        },
         "pop-in": {
           "0%": { transform: "scale(0.4)", opacity: "0" },
           "70%": { transform: "scale(1.08)", opacity: "1" },
@@ -63,6 +97,12 @@ export default {
       animation: {
         "confetti-fall": "confetti-fall 1.8s ease-in forwards",
         "pop-in": "pop-in 0.5s ease-out forwards",
+        "sneak-in": "sneak-in 0.7s ease-out forwards",
+        "flee-out": "flee-out 0.8s ease-in forwards",
+        prowl: "prowl 1.6s ease-in-out infinite",
+        "king-nod": "king-nod 1.4s ease-in-out infinite",
+        "princess-twirl": "princess-twirl 1.2s ease-in-out",
+        "gem-count": "gem-count 0.6s ease-out",
       },
     },
   },

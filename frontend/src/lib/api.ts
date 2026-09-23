@@ -1,4 +1,4 @@
-import type { Task, ScheduleEntry, CartItem, StatedPreference, MealPlanEntry, MealSlot } from "../types";
+import type { Task, ScheduleEntry, CartItem, StatedPreference, MealPlanEntry, MealSlot, RewardGoal } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 
@@ -62,6 +62,16 @@ export const api = {
       `/families/${familyId}/meal-plan/generate-grocery-list?start=${start ?? ""}&end=${end ?? ""}`,
       { method: "POST" }
     ),
+  listRewardGoals: (familyId: string) => request<RewardGoal[]>(`/families/${familyId}/reward-goals`),
+  setRewardGoal: (familyId: string, memberId: string, goal: { title: string; gemCost: number }) =>
+    request<RewardGoal>(`/families/${familyId}/reward-goals/${encodeURIComponent(memberId)}`, {
+      method: "PUT",
+      body: JSON.stringify(goal),
+    }),
+  clearRewardGoal: (familyId: string, memberId: string) =>
+    request<{ deleted: string }>(`/families/${familyId}/reward-goals/${encodeURIComponent(memberId)}`, {
+      method: "DELETE",
+    }),
   listStatedPreferences: (familyId: string) => request<StatedPreference[]>(`/families/${familyId}/stated-preferences`),
   addStatedPreference: (familyId: string, preference: Omit<StatedPreference, "preferenceId">) =>
     request<StatedPreference>(`/families/${familyId}/stated-preferences`, {

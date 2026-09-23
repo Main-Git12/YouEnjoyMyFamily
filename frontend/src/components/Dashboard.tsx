@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
-import type { Task, ScheduleEntry, StatedPreference, StatedPreferenceCategory, MealPlanEntry, MealSlot, CartItem } from "../types";
+import type { Task, ScheduleEntry, StatedPreference, StatedPreferenceCategory, MealPlanEntry, MealSlot, CartItem, RewardGoal } from "../types";
+import { chooseThreatenedChore, type ThreatenedChore } from "../lib/gemThreats";
 import FamilyCard from "./FamilyCard";
 import TaskList from "./TaskList";
+import ChoreLibrary, { type NewChore } from "./ChoreLibrary";
 import Calendar from "./Calendar";
 import Celebration from "./Celebration";
 import FamilyFavorites from "./FamilyFavorites";
 import GemCastle from "./GemCastle";
-import CastleAlert from "./CastleAlert";
+import GemThreatAlert from "./GemThreatAlert";
+import PrizeGoal from "./PrizeGoal";
 import MealPlan from "./MealPlan";
 import { toLocalIsoDate, weekFromOffset } from "../lib/dates";
 import GroceryCart from "./GroceryCart";
@@ -29,8 +32,13 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [celebration, setCelebration] = useState<{ gemsEarned: number } | null>(null);
-  const [castleAlertTask, setCastleAlertTask] = useState<Task | null>(null);
-  const [hasTriggeredCastleAlert, setHasTriggeredCastleAlert] = useState(false);
+  const [rewardGoals, setRewardGoals] = useState<RewardGoal[]>([]);
+  const [threatened, setThreatened] = useState<ThreatenedChore | null>(null);
+  const [dismissedThreatTaskIds, setDismissedThreatTaskIds] = useState<string[]>([]);
+  // True from the moment "defend" is tapped until the scenario closes
+  // itself, so the celebration beat is not yanked off screen the instant
+  // the chore goes green.
+  const [defending, setDefending] = useState(false);
   // 0 = the coming 7 days; the family can page forward to plan ahead.
   const [weekOffset, setWeekOffset] = useState(0);
 
@@ -48,14 +56,15 @@ export default function Dashboard() {
   // between weeks quickly would otherwise let a slow earlier request land
   // last and overwrite the week actually on screen.
   const fetchEverything = useCallback(async () => {
-    const [taskItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList] = await Promise.all([
+    const [taskItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList, rewardGoalItems] = await Promise.all([
       api.listTasks(DEMO_FAMILY_ID),
       api.listSchedules(DEMO_FAMILY_ID, today, today),
       api.listStatedPreferences(DEMO_FAMILY_ID),
       api.listMealPlan(DEMO_FAMILY_ID, weekStart, weekEnd),
       api.listCartItems(DEMO_FAMILY_ID),
+      api.listRewardGoals(DEMO_FAMILY_ID),
     ]);
-    return { taskItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList };
+    return { taskItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList, rewardGoalItems };
   }, [weekStart, weekEnd, today]);
 
   // Bumped at the start *and* the end of every local write. A sync that
@@ -80,6 +89,7 @@ export default function Dashboard() {
     setPreferences(data.preferenceItems);
     setMealPlan(data.mealPlanItems);
     setCartItems(data.cartItemsList);
+    setRewardGoals(data.rewardGoalItems);
   }, []);
 
   // Runs on mount and again whenever the week on screen changes, so paging
@@ -134,20 +144,26 @@ export default function Dashboard() {
     };
   }, [fetchEverything, applyEverything]);
 
-  // Trigger the castle-attack event once per dashboard session, off data the
-  // family already explicitly entered (a pending task's own assignee) —
-  // never any inference about a child's behavior.
+  // Raise a scenario when a chore has slipped past the part of the day the
+  // family assigned it to. Re-checked whenever the chores change, so it can
+  // come back later in the evening rather than firing once and never again.
+  // Chores waved away stay waved away, so dismissing one doesn't just bring
+  // the next one round in a loop.
   useEffect(() => {
-    if (hasTriggeredCastleAlert || tasks.length === 0) return;
-    const candidates = tasks.filter((task) => task.status === "pending" && task.assignedTo);
-    if (candidates.length === 0) return;
-    const chosen = candidates[Math.floor(Math.random() * candidates.length)];
-    if (!chosen) return;
-    setCastleAlertTask(chosen);
-    setHasTriggeredCastleAlert(true);
-  }, [tasks, hasTriggeredCastleAlert]);
+    if (defending) return;
+    const candidate = chooseThreatenedChore(tasks.filter((task) => !dismissedThreatTaskIds.includes(task.taskId)));
+    setThreatened(candidate);
+  }, [tasks, dismissedThreatTaskIds, defending]);
 
   const totalGems = tasks.reduce((sum, task) => sum + task.gemsAwarded, 0);
+
+  // Each child's own total, so their prize bar means something. Summed from
+  // the chores assigned to them — no separate ledger to drift out of sync.
+  const gemsByChild = tasks.reduce<Record<string, number>>((totals, task) => {
+    if (!task.assignedTo || task.gemsAwarded === 0) return totals;
+    totals[task.assignedTo] = (totals[task.assignedTo] ?? 0) + task.gemsAwarded;
+    return totals;
+  }, {});
 
   // Every action funnels its failure here, and a later success clears it —
   // a stale error banner outliving the problem is its own bug.
@@ -169,11 +185,35 @@ export default function Dashboard() {
     }
   }
 
-  async function handleComplete(task: Task) {
+  // Returns whether it landed rather than throwing: the task list fires this
+  // without awaiting, and a rejected promise nobody is holding is an
+  // unhandled rejection.
+  async function handleComplete(task: Task, options: { celebrate?: boolean } = {}): Promise<boolean> {
     try {
       const updated = await guardedWrite(() => api.completeTask(DEMO_FAMILY_ID, task.taskId));
       setTasks((prev) => prev.map((t) => (t.taskId === updated.taskId ? updated : t)));
-      setCelebration({ gemsEarned: updated.gemsAwarded - task.gemsAwarded });
+      // A chore finished from inside a threat scenario has its own
+      // celebration in the overlay; two at once is just noise.
+      if (options.celebrate !== false) setCelebration({ gemsEarned: updated.gemsAwarded - task.gemsAwarded });
+      setError(null);
+      return true;
+    } catch (err) {
+      reportError(err);
+      return false;
+    }
+  }
+
+  async function handleAddChore(chore: NewChore) {
+    try {
+      const created = await guardedWrite(() =>
+        api.createTask(DEMO_FAMILY_ID, {
+          title: chore.title,
+          gemValue: chore.gemValue,
+          dueWindow: chore.dueWindow,
+          assignedTo: chore.assignedTo,
+        })
+      );
+      setTasks((prev) => [...prev, created]);
       setError(null);
     } catch (err) {
       reportError(err);
@@ -201,9 +241,34 @@ export default function Dashboard() {
     }
   }
 
-  function handleDefendCastle(task: Task) {
-    setCastleAlertTask(null);
-    void handleComplete(task);
+  async function handleDefendGems() {
+    if (!threatened) return;
+    setDefending(true);
+    const saved = await handleComplete(threatened.task, { celebrate: false });
+    if (!saved) {
+      // Throwing is how the overlay knows to stay open with the button live
+      // again; the error banner is already up.
+      setDefending(false);
+      throw new Error("The chore didn't save");
+    }
+  }
+
+  function handleDismissThreat() {
+    const taskId = threatened?.task.taskId;
+    if (taskId) setDismissedThreatTaskIds((prev) => (prev.includes(taskId) ? prev : [...prev, taskId]));
+    setDefending(false);
+    setThreatened(null);
+  }
+
+  async function handleSetRewardGoal(memberId: string, goal: { title: string; gemCost: number }) {
+    try {
+      const saved = await guardedWrite(() => api.setRewardGoal(DEMO_FAMILY_ID, memberId, goal));
+      setRewardGoals((prev) => [...prev.filter((g) => g.memberId !== memberId), saved]);
+      setError(null);
+    } catch (err) {
+      reportError(err);
+      throw err;
+    }
   }
 
   async function handleSaveMealPlanEntry(date: string, slot: MealSlot, input: { mealName: string; ingredients: string[] }) {
@@ -329,6 +394,7 @@ export default function Dashboard() {
         <>
           <FamilyCard title="Today's tasks">
             <TaskList tasks={tasks} onComplete={handleComplete} />
+            <ChoreLibrary onAdd={handleAddChore} />
           </FamilyCard>
 
           <FamilyCard title="Today's schedule" accent>
@@ -337,6 +403,10 @@ export default function Dashboard() {
 
           <FamilyCard title="Family favorites">
             <FamilyFavorites preferences={preferences} onAdd={handleAddPreference} onRemove={handleRemovePreference} />
+          </FamilyCard>
+
+          <FamilyCard title="Working toward">
+            <PrizeGoal goals={rewardGoals} gemsByChild={gemsByChild} onSetGoal={handleSetRewardGoal} />
           </FamilyCard>
 
           <FamilyCard title="Gem Castle">
@@ -376,8 +446,8 @@ export default function Dashboard() {
         />
       )}
 
-      {castleAlertTask && (
-        <CastleAlert task={castleAlertTask} onDefend={handleDefendCastle} onDismiss={() => setCastleAlertTask(null)} />
+      {threatened && (
+        <GemThreatAlert threatened={threatened} onDefend={handleDefendGems} onDismiss={handleDismissThreat} />
       )}
     </main>
   );
