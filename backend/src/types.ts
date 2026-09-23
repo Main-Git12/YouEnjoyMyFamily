@@ -90,6 +90,11 @@ export const ScheduleInput = z.object({
 });
 export type ScheduleInput = z.infer<typeof ScheduleInput>;
 
+// Every field optional: a PUT that only moves the start time should not
+// have to resend the title and the guest list to keep them.
+export const SchedulePatch = ScheduleInput.partial();
+export type SchedulePatch = z.infer<typeof SchedulePatch>;
+
 export interface ScheduleItem {
   PK: string;
   SK: string;

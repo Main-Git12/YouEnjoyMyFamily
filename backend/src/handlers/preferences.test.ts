@@ -68,7 +68,10 @@ test("GET returns the stored preferences when present", async () => {
   assert.deepEqual(JSON.parse(result.body ?? "{}"), stored);
 });
 
-test("PUT with a partial body only overrides the given fields", async () => {
+test("PUT with a partial body fills the rest from defaults when nothing is stored yet", async () => {
+  // Registered before mockFamilyAuth so the family-record lookup still wins
+  // (aws-sdk-client-mock resolves the most recently registered match).
+  ddbMock.on(GetCommand).resolves({ Item: undefined });
   ddbMock.on(PutCommand).resolves({});
   const headers = mockFamilyAuth(ddbMock, "fam_1");
 
@@ -99,4 +102,39 @@ test("PUT rejects an invalid quietHours shape", async () => {
     })
   );
   assert.equal(result.statusCode, 400);
+});
+
+test("PUT keeps settings the body didn't mention rather than resetting them", async () => {
+  // Someone picked the clay theme and later quiet hours; flipping
+  // notifications off must not quietly put both back to the defaults.
+  ddbMock.on(GetCommand).resolves({
+    Item: {
+      PK: "FAMILY#fam_1",
+      SK: "PREFS#mem_1",
+      entityType: "PREFERENCES",
+      familyId: "fam_1",
+      memberId: "mem_1",
+      theme: "clay",
+      notificationsEnabled: true,
+      quietHours: { start: "21:30", end: "06:30" },
+      updatedAt: "2025-01-01T00:00:00.000Z",
+    },
+  });
+  ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", memberId: "mem_1" },
+      headers,
+      body: JSON.stringify({ notificationsEnabled: false }),
+    })
+  );
+
+  assert.equal(result.statusCode, 200);
+  const body = JSON.parse(result.body ?? "{}");
+  assert.equal(body.notificationsEnabled, false);
+  assert.equal(body.theme, "clay");
+  assert.deepEqual(body.quietHours, { start: "21:30", end: "06:30" });
 });

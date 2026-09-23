@@ -1,7 +1,7 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { mockClient } from "aws-sdk-client-mock";
-import { DynamoDBDocumentClient, PutCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
 import { handler } from "./schedules";
 import { mockFamilyAuth } from "../lib/authTestSupport";
@@ -140,4 +140,150 @@ test("DELETE removes a schedule entry", async () => {
 
   assert.equal(result.statusCode, 200);
   assert.deepEqual(JSON.parse(result.body ?? "{}"), { deleted: "s1" });
+});
+
+test("PUT edits an entry in place without resending every field", async () => {
+  ddbMock.on(GetCommand).resolves({
+    Item: {
+      PK: "FAMILY#fam_1",
+      SK: "SCHEDULE#2025-01-15#s1",
+      entityType: "SCHEDULE",
+      familyId: "fam_1",
+      scheduleId: "s1",
+      date: "2025-01-15",
+      startTime: "17:30",
+      endTime: "18:30",
+      title: "Soccer practice",
+      memberIds: ["Parker"],
+      createdAt: "2025-01-01T00:00:00.000Z",
+      updatedAt: "2025-01-01T00:00:00.000Z",
+    },
+  });
+  ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", scheduleId: "s1" },
+      headers,
+      queryStringParameters: { date: "2025-01-15" },
+      body: JSON.stringify({ startTime: "18:00" }),
+    })
+  );
+
+  assert.equal(result.statusCode, 200);
+  const saved = JSON.parse(result.body ?? "{}");
+  assert.equal(saved.startTime, "18:00");
+  // The fields nobody touched have to survive the edit.
+  assert.equal(saved.title, "Soccer practice");
+  assert.equal(saved.endTime, "18:30");
+  assert.deepEqual(saved.memberIds, ["Parker"]);
+  assert.equal(saved.createdAt, "2025-01-01T00:00:00.000Z");
+  // Same day, so nothing should have been deleted.
+  assert.equal(ddbMock.commandCalls(DeleteCommand).length, 0);
+});
+
+test("PUT clears a start time when one is explicitly set to null", async () => {
+  ddbMock.on(GetCommand).resolves({
+    Item: {
+      PK: "FAMILY#fam_1",
+      SK: "SCHEDULE#2025-01-15#s1",
+      entityType: "SCHEDULE",
+      familyId: "fam_1",
+      scheduleId: "s1",
+      date: "2025-01-15",
+      startTime: "17:30",
+      endTime: null,
+      title: "Soccer practice",
+      memberIds: [],
+      createdAt: "2025-01-01T00:00:00.000Z",
+      updatedAt: "2025-01-01T00:00:00.000Z",
+    },
+  });
+  ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", scheduleId: "s1" },
+      headers,
+      queryStringParameters: { date: "2025-01-15" },
+      body: JSON.stringify({ startTime: null }),
+    })
+  );
+
+  assert.equal(JSON.parse(result.body ?? "{}").startTime, null);
+});
+
+test("PUT that moves an entry to another day does not leave it on the old one", async () => {
+  ddbMock.on(GetCommand).resolves({
+    Item: {
+      PK: "FAMILY#fam_1",
+      SK: "SCHEDULE#2025-01-15#s1",
+      entityType: "SCHEDULE",
+      familyId: "fam_1",
+      scheduleId: "s1",
+      date: "2025-01-15",
+      startTime: null,
+      endTime: null,
+      title: "Soccer practice",
+      memberIds: [],
+      createdAt: "2025-01-01T00:00:00.000Z",
+      updatedAt: "2025-01-01T00:00:00.000Z",
+    },
+  });
+  ddbMock.on(PutCommand).resolves({});
+  ddbMock.on(DeleteCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", scheduleId: "s1" },
+      headers,
+      queryStringParameters: { date: "2025-01-15" },
+      body: JSON.stringify({ date: "2025-01-16" }),
+    })
+  );
+
+  assert.equal(result.statusCode, 200);
+  const written = ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item;
+  assert.equal(written?.SK, "SCHEDULE#2025-01-16#s1");
+  const deleted = ddbMock.commandCalls(DeleteCommand)[0]?.args[0].input.Key;
+  assert.equal(deleted?.SK, "SCHEDULE#2025-01-15#s1");
+});
+
+test("PUT for an entry that isn't there returns 404 rather than inventing one", async () => {
+  ddbMock.on(GetCommand).resolves({ Item: undefined });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", scheduleId: "nope" },
+      headers,
+      queryStringParameters: { date: "2025-01-15" },
+      body: JSON.stringify({ title: "Anything" }),
+    })
+  );
+
+  assert.equal(result.statusCode, 404);
+  assert.equal(ddbMock.commandCalls(PutCommand).length, 0);
+});
+
+test("PUT without the date query param says so rather than guessing the key", async () => {
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", scheduleId: "s1" },
+      headers,
+      body: JSON.stringify({ title: "Anything" }),
+    })
+  );
+
+  assert.equal(result.statusCode, 400);
 });
