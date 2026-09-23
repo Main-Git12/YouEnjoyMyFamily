@@ -22,12 +22,45 @@ function authHeaders(): Record<string, string> {
   return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
 }
 
+// Mirrors what tasks.ts / rewardGoals.ts return — only the fields these
+// handlers read, per this repo's "no shared code across subprojects"
+// convention (frontend/backend/alexa-skill deploy separately).
+type DueWindow = "morning" | "after_school" | "after_dinner" | "bedtime" | "anytime";
+
 interface TaskItem {
   taskId: string;
   title: string;
+  assignedTo?: string | null;
   status: "pending" | "in_progress" | "done";
+  /** What this chore pays — chores are not all worth the same. */
+  gemValue?: number;
+  dueWindow?: DueWindow;
   gemsAwarded: number;
 }
+
+interface RewardGoalItem {
+  memberId: string;
+  title: string;
+  gemCost: number;
+}
+
+const DUE_WINDOW_LABELS: Record<DueWindow, string> = {
+  morning: "the morning",
+  after_school: "after school",
+  after_dinner: "after dinner",
+  bedtime: "bedtime",
+  anytime: "any time",
+};
+
+// When each part of the day is over, as minutes past midnight. Mirrors
+// DUE_WINDOW_ENDS_AT_MINUTE in backend/src/types.ts.
+const DUE_WINDOW_ENDS_AT_MINUTE: Record<DueWindow, number | null> = {
+  morning: 9 * 60,
+  after_school: 17 * 60,
+  after_dinner: 19 * 60 + 30,
+  bedtime: 20 * 60 + 30,
+  anytime: null,
+};
 
 interface ScheduleEntry {
   scheduleId: string;
@@ -80,6 +113,71 @@ export function addDaysToIsoDate(isoDate: string, days: number): string {
   const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+/**
+ * The time of day where the family actually lives, as minutes past
+ * midnight. Same reasoning as familyToday: Lambda runs in UTC, so asking
+ * "is it past bedtime?" against the server clock would be wrong for every
+ * family that isn't on UTC.
+ */
+export function familyMinutesIntoDay(now: Date = new Date()): number {
+  const timeZone = process.env.YOUENJOYMYFAMILY_TIME_ZONE ?? "UTC";
+  const format = (zone: string) =>
+    new Intl.DateTimeFormat("en-GB", { timeZone: zone, hour: "2-digit", minute: "2-digit", hour12: false }).format(now);
+  let parts: string;
+  try {
+    parts = format(timeZone);
+  } catch {
+    console.error(`Invalid YOUENJOYMYFAMILY_TIME_ZONE "${timeZone}", falling back to UTC`);
+    parts = format("UTC");
+  }
+  return minutesFromClockString(parts);
+}
+
+/**
+ * "21:30" to minutes past midnight. Midnight comes back as "24:00" from
+ * some ICU builds and "00:00" from others, so fold the hour rather than
+ * trusting whichever one this Lambda runtime happens to ship.
+ */
+export function minutesFromClockString(clock: string): number {
+  const [hour, minute] = clock.split(":");
+  return (Number(hour) % 24) * 60 + Number(minute);
+}
+
+/**
+ * Whether a chore's part of the day has already closed. Like the screen,
+ * this is only the clock against a window a family member chose — nothing
+ * about a child is being watched or inferred.
+ */
+export function isPastDueWindow(window: DueWindow | undefined, now: Date = new Date()): boolean {
+  if (!window) return false;
+  const closesAt = DUE_WINDOW_ENDS_AT_MINUTE[window];
+  if (closesAt === null) return false;
+  return familyMinutesIntoDay(now) >= closesAt;
+}
+
+/** "Parker's Wipe Table, worth 10 gems" — who it's for and what it pays. */
+export function describeChore(task: TaskItem): string {
+  const gems = task.gemValue ?? 0;
+  const worth = gems ? `, worth ${gems} gem${gems === 1 ? "" : "s"}` : "";
+  return task.assignedTo ? `${task.assignedTo}'s ${task.title}${worth}` : `${task.title}${worth}`;
+}
+
+/** Each child's running total, summed from the chores they finished. */
+export function gemsByChild(tasks: TaskItem[]): Record<string, number> {
+  const totals: Record<string, number> = {};
+  for (const task of tasks) {
+    if (!task.assignedTo || !task.gemsAwarded) continue;
+    totals[task.assignedTo] = (totals[task.assignedTo] ?? 0) + task.gemsAwarded;
+  }
+  return totals;
+}
+
+export function describePrizeProgress(goal: RewardGoalItem, earned: number): string {
+  const remaining = Math.max(0, goal.gemCost - earned);
+  if (remaining === 0) return `${goal.memberId} has earned ${goal.title}!`;
+  return `${goal.memberId} has ${earned} gem${earned === 1 ? "" : "s"} and needs ${remaining} more for ${goal.title}.`;
 }
 
 function sortByMealSlot(entries: MealPlanEntry[]): MealPlanEntry[] {
@@ -264,11 +362,28 @@ export const GetTasksIntentHandler: Alexa.RequestHandler = {
   async handle(handlerInput): Promise<Response> {
     try {
       const tasks = await fetchJson<TaskItem[]>(`/families/${FAMILY_ID}/tasks`);
-      const speakOutput = tasks.length
-        ? `You have ${tasks.length} task${tasks.length === 1 ? "" : "s"}: ${tasks.map((t) => t.title).join(", ")}.`
-        : "There are no tasks right now.";
+      const open = tasks.filter((task) => task.status !== "done");
 
-      renderDashboard(handlerInput, "Tasks", tasks.length ? tasks.map((t) => t.title) : ["No tasks"]);
+      // Anything whose part of the day has already gone gets called out, so
+      // "what's left" is useful at half eight rather than just a list.
+      const slipped = open.filter((task) => isPastDueWindow(task.dueWindow));
+      const slippedClause = slipped.length
+        ? ` ${slipped
+            .map((task) => `${task.title} was meant for ${DUE_WINDOW_LABELS[task.dueWindow ?? "anytime"]}`)
+            .join(", and ")}.`
+        : "";
+
+      const speakOutput = open.length
+        ? `There ${open.length === 1 ? "is" : "are"} ${open.length} chore${open.length === 1 ? "" : "s"} left: ${open
+            .map(describeChore)
+            .join(", ")}.${slippedClause}`
+        : "Every chore is done. Nice work!";
+
+      renderDashboard(
+        handlerInput,
+        "Chores left",
+        open.length ? open.map(describeChore) : ["Every chore is done!"]
+      );
       return handlerInput.responseBuilder.speak(speakOutput).getResponse();
     } catch (err) {
       console.error(err);
@@ -526,6 +641,44 @@ export const AddGroceryItemIntentHandler: Alexa.RequestHandler = {
   },
 };
 
+export const GetPrizeProgressIntentHandler: Alexa.RequestHandler = {
+  canHandle(handlerInput) {
+    return (
+      Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
+      Alexa.getIntentName(handlerInput.requestEnvelope) === "GetPrizeProgressIntent"
+    );
+  },
+  async handle(handlerInput): Promise<Response> {
+    const askedAbout = Alexa.getSlotValue(handlerInput.requestEnvelope, "memberName");
+
+    try {
+      const [tasks, goals] = await Promise.all([
+        fetchJson<TaskItem[]>(`/families/${FAMILY_ID}/tasks`),
+        fetchJson<RewardGoalItem[]>(`/families/${FAMILY_ID}/reward-goals`),
+      ]);
+      const earned = gemsByChild(tasks);
+
+      const wanted = askedAbout
+        ? goals.filter((goal) => goal.memberId.toLowerCase() === askedAbout.toLowerCase())
+        : goals;
+
+      if (!wanted.length) {
+        const speakOutput = askedAbout
+          ? `${askedAbout} hasn't picked a prize yet. You can set one on the family screen.`
+          : "Nobody's picked a prize yet. You can set one on the family screen.";
+        return handlerInput.responseBuilder.speak(speakOutput).getResponse();
+      }
+
+      const lines = wanted.map((goal) => describePrizeProgress(goal, earned[goal.memberId] ?? 0));
+      renderDashboard(handlerInput, "Working toward", lines);
+      return handlerInput.responseBuilder.speak(lines.join(" ")).getResponse();
+    } catch (err) {
+      console.error(err);
+      return handlerInput.responseBuilder.speak("I couldn't check the prize board right now.").getResponse();
+    }
+  },
+};
+
 export const HelpIntentHandler: Alexa.RequestHandler = {
   canHandle(handlerInput) {
     return (
@@ -535,7 +688,7 @@ export const HelpIntentHandler: Alexa.RequestHandler = {
   },
   handle(handlerInput): Response {
     const speakOutput =
-      "You can ask what's on today's schedule, what the tasks are, add a task, say you finished a chore to battle for gems, ask how the gem castle is growing, check today's meal plan, build the grocery list from this week's meals, add something to the grocery list, or ask what's on it.";
+      "You can ask what's on today's schedule, what chores are left, add a chore, say you finished a chore to battle for gems, ask how close someone is to their prize, ask how the gem castle is growing, check today's meal plan, build the grocery list from this week's meals, add something to the grocery list, or ask what's on it.";
     return handlerInput.responseBuilder.speak(speakOutput).reprompt(speakOutput).getResponse();
   },
 };
@@ -580,6 +733,7 @@ export const handler = Alexa.SkillBuilders.custom()
     AddTaskIntentHandler,
     CompleteChoreIntentHandler,
     GetGemCastleIntentHandler,
+    GetPrizeProgressIntentHandler,
     GetMealPlanIntentHandler,
     GenerateGroceryListIntentHandler,
     GetGroceryListIntentHandler,

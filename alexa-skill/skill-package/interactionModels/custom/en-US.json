@@ -3,10 +3,22 @@
     "languageModel": {
       "invocationName": "you enjoy my family",
       "intents": [
-        { "name": "AMAZON.CancelIntent", "samples": [] },
-        { "name": "AMAZON.HelpIntent", "samples": [] },
-        { "name": "AMAZON.StopIntent", "samples": [] },
-        { "name": "AMAZON.NavigateHomeIntent", "samples": [] },
+        {
+          "name": "AMAZON.CancelIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.HelpIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.StopIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.NavigateHomeIntent",
+          "samples": []
+        },
         {
           "name": "GetScheduleIntent",
           "slots": [],
@@ -23,13 +35,19 @@
           "samples": [
             "what are the tasks",
             "what's on the task list",
-            "what needs to get done"
+            "what needs to get done",
+            "what chores are left",
+            "which chores still need doing",
+            "who still has chores"
           ]
         },
         {
           "name": "AddTaskIntent",
           "slots": [
-            { "name": "taskTitle", "type": "AMAZON.SearchQuery" }
+            {
+              "name": "taskTitle",
+              "type": "AMAZON.SearchQuery"
+            }
           ],
           "samples": [
             "add {taskTitle} to the tasks",
@@ -40,8 +58,14 @@
         {
           "name": "CompleteChoreIntent",
           "slots": [
-            { "name": "taskTitle", "type": "AMAZON.SearchQuery" },
-            { "name": "memberName", "type": "AMAZON.FirstName" }
+            {
+              "name": "taskTitle",
+              "type": "AMAZON.SearchQuery"
+            },
+            {
+              "name": "memberName",
+              "type": "AMAZON.FirstName"
+            }
           ],
           "samples": [
             "I finished {taskTitle}",
@@ -63,6 +87,24 @@
             "tell me about the gem castle",
             "how's our kingdom growing",
             "who lives in the castle"
+          ]
+        },
+        {
+          "name": "GetPrizeProgressIntent",
+          "slots": [
+            {
+              "name": "memberName",
+              "type": "AMAZON.FirstName"
+            }
+          ],
+          "samples": [
+            "what is everyone saving for",
+            "what are we working toward",
+            "how close is {memberName} to their prize",
+            "how many gems does {memberName} need",
+            "what is {memberName} saving for",
+            "check the prize board",
+            "how close is everyone to their prize"
           ]
         },
         {
@@ -100,7 +142,12 @@
         },
         {
           "name": "AddGroceryItemIntent",
-          "slots": [{ "name": "itemDescription", "type": "AMAZON.SearchQuery" }],
+          "slots": [
+            {
+              "name": "itemDescription",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
           "samples": [
             "add {itemDescription} to the grocery list",
             "add {itemDescription} to the shopping list",

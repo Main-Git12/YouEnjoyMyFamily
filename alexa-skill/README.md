@@ -31,7 +31,23 @@ The Lambda handler reads:
 - `YOUENJOYMYFAMILY_API_BASE_URL` — the deployed backend's API Gateway URL (see `backend/template.yaml` outputs).
 - `YOUENJOYMYFAMILY_FAMILY_ID` — placeholder until account linking resolves the family from the Alexa user; defaults to `fam_demo`.
 - `YOUENJOYMYFAMILY_FAMILY_API_KEY` — the API key for that same family, issued once by `POST /families` (see `backend/README.md`). Every backend route now requires it; requests without it get a 401.
-- `YOUENJOYMYFAMILY_TIME_ZONE` — the family's IANA timezone (e.g. `America/New_York`), used to work out what "today" means for the schedule and meal-plan intents. Lambda runs in UTC, so without this an evening "what's for dinner?" would answer with *tomorrow's* meal for any family west of UTC. Defaults to `UTC`; an unrecognized value falls back to `UTC` rather than failing the response.
+- `YOUENJOYMYFAMILY_TIME_ZONE` — the family's IANA timezone (e.g. `America/New_York`), used to work out what "today" means for the schedule and meal-plan intents, and what time of day it is for "what chores are left". Lambda runs in UTC, so without this an evening "what's for dinner?" would answer with *tomorrow's* meal for any family west of UTC, and "that was meant for bedtime" would land hours out. Defaults to `UTC`; an unrecognized value falls back to `UTC` rather than failing the response.
+
+## What the skill knows about gems
+
+Chores are not all worth the same — each one carries its own `gemValue`
+and a `dueWindow` (the part of the day the family assigned it to), both
+set on the backend (see `backend/models/schema.md`). The skill reads
+those, so "what chores are left" says who each one belongs to and what it
+pays, and calls out anything whose part of the day has already gone.
+
+That last bit is only the clock against a window a person typed in. The
+skill never watches a child, infers habits, or keeps a profile — the same
+rule the screen follows (see `frontend/src/lib/gemThreats.ts`).
+
+`GetPrizeProgressIntent` reads the prize board: ask "how close is Parker
+to his prize?" and it sums the gems from the chores assigned to that child
+against the goal someone set on the family screen.
 
 ## Checks
 

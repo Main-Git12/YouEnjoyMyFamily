@@ -7,6 +7,7 @@ import {
   AddTaskIntentHandler,
   CompleteChoreIntentHandler,
   GetGemCastleIntentHandler,
+  GetPrizeProgressIntentHandler,
   GetMealPlanIntentHandler,
   GenerateGroceryListIntentHandler,
   GetGroceryListIntentHandler,
@@ -17,7 +18,13 @@ import {
   ErrorHandler,
   CHORE_CELEBRATION_LINES,
   familyToday,
+  familyMinutesIntoDay,
+  minutesFromClockString,
   addDaysToIsoDate,
+  isPastDueWindow,
+  describeChore,
+  gemsByChild,
+  describePrizeProgress,
 } from "./index";
 import { makeHandlerInput, intentRequest, type FakeResponse } from "./testSupport";
 
@@ -96,13 +103,206 @@ test("GetScheduleIntentHandler degrades gracefully when the backend is unreachab
   assert.match(speechOf(response), /couldn't reach the schedule/i);
 });
 
-test("GetTasksIntentHandler pluralizes correctly for one vs many tasks", async () => {
-  mock.method(globalThis, "fetch", async () => new Response(JSON.stringify([{ taskId: "t1", title: "Pack bag" }]), { status: 200 }));
+test("GetTasksIntentHandler says who each chore belongs to and what it pays", async () => {
+  mock.method(
+    globalThis,
+    "fetch",
+    async () =>
+      new Response(
+        JSON.stringify([
+          { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", status: "pending", gemValue: 10, dueWindow: "anytime", gemsAwarded: 0 },
+        ]),
+        { status: 200 }
+      )
+  );
 
   const handlerInput = makeHandlerInput(intentRequest("GetTasksIntent"));
   const response = (await GetTasksIntentHandler.handle(handlerInput)) as FakeResponse;
 
-  assert.match(speechOf(response), /You have 1 task: Pack bag/);
+  assert.match(speechOf(response), /There is 1 chore left: Parker's Wipe Table, worth 10 gems\./);
+});
+
+test("GetTasksIntentHandler leaves finished chores out of what's left", async () => {
+  mock.method(
+    globalThis,
+    "fetch",
+    async () =>
+      new Response(
+        JSON.stringify([
+          { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", status: "done", gemValue: 10, dueWindow: "anytime", gemsAwarded: 10 },
+          { taskId: "t2", title: "Take a bath", assignedTo: "Isla", status: "pending", gemValue: 5, dueWindow: "anytime", gemsAwarded: 0 },
+        ]),
+        { status: 200 }
+      )
+  );
+
+  const handlerInput = makeHandlerInput(intentRequest("GetTasksIntent"));
+  const response = (await GetTasksIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  const speech = speechOf(response);
+  assert.match(speech, /1 chore left/);
+  assert.match(speech, /Isla's Take a bath/);
+  assert.doesNotMatch(speech, /Wipe Table/);
+});
+
+test("GetTasksIntentHandler celebrates rather than reciting when nothing is left", async () => {
+  mock.method(
+    globalThis,
+    "fetch",
+    async () =>
+      new Response(
+        JSON.stringify([{ taskId: "t1", title: "Wipe Table", assignedTo: "Parker", status: "done", gemValue: 10, gemsAwarded: 10 }]),
+        { status: 200 }
+      )
+  );
+
+  const handlerInput = makeHandlerInput(intentRequest("GetTasksIntent"));
+  const response = (await GetTasksIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  assert.match(speechOf(response), /Every chore is done/);
+});
+
+test("GetTasksIntentHandler points out a chore whose part of the day has gone", async () => {
+  process.env.YOUENJOYMYFAMILY_TIME_ZONE = "UTC";
+  // Half nine at night, so the after-dinner window has closed.
+  mock.timers.enable({ apis: ["Date"], now: Date.UTC(2026, 8, 23, 21, 30) });
+  mock.method(
+    globalThis,
+    "fetch",
+    async () =>
+      new Response(
+        JSON.stringify([
+          { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", status: "pending", gemValue: 10, dueWindow: "after_dinner", gemsAwarded: 0 },
+        ]),
+        { status: 200 }
+      )
+  );
+
+  const handlerInput = makeHandlerInput(intentRequest("GetTasksIntent"));
+  const response = (await GetTasksIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  assert.match(speechOf(response), /Wipe Table was meant for after dinner/);
+  mock.timers.reset();
+});
+
+test("describeChore leaves out a gem value nobody set, rather than saying zero gems", () => {
+  assert.equal(describeChore({ taskId: "t1", title: "Feed the fish", status: "pending", gemsAwarded: 0 }), "Feed the fish");
+});
+
+test("isPastDueWindow reads the family's clock, not the Lambda's", () => {
+  // Half nine at night in Chicago is half three in the morning, UTC. Judging
+  // "past bedtime" on the server clock would get this exactly backwards.
+  const night = new Date("2026-09-24T02:30:00Z");
+  process.env.YOUENJOYMYFAMILY_TIME_ZONE = "America/Chicago";
+  assert.equal(isPastDueWindow("bedtime", night), true);
+  process.env.YOUENJOYMYFAMILY_TIME_ZONE = "UTC";
+  assert.equal(isPastDueWindow("bedtime", night), false);
+});
+
+test("isPastDueWindow never calls an anytime chore late", () => {
+  process.env.YOUENJOYMYFAMILY_TIME_ZONE = "UTC";
+  assert.equal(isPastDueWindow("anytime", new Date("2026-09-23T23:59:00Z")), false);
+  assert.equal(isPastDueWindow(undefined, new Date("2026-09-23T23:59:00Z")), false);
+});
+
+test("familyMinutesIntoDay reads the wall clock where the family lives", () => {
+  process.env.YOUENJOYMYFAMILY_TIME_ZONE = "UTC";
+  assert.equal(familyMinutesIntoDay(new Date("2026-09-23T00:00:00Z")), 0);
+  assert.equal(familyMinutesIntoDay(new Date("2026-09-23T21:30:00Z")), 21 * 60 + 30);
+});
+
+test("minutesFromClockString folds midnight to zero however this runtime spells it", () => {
+  // Some ICU builds render midnight as 24:00, others as 00:00.
+  assert.equal(minutesFromClockString("00:00"), 0);
+  assert.equal(minutesFromClockString("24:00"), 0);
+  assert.equal(minutesFromClockString("21:30"), 21 * 60 + 30);
+});
+
+test("familyMinutesIntoDay falls back to UTC rather than taking the response down", () => {
+  process.env.YOUENJOYMYFAMILY_TIME_ZONE = "Not/AZone";
+  mock.method(console, "error", () => {});
+  assert.equal(familyMinutesIntoDay(new Date("2026-09-23T08:15:00Z")), 8 * 60 + 15);
+  process.env.YOUENJOYMYFAMILY_TIME_ZONE = "UTC";
+});
+
+test("gemsByChild sums each child's own chores and ignores unassigned ones", () => {
+  const totals = gemsByChild([
+    { taskId: "t1", title: "a", assignedTo: "Parker", status: "done", gemsAwarded: 10 },
+    { taskId: "t2", title: "b", assignedTo: "Parker", status: "done", gemsAwarded: 20 },
+    { taskId: "t3", title: "c", assignedTo: "Isla", status: "done", gemsAwarded: 5 },
+    { taskId: "t4", title: "d", assignedTo: null, status: "done", gemsAwarded: 100 },
+  ]);
+  assert.deepEqual(totals, { Parker: 30, Isla: 5 });
+});
+
+test("describePrizeProgress counts down, and stops at earned rather than going negative", () => {
+  assert.match(describePrizeProgress({ memberId: "Parker", title: "a LEGO set", gemCost: 50 }, 30), /needs 20 more for a LEGO set/);
+  assert.match(describePrizeProgress({ memberId: "Parker", title: "a LEGO set", gemCost: 50 }, 80), /has earned a LEGO set/);
+});
+
+test("GetPrizeProgressIntentHandler reads one child's progress when asked about them", async () => {
+  mock.method(globalThis, "fetch", async (input: string) =>
+    input.includes("reward-goals")
+      ? new Response(
+          JSON.stringify([
+            { memberId: "Parker", title: "a LEGO set", gemCost: 50 },
+            { memberId: "Isla", title: "roller skates", gemCost: 25 },
+          ]),
+          { status: 200 }
+        )
+      : new Response(
+          JSON.stringify([
+            { taskId: "t1", title: "a", assignedTo: "Parker", status: "done", gemValue: 10, gemsAwarded: 30 },
+            { taskId: "t2", title: "b", assignedTo: "Isla", status: "done", gemValue: 5, gemsAwarded: 25 },
+          ]),
+          { status: 200 }
+        )
+  );
+
+  const handlerInput = makeHandlerInput(intentRequest("GetPrizeProgressIntent", { memberName: "parker" }));
+  const response = (await GetPrizeProgressIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  const speech = speechOf(response);
+  assert.match(speech, /Parker has 30 gems and needs 20 more for a LEGO set/);
+  assert.doesNotMatch(speech, /Isla/);
+});
+
+test("GetPrizeProgressIntentHandler reads the whole board when nobody is named", async () => {
+  mock.method(globalThis, "fetch", async (input: string) =>
+    input.includes("reward-goals")
+      ? new Response(JSON.stringify([{ memberId: "Isla", title: "roller skates", gemCost: 25 }]), { status: 200 })
+      : new Response(
+          JSON.stringify([{ taskId: "t2", title: "b", assignedTo: "Isla", status: "done", gemValue: 5, gemsAwarded: 25 }]),
+          { status: 200 }
+        )
+  );
+
+  const handlerInput = makeHandlerInput(intentRequest("GetPrizeProgressIntent"));
+  const response = (await GetPrizeProgressIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  assert.match(speechOf(response), /Isla has earned roller skates/);
+});
+
+test("GetPrizeProgressIntentHandler says where to set one when a child has no prize yet", async () => {
+  mock.method(globalThis, "fetch", async (input: string) =>
+    input.includes("reward-goals")
+      ? new Response(JSON.stringify([]), { status: 200 })
+      : new Response(JSON.stringify([]), { status: 200 })
+  );
+
+  const handlerInput = makeHandlerInput(intentRequest("GetPrizeProgressIntent", { memberName: "Parker" }));
+  const response = (await GetPrizeProgressIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  assert.match(speechOf(response), /Parker hasn't picked a prize yet/);
+});
+
+test("GetPrizeProgressIntentHandler degrades gracefully when the backend is unreachable", async () => {
+  mock.method(globalThis, "fetch", async () => new Response("error", { status: 500 }));
+
+  const handlerInput = makeHandlerInput(intentRequest("GetPrizeProgressIntent"));
+  const response = (await GetPrizeProgressIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  assert.match(speechOf(response), /couldn't check the prize board/i);
 });
 
 test("AddTaskIntentHandler asks for a title when the slot is empty", async () => {
