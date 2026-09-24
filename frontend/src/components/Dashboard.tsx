@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../lib/api";
-import type { Task, TaskCompletion, ScheduleEntry, StatedPreference, StatedPreferenceCategory, MealPlanEntry, MealSlot, CartItem, RewardGoal, GemBalance } from "../types";
+import type { Task, TaskCompletion, ScheduleEntry, StatedPreference, StatedPreferenceCategory, MealPlanEntry, MealSlot, CartItem, RewardGoal, GemBalance, DueWindow } from "../types";
 import { chooseThreatenedChore, type ThreatenedChore } from "../lib/gemThreats";
 import FamilyCard from "./FamilyCard";
 import TaskList from "./TaskList";
@@ -14,6 +14,9 @@ import PrizeGoal from "./PrizeGoal";
 import MealPlan from "./MealPlan";
 import { toLocalIsoDate, weekFromOffset } from "../lib/dates";
 import { knownMembers } from "../lib/members";
+import { buildInsights, INSIGHT_WINDOW_DAYS, type Insight } from "../lib/insights";
+import Insights from "./Insights";
+import RetimeChore from "./RetimeChore";
 import { getFamilyId } from "../lib/familyKey";
 import GroceryCart from "./GroceryCart";
 
@@ -45,8 +48,10 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   const [celebration, setCelebration] = useState<{ gemsEarned: number } | null>(null);
   const [rewardGoals, setRewardGoals] = useState<RewardGoal[]>([]);
   const [gemBalances, setGemBalances] = useState<GemBalance[]>([]);
+  const [familyGems, setFamilyGems] = useState({ earned: 0, spent: 0, balance: 0 });
   const [threatened, setThreatened] = useState<ThreatenedChore | null>(null);
   const [dismissedThreatTaskIds, setDismissedThreatTaskIds] = useState<string[]>([]);
+  const [choreBeingRetimed, setChoreBeingRetimed] = useState<string | null>(null);
   // True from the moment "defend" is tapped until the scenario closes
   // itself, so the celebration beat is not yanked off screen the instant
   // the chore goes green.
@@ -62,6 +67,10 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   // The card says "Today's schedule", so ask for today rather than sending
   // blank bounds and relying on the backend's catch-all range.
   const today = toLocalIsoDate(new Date());
+  // How far back the screen reasons over — see lib/insights.ts.
+  const insightWindowStart = toLocalIsoDate(
+    new Date(Date.now() - INSIGHT_WINDOW_DAYS * 24 * 60 * 60 * 1000)
+  );
 
   // Fetches but deliberately does not apply — the caller decides whether a
   // response that arrived late is still the one it asked for. Paging
@@ -70,7 +79,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   const fetchEverything = useCallback(async () => {
     const [taskItems, completionItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList, rewardGoalItems, gemBalanceItems] = await Promise.all([
       api.listTasks(familyId, today),
-      api.listTaskCompletions(familyId),
+      api.listTaskCompletions(familyId, insightWindowStart, today),
       api.listSchedules(familyId, today, today),
       api.listStatedPreferences(familyId),
       api.listMealPlan(familyId, weekStart, weekEnd),
@@ -79,7 +88,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
       api.listGemBalances(familyId),
     ]);
     return { taskItems, completionItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList, rewardGoalItems, gemBalanceItems };
-  }, [familyId, weekStart, weekEnd, today]);
+  }, [familyId, weekStart, weekEnd, today, insightWindowStart]);
 
   // Bumped at the start *and* the end of every local write. A sync that
   // overlapped a write is holding a snapshot taken before the server saw it,
@@ -105,7 +114,8 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
     setMealPlan(data.mealPlanItems);
     setCartItems(data.cartItemsList);
     setRewardGoals(data.rewardGoalItems);
-    setGemBalances(data.gemBalanceItems);
+    setGemBalances(data.gemBalanceItems.balances);
+    setFamilyGems(data.gemBalanceItems.family);
   }, []);
 
   // Runs on mount and again whenever the week on screen changes, so paging
@@ -175,15 +185,47 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   // claimed. The castle reflects the same thing, so taking a prize visibly
   // costs something rather than the total only ever climbing.
   //
-  // Counted from the completions rather than by adding up the per-child
-  // balances: a chore nobody is named on still earns gems for the kingdom,
-  // and summing balances would quietly drop them.
-  const gemsEarned = completions.reduce((sum, completion) => sum + completion.gemsAwarded, 0);
-  const gemsSpent = gemBalances.reduce((sum, balance) => sum + balance.spent, 0);
-  const totalGems = gemsEarned - gemsSpent;
+  // Reported by the backend rather than added up here: a chore nobody is
+  // named on still earns gems for the kingdom, so summing the per-child
+  // balances would quietly drop them — and the screen would need every
+  // completion row ever written just to do the arithmetic.
+  const totalGems = familyGems.balance;
 
   // Each child's own spendable total, so their prize bar means something.
   const gemsByChild = Object.fromEntries(gemBalances.map((balance) => [balance.memberId, balance.balance]));
+
+  /**
+   * What the app has noticed, from the family's own records. Recomputed
+   * each render rather than cached: it's arithmetic over data already in
+   * hand, and a stale observation is worse than none.
+   */
+  const insights = buildInsights({ tasks, completions, mealPlan, cartItems, today });
+
+  /**
+   * Acting on an observation. Each one only ever *proposes* — the family
+   * taps, and the change is theirs. Nothing here happens on its own.
+   */
+  async function handleInsightAction(insight: Insight) {
+    if (!insight.action) return;
+    if (insight.action.kind === "add_to_list") {
+      await handleAddCartItem(insight.action.payload, 1);
+      return;
+    }
+    if (insight.action.kind === "plan_meal") {
+      // Offered for the first free dinner slot in the week on screen, so
+      // "plan it again" means something concrete rather than opening a form.
+      const free = weekDays.find((day) => !mealPlan.some((entry) => entry.date === day && entry.slot === "dinner"));
+      if (free) await handleSaveMealPlanEntry(free, "dinner", { mealName: insight.action.payload, ingredients: [] });
+      return;
+    }
+    if (insight.action.kind === "reschedule_chore") {
+      // Deliberately does not pick a new time itself. Which part of the day
+      // a chore belongs in is a judgement about how this family's evening
+      // actually runs, and the app doesn't get to make it — it just opens
+      // the chore up so someone can.
+      setChoreBeingRetimed(insight.action.payload);
+    }
+  }
 
   // Gathered from what the family has already entered, not a registry of
   // children the app keeps on its own.
@@ -247,6 +289,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
         },
       ]);
       creditGems(task.assignedTo, task.gemValue);
+      setFamilyGems((prev) => ({ ...prev, earned: prev.earned + task.gemValue, balance: prev.balance + task.gemValue }));
     }
     // A chore finished from inside a threat scenario has its own
     // celebration in the overlay; two at once is just noise.
@@ -266,10 +309,22 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
       if (!alreadyCounted) {
         setCompletions((prev) => prev.filter((c) => !(c.taskId === task.taskId && c.date === task.date)));
         creditGems(task.assignedTo, -task.gemValue);
+        setFamilyGems((prev) => ({ ...prev, earned: prev.earned - task.gemValue, balance: prev.balance - task.gemValue }));
       }
       setCelebration(null);
       reportError(err);
       return false;
+    }
+  }
+
+  async function handleRetimeChore(taskId: string, dueWindow: DueWindow) {
+    try {
+      const updated = await guardedWrite(() => api.updateTask(familyId, taskId, { dueWindow }));
+      setTasks((prev) => prev.map((t) => (t.taskId === updated.taskId ? updated : t)));
+      setChoreBeingRetimed(null);
+      setError(null);
+    } catch (err) {
+      reportError(err);
     }
   }
 
@@ -356,13 +411,14 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
 
   async function handleClaimRewardGoal(memberId: string) {
     try {
-      const { balance } = await guardedWrite(() => api.claimRewardGoal(familyId, memberId));
+      const { balance, claim } = await guardedWrite(() => api.claimRewardGoal(familyId, memberId));
       // The prize is taken, so it leaves the board and the gems leave with it.
       setRewardGoals((prev) => prev.filter((goal) => goal.memberId !== memberId));
       setGemBalances((prev) => {
         const seen = prev.some((existing) => existing.memberId === memberId);
         return seen ? prev.map((existing) => (existing.memberId === memberId ? balance : existing)) : [...prev, balance];
       });
+      setFamilyGems((prev) => ({ ...prev, spent: prev.spent + claim.gemCost, balance: prev.balance - claim.gemCost }));
       setError(null);
     } catch (err) {
       reportError(err);
@@ -516,6 +572,10 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
             <ChoreLibrary onAdd={handleAddChore} members={members} />
           </FamilyCard>
 
+          <FamilyCard title="What we've noticed">
+            <Insights insights={insights} onAct={handleInsightAction} />
+          </FamilyCard>
+
           <FamilyCard title="Working toward">
             <PrizeGoal
               goals={rewardGoals}
@@ -571,6 +631,17 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
           onDismiss={() => setCelebration(null)}
         />
       )}
+
+      {choreBeingRetimed && (() => {
+        const task = tasks.find((t) => t.taskId === choreBeingRetimed);
+        return task ? (
+          <RetimeChore
+            task={task}
+            onChoose={(dueWindow) => handleRetimeChore(task.taskId, dueWindow)}
+            onDismiss={() => setChoreBeingRetimed(null)}
+          />
+        ) : null;
+      })()}
 
       {threatened && (
         <GemThreatAlert threatened={threatened} onDefend={handleDefendGems} onDismiss={handleDismissThreat} />

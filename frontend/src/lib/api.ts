@@ -1,4 +1,4 @@
-import type { Task, TaskCompletion, ScheduleEntry, CartItem, StatedPreference, MealPlanEntry, MealSlot, RewardGoal, GemBalance } from "../types";
+import type { Task, TaskCompletion, ScheduleEntry, CartItem, StatedPreference, MealPlanEntry, MealSlot, RewardGoal, GemBalance, GemBalanceReport } from "../types";
 
 import { getFamilyApiKey } from "./familyKey";
 
@@ -99,10 +99,14 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ status: "done", date }),
     }),
-  // Everything ever earned. Gem totals can't come from today's chore list:
-  // a daily chore is one row that pays out again every day it's done.
-  listTaskCompletions: (familyId: string) =>
-    request<TaskCompletion[]>(`/families/${familyId}/task-completions`),
+  // What got done over a range. Bounded on purpose: the screen only needs
+  // recent history to reason about streaks and habits, and the running gem
+  // totals come from the balances endpoint rather than by adding up every
+  // row ever written.
+  listTaskCompletions: (familyId: string, start: string, end: string) =>
+    request<TaskCompletion[]>(`/families/${familyId}/task-completions?start=${start}&end=${end}`),
+  updateTask: (familyId: string, taskId: string, patch: Partial<Pick<Task, "title" | "gemValue" | "dueWindow" | "recurrence" | "assignedTo">>) =>
+    request<Task>(`/families/${familyId}/tasks/${taskId}`, { method: "PUT", body: JSON.stringify(patch) }),
   reopenTask: (familyId: string, taskId: string, date: string) =>
     request<Task>(`/families/${familyId}/tasks/${taskId}`, {
       method: "PUT",
@@ -152,7 +156,7 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(goal),
     }),
-  listGemBalances: (familyId: string) => request<GemBalance[]>(`/families/${familyId}/gem-balances`),
+  listGemBalances: (familyId: string) => request<GemBalanceReport>(`/families/${familyId}/gem-balances`),
   claimRewardGoal: (familyId: string, memberId: string) =>
     request<{ claim: { title: string; gemCost: number }; balance: GemBalance }>(
       `/families/${familyId}/reward-goals/${encodeURIComponent(memberId)}/claim`,

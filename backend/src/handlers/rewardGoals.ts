@@ -97,12 +97,28 @@ export function gemBalances(
   return balances;
 }
 
-async function listGemBalances(familyId: string): Promise<GemBalance[]> {
+export interface GemBalanceReport {
+  balances: GemBalance[];
+  /**
+   * The kingdom's own total — every gem ever earned, including from chores
+   * nobody was named on, minus everything claimed. Summing the per-child
+   * balances would silently drop the unassigned ones, and the screen would
+   * need every completion row ever written just to add them up.
+   */
+  family: { earned: number; spent: number; balance: number };
+}
+
+async function listGemBalances(familyId: string): Promise<GemBalanceReport> {
   const [completions, claims] = await Promise.all([
     listCompletions(familyId, "0000-00-00", "9999-12-31"),
     listRewardClaims(familyId),
   ]);
-  return Object.values(gemBalances(completions, claims));
+  const earned = completions.reduce((sum, completion) => sum + completion.gemsAwarded, 0);
+  const spent = claims.reduce((sum, claim) => sum + claim.gemCost, 0);
+  return {
+    balances: Object.values(gemBalances(completions, claims)),
+    family: { earned, spent, balance: earned - spent },
+  };
 }
 
 interface ClaimResult {
@@ -124,7 +140,7 @@ async function claimRewardGoal(
   const goal = goals.find((candidate) => candidate.memberId === memberId);
   if (!goal) return "not_found";
 
-  const balances = await listGemBalances(familyId);
+  const { balances } = await listGemBalances(familyId);
   const current = balances.find((candidate) => candidate.memberId === memberId);
   const available = current?.balance ?? 0;
   if (available < goal.gemCost) return "not_enough";

@@ -314,9 +314,41 @@ test("GET /gem-balances reports what each child has right now", async () => {
   );
 
   assert.equal(result.statusCode, 200);
-  const body = JSON.parse(result.body ?? "[]") as { memberId: string; balance: number }[];
-  assert.equal(body.find((b) => b.memberId === "Parker")?.balance, 25);
-  assert.equal(body.find((b) => b.memberId === "Isla")?.balance, 20);
+  const body = JSON.parse(result.body ?? "{}") as {
+    balances: { memberId: string; balance: number }[];
+    family: { earned: number; spent: number; balance: number };
+  };
+  assert.equal(body.balances.find((b) => b.memberId === "Parker")?.balance, 25);
+  assert.equal(body.balances.find((b) => b.memberId === "Isla")?.balance, 20);
+  // The kingdom's own total, so the screen doesn't need every completion
+  // row ever written just to add them up.
+  assert.deepEqual(body.family, { earned: 95, spent: 50, balance: 45 });
+});
+
+test("the family total counts gems from chores nobody was named on", async () => {
+  ddbMock.on(QueryCommand).callsFake((input: { ExpressionAttributeValues?: Record<string, string> }) => {
+    const prefix = input.ExpressionAttributeValues?.[":prefix"];
+    const from = input.ExpressionAttributeValues?.[":from"];
+    if (prefix === "REWARDCLAIM#") return { Items: [] };
+    if (typeof from === "string" && from.startsWith("COMPLETION#")) {
+      return { Items: [{ memberId: null, gemsAwarded: 15 }, { memberId: "Isla", gemsAwarded: 20 }] };
+    }
+    return { Items: [] };
+  });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({
+      method: "GET",
+      rawPath: "/families/fam_1/gem-balances",
+      pathParameters: { familyId: "fam_1" },
+      headers,
+    })
+  );
+
+  const body = JSON.parse(result.body ?? "{}") as { family: { earned: number } };
+  // Adding up the per-child balances would have lost the unassigned 15.
+  assert.equal(body.family.earned, 35);
 });
 
 test("a name with a stray space is the same child, not a second one", async () => {

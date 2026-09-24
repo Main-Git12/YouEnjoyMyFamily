@@ -37,6 +37,7 @@ vi.mock("../lib/api", () => ({
     checkoutGroceryCart: vi.fn(),
     listRewardGoals: vi.fn(),
     listGemBalances: vi.fn(),
+    updateTask: vi.fn(),
     claimRewardGoal: vi.fn(),
     setRewardGoal: vi.fn(),
   },
@@ -50,7 +51,7 @@ describe("Dashboard", () => {
     vi.mocked(api.listCartItems).mockResolvedValue([]);
     vi.mocked(api.listRewardGoals).mockResolvedValue([]);
     vi.mocked(api.listTaskCompletions).mockResolvedValue([]);
-    vi.mocked(api.listGemBalances).mockResolvedValue([]);
+    vi.mocked(api.listGemBalances).mockResolvedValue({ balances: [], family: { earned: 0, spent: 0, balance: 0 } });
   });
 
   afterEach(() => {
@@ -264,9 +265,10 @@ describe("Dashboard", () => {
     vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
     // Three days of the same daily chore — the point being that a recurring
     // chore pays out again each day, which today's list can't tell you.
-    vi.mocked(api.listGemBalances).mockResolvedValue([
-      { memberId: "Parker", earned: 30, spent: 0, balance: 30 },
-    ]);
+    vi.mocked(api.listGemBalances).mockResolvedValue({
+      balances: [{ memberId: "Parker", earned: 30, spent: 0, balance: 30 }],
+      family: { earned: 30, spent: 0, balance: 30 },
+    });
     vi.mocked(api.listRewardGoals).mockResolvedValue([
       { memberId: "Parker", title: "LEGO set", gemCost: 50, note: null },
     ]);
@@ -561,9 +563,10 @@ describe("Dashboard", () => {
       { taskId: "t1", date: "2026-09-21", title: "Wipe Table", memberId: "Parker", gemsAwarded: 10 },
       { taskId: "t1", date: "2026-09-22", title: "Wipe Table", memberId: "Parker", gemsAwarded: 10 },
     ]);
-    vi.mocked(api.listGemBalances).mockResolvedValue([
-      { memberId: "Parker", earned: 20, spent: 0, balance: 20 },
-    ]);
+    vi.mocked(api.listGemBalances).mockResolvedValue({
+      balances: [{ memberId: "Parker", earned: 20, spent: 0, balance: 20 }],
+      family: { earned: 20, spent: 0, balance: 20 },
+    });
 
     render(<Dashboard />);
 
@@ -600,9 +603,10 @@ describe("Dashboard", () => {
     vi.mocked(api.listTaskCompletions).mockResolvedValue([
       { taskId: "t1", date: "2026-09-22", title: "Homework", memberId: "Parker", gemsAwarded: 60 },
     ]);
-    vi.mocked(api.listGemBalances).mockResolvedValue([
-      { memberId: "Parker", earned: 60, spent: 0, balance: 60 },
-    ]);
+    vi.mocked(api.listGemBalances).mockResolvedValue({
+      balances: [{ memberId: "Parker", earned: 60, spent: 0, balance: 60 }],
+      family: { earned: 60, spent: 0, balance: 60 },
+    });
     vi.mocked(api.listRewardGoals).mockResolvedValue([
       { memberId: "Parker", title: "LEGO set", gemCost: 50, note: null },
     ]);
@@ -629,7 +633,7 @@ describe("Dashboard", () => {
     vi.mocked(api.listSchedules).mockResolvedValue([]);
     vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
     vi.mocked(api.listTaskCompletions).mockResolvedValue([]);
-    vi.mocked(api.listGemBalances).mockResolvedValue([]);
+    vi.mocked(api.listGemBalances).mockResolvedValue({ balances: [], family: { earned: 0, spent: 0, balance: 0 } });
 
     // A slow write, still in flight.
     let settle: (task: Task) => void = () => {};
@@ -657,7 +661,7 @@ describe("Dashboard", () => {
     vi.mocked(api.listSchedules).mockResolvedValue([]);
     vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
     vi.mocked(api.listTaskCompletions).mockResolvedValue([]);
-    vi.mocked(api.listGemBalances).mockResolvedValue([]);
+    vi.mocked(api.listGemBalances).mockResolvedValue({ balances: [], family: { earned: 0, spent: 0, balance: 0 } });
     vi.mocked(api.completeTask).mockRejectedValue(new Error("Can't reach the family account — check the wi-fi."));
 
     render(<Dashboard />);
@@ -671,5 +675,73 @@ describe("Dashboard", () => {
     expect(screen.getByLabelText('Mark "Wipe Table" done')).toBeInTheDocument();
     // And no celebration for something that didn't happen.
     expect(screen.queryByText("+10 gems")).not.toBeInTheDocument();
+  });
+
+  it("notices a chore that keeps getting left, and opens the question without answering it", async () => {
+    vi.mocked(api.listTasks).mockResolvedValue([
+      { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "bedtime", date: toLocalIsoDate(new Date()), recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
+    ]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+    // Set daily for weeks, done once.
+    vi.mocked(api.listTaskCompletions).mockResolvedValue([
+      { taskId: "t1", date: "2026-09-10", title: "Wipe Table", memberId: "Parker", gemsAwarded: 10 },
+    ]);
+    vi.mocked(api.updateTask).mockResolvedValue({
+      taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10,
+      dueWindow: "after_dinner", date: toLocalIsoDate(new Date()), recurrence: "daily", completedOn: null,
+      status: "pending", gemsAwarded: 0,
+    });
+
+    render(<Dashboard />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Wipe Table is the one that keeps getting left.")).toBeInTheDocument()
+    );
+    // The observation names the chore, not the child.
+    expect(screen.getByText(/keeps getting left/)).not.toHaveTextContent("Parker");
+
+    fireEvent.click(screen.getByRole("button", { name: /try a different time of day/i }));
+
+    // It opens the question. Picking the answer is the family's.
+    await waitFor(() => expect(screen.getByText("When should Wipe Table happen?")).toBeInTheDocument());
+    expect(api.updateTask).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "After dinner" }));
+
+    await waitFor(() => expect(api.updateTask).toHaveBeenCalledWith("fam_demo", "t1", { dueWindow: "after_dinner" }));
+  });
+
+  it("celebrates a run of a chore, naming the child who earned it", async () => {
+    const today = toLocalIsoDate(new Date());
+    const dayBefore = (n: number) => toLocalIsoDate(new Date(Date.now() - n * 24 * 60 * 60 * 1000));
+    vi.mocked(api.listTasks).mockResolvedValue([
+      { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "anytime", date: today, recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
+    ]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+    vi.mocked(api.listTaskCompletions).mockResolvedValue(
+      [1, 2, 3].map((n) => ({ taskId: "t1", date: dayBefore(n), title: "Wipe Table", memberId: "Parker", gemsAwarded: 10 }))
+    );
+
+    render(<Dashboard />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Parker has done Wipe Table 3 days running.")).toBeInTheDocument()
+    );
+  });
+
+  it("asks the backend only for the recent window, not every record ever", async () => {
+    vi.mocked(api.listTasks).mockResolvedValue([]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+
+    render(<Dashboard />);
+
+    await waitFor(() => expect(api.listTaskCompletions).toHaveBeenCalled());
+    const [, start, end] = vi.mocked(api.listTaskCompletions).mock.calls[0] ?? [];
+    expect(end).toBe(toLocalIsoDate(new Date()));
+    // Four weeks back — bounded, so this doesn't grow without limit.
+    expect(start).toBe(toLocalIsoDate(new Date(Date.now() - 28 * 24 * 60 * 60 * 1000)));
   });
 });

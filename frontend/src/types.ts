@@ -57,6 +57,12 @@ export interface GemBalance {
   balance: number;
 }
 
+/** Per child, plus the kingdom's own running total. */
+export interface GemBalanceReport {
+  balances: GemBalance[];
+  family: { earned: number; spent: number; balance: number };
+}
+
 /** The big prize a child is saving up for. One live goal each. */
 export interface RewardGoal {
   memberId: string;

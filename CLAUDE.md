@@ -30,6 +30,18 @@ first when an entity changes, and let the handlers follow.
   the repo, say so plainly and leave a clearly labeled handoff (what
   changed, why it's uncommitted, what's needed) instead of implying the
   work is done.
+- **Insights describe chores and plans, never people.** `frontend/src/lib/insights.ts`
+  is the "what we've noticed" engine, and it is bound by two rules. First,
+  an observation's subject is a chore or a meal or a shopping list — "Wipe
+  Table is the one that keeps getting left", never "Parker keeps leaving
+  Wipe Table". A screen on a kitchen wall does not get to characterise a
+  child where they can read it; streaks are the sole exception, because a
+  streak is praise someone earned by doing the thing. Second, every insight
+  carries a `because` naming the records it came from, so a parent can check
+  the app's working rather than trust it. Anything that proposes a change
+  (retiming a chore, planning a meal) opens the question and lets the family
+  answer — the app never decides on their behalf. Keep both rules when you
+  add an insight; there are tests asserting them.
 - **No guessing:** before adding a dependency, endpoint, or DynamoDB key
   pattern, check what's already used in the codebase (`schema.md`,
   existing handlers, `package.json`) rather than assuming a shape.
