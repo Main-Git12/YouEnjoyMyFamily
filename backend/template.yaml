@@ -138,7 +138,7 @@ Resources:
         ListTaskCompletions:
           Type: HttpApi
           Properties:
-            ApiId: !Ref HttpApi
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}/task-completions
             Method: GET
 
@@ -426,13 +426,13 @@ Resources:
         ClaimRewardGoal:
           Type: HttpApi
           Properties:
-            ApiId: !Ref HttpApi
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}/reward-goals/{memberId}/claim
             Method: POST
         ListGemBalances:
           Type: HttpApi
           Properties:
-            ApiId: !Ref HttpApi
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}/gem-balances
             Method: GET
         Delete:

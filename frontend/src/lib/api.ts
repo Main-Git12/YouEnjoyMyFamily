@@ -30,6 +30,7 @@ export class ApiError extends Error {
 function friendlyMessage(status: number): string {
   if (status === 401 || status === 403) return "This screen isn't signed in to the family account any more.";
   if (status === 404) return "That isn't there any more — someone may have removed it on another device.";
+  if (status === 409) return "That was just changed on another screen. Have a look and try again.";
   if (status === 429) return "The family account is being asked for too much at once. Try again in a moment.";
   if (status >= 500) return "The family account is having a moment. It usually sorts itself out shortly.";
   return "Something about that request wasn't right.";
@@ -76,8 +77,11 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     return await attempt<T>(path, options);
   } catch (err) {
     // One retry, and only for the failures a retry can actually fix. A 401
-    // or a 404 will say exactly the same thing the second time.
-    if (!isWorthRetrying(err)) throw err;
+    // or a 404 will say exactly the same thing the second time. Reads only:
+    // a timed-out POST may already have landed on the server, so repeating
+    // it would add the task twice or claim the same prize twice.
+    const isRead = (options.method ?? "GET").toUpperCase() === "GET";
+    if (!isRead || !isWorthRetrying(err)) throw err;
     return attempt<T>(path, options);
   }
 }

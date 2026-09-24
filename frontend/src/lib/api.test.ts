@@ -150,6 +150,29 @@ describe("api client", () => {
     expect(calls).toBe(1);
   });
 
+  it("never repeats a write on its own, since the first one may already have landed", async () => {
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        calls += 1;
+        return new Response("nope", { status: 503 });
+      })
+    );
+
+    await expect(api.claimRewardGoal("fam_1", "Parker")).rejects.toThrow();
+    expect(calls).toBe(1);
+  });
+
+  it("explains a 409 as a change on another screen, not a bad request", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("no", { status: 409 }))
+    );
+
+    await expect(api.claimRewardGoal("fam_1", "Parker")).rejects.toThrow(/changed on another screen/i);
+  });
+
   it("blames the wi-fi when the network itself fails", async () => {
     vi.stubGlobal(
       "fetch",

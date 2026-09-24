@@ -1,8 +1,8 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
-import { PutCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { PutCommand, QueryCommand, DeleteCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 import { ulid } from "ulid";
 import { docClient, TABLE_NAME } from "../lib/dynamoClient";
-import { ok, created, badRequest, notFound, serverError } from "../lib/response";
+import { ok, created, badRequest, notFound, conflict, serverError } from "../lib/response";
 import { parseBody, ValidationError } from "../lib/validation";
 import { authenticateFamily } from "../lib/auth";
 import { RewardGoalInput, type RewardGoalItem, type RewardClaimItem } from "../types";
@@ -116,7 +116,10 @@ interface ClaimResult {
  * Refuses rather than going negative — a prize nobody has saved for isn't
  * a prize.
  */
-async function claimRewardGoal(familyId: string, memberId: string): Promise<ClaimResult | "not_found" | "not_enough"> {
+async function claimRewardGoal(
+  familyId: string,
+  memberId: string
+): Promise<ClaimResult | "not_found" | "not_enough" | "conflict"> {
   const goals = await listRewardGoals(familyId);
   const goal = goals.find((candidate) => candidate.memberId === memberId);
   if (!goal) return "not_found";
@@ -137,9 +140,33 @@ async function claimRewardGoal(familyId: string, memberId: string): Promise<Clai
     gemCost: goal.gemCost,
     claimedAt: new Date().toISOString(),
   };
-  await docClient.send(new PutCommand({ TableName: TABLE_NAME, Item: claim }));
-  // The goal is done, so it comes off the board — saving starts again.
-  await docClient.send(new DeleteCommand({ TableName: TABLE_NAME, Key: rewardGoalKey(familyId, memberId) }));
+  // One transaction, conditioned on the goal still being there at the price
+  // we just checked: a double-tap, two screens at once, or a client retry
+  // after a timeout would otherwise each pass the balance check above and
+  // each record a claim, charging the child twice. Only one of them can
+  // delete the goal; the other's transaction is cancelled.
+  try {
+    await docClient.send(
+      new TransactWriteCommand({
+        TransactItems: [
+          {
+            Delete: {
+              TableName: TABLE_NAME,
+              Key: rewardGoalKey(familyId, memberId),
+              ConditionExpression: "attribute_exists(PK) AND gemCost = :cost",
+              ExpressionAttributeValues: { ":cost": goal.gemCost },
+            },
+          },
+          { Put: { TableName: TABLE_NAME, Item: claim, ConditionExpression: "attribute_not_exists(PK)" } },
+        ],
+      })
+    );
+  } catch (err) {
+    // Matched by name, not instanceof: a bundled SDK can load the error
+    // class twice, and instanceof then silently fails.
+    if (err instanceof Error && err.name === "TransactionCanceledException") return "conflict";
+    throw err;
+  }
 
   return {
     claim,
@@ -174,6 +201,7 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
       const result = await claimRewardGoal(familyId, memberId);
       if (result === "not_found") return notFound("No prize is set for that person");
       if (result === "not_enough") return badRequest("Not enough gems saved for that prize yet");
+      if (result === "conflict") return conflict("That prize was just claimed or changed — refresh and try again");
       return created(result);
     }
 
