@@ -7,6 +7,12 @@
  * test is to build with a key set — exactly as the old deploy command did
  * — and then look in the output for it.
  *
+ * Builds into its own throwaway directory rather than `dist/`. The canary
+ * build also pins a nonsense API URL, so leaving it in `dist/` would mean
+ * running this check and then deploying could ship a bundle pointing at
+ * example.invalid — a verification step that breaks the thing it verifies
+ * is worse than none.
+ *
  * Run by `npm run verify:bundle`, and in CI.
  */
 import { execFileSync } from "node:child_process";
@@ -15,10 +21,10 @@ import { join } from "node:path";
 
 const CANARY_KEY = "fk_canary_this_must_never_ship";
 const CANARY_ID = "fam_canary_this_must_never_ship";
-const DIST = new URL("../dist/", import.meta.url).pathname;
+const DIST = new URL("../dist-canary/", import.meta.url).pathname;
 
 rmSync(DIST, { recursive: true, force: true });
-execFileSync("npm", ["run", "build"], {
+execFileSync("npx", ["vite", "build", "--outDir", "dist-canary", "--emptyOutDir"], {
   cwd: new URL("..", import.meta.url).pathname,
   env: {
     ...process.env,
@@ -49,4 +55,5 @@ if (leaked.length) {
   process.exit(1);
 }
 
+rmSync(DIST, { recursive: true, force: true });
 console.log("\n✓ No family key in the bundle — safe to serve from a public URL.\n");

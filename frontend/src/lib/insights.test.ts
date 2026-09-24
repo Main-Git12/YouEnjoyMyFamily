@@ -31,6 +31,7 @@ const sources = (overrides: Partial<InsightSources> = {}): InsightSources => ({
   completions: [],
   mealPlan: [],
   cartItems: [],
+  schedule: [],
   today: "2026-09-23",
   ...overrides,
 });
@@ -152,44 +153,51 @@ describe("chores that keep getting left", () => {
   });
 });
 
-describe("meals the family keeps coming back to", () => {
+describe("the rhythm a family has settled into", () => {
+  // 2026-09-01, -08, -15 are Tuesdays.
   const tacos = (date: string): MealPlanEntry => ({ date, slot: "dinner", mealName: "Tacos", ingredients: [] });
 
-  it("offers a repeat rather than planning it unasked", () => {
+  it("names the day, not just the meal", () => {
     const insights = buildInsights(
       sources({ mealPlan: [tacos("2026-09-01"), tacos("2026-09-08"), tacos("2026-09-15")] })
     );
-    const meal = insights.find((i) => i.kind === "meal_repeat");
+    const meal = insights.find((i) => i.kind === "meal_rhythm");
 
-    expect(meal?.title).toBe("Tacos has been dinner 3 times lately.");
-    expect(meal?.action).toEqual({ label: "Plan Tacos again", kind: "plan_meal", payload: "Tacos" });
+    expect(meal?.title).toBe("Tacos has become a Tuesday thing.");
+    expect(meal?.action?.label).toBe("Put Tacos on the next Tuesday");
   });
 
-  it("says nothing about a meal that's only been on twice", () => {
-    const insights = buildInsights(sources({ mealPlan: [tacos("2026-09-01"), tacos("2026-09-08")] }));
-    expect(insights.filter((i) => i.kind === "meal_repeat")).toHaveLength(0);
+  it("says nothing about one Tuesday, which isn't a rhythm", () => {
+    const insights = buildInsights(sources({ mealPlan: [tacos("2026-09-01")] }));
+    expect(insights.filter((i) => i.kind === "meal_rhythm")).toHaveLength(0);
   });
 });
 
-describe("the regular that isn't on the list", () => {
-  const item = (description: string, status: CartItem["status"], itemId: string): CartItem => ({
+describe("the regular that's due again", () => {
+  const item = (description: string, status: CartItem["status"], itemId: string, on = "2026-09-01"): CartItem => ({
     itemId,
     description,
     quantity: 1,
     status,
     substituteDescription: null,
-    orderedAt: status === "ordered" ? "2026-09-01T00:00:00Z" : null,
+    orderedAt: status === "ordered" ? `${on}T00:00:00Z` : null,
     source: "manual",
   });
 
-  it("notices a repeat buy that's missing this time", () => {
+  it("works out the cadence and says when it's overdue", () => {
     const insights = buildInsights(
-      sources({ cartItems: [item("Milk", "ordered", "1"), item("Milk", "ordered", "2"), item("Milk", "ordered", "3")] })
+      sources({
+        cartItems: [
+          item("Milk", "ordered", "1", "2026-09-05"),
+          item("Milk", "ordered", "2", "2026-09-11"),
+          item("Milk", "ordered", "3", "2026-09-17"),
+        ],
+      })
     );
-    const grocery = insights.find((i) => i.kind === "grocery_regular");
+    const grocery = insights.find((i) => i.kind === "grocery_due");
 
-    expect(grocery?.title).toBe("Milk isn't on the list this time.");
-    expect(grocery?.because).toBe("It's been on 3 shops already.");
+    expect(grocery?.title).toBe("Milk is probably due.");
+    expect(grocery?.because).toBe("Usually bought about every 6 days; it's been 6.");
     expect(grocery?.action?.kind).toBe("add_to_list");
   });
 
@@ -197,14 +205,14 @@ describe("the regular that isn't on the list", () => {
     const insights = buildInsights(
       sources({
         cartItems: [
-          item("Milk", "ordered", "1"),
-          item("Milk", "ordered", "2"),
-          item("Milk", "ordered", "3"),
+          item("Milk", "ordered", "1", "2026-09-05"),
+          item("Milk", "ordered", "2", "2026-09-11"),
+          item("Milk", "ordered", "3", "2026-09-17"),
           item("milk", "pending", "4"),
         ],
       })
     );
-    expect(insights.filter((i) => i.kind === "grocery_regular")).toHaveLength(0);
+    expect(insights.filter((i) => i.kind === "grocery_due")).toHaveLength(0);
   });
 });
 

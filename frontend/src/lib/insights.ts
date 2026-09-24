@@ -1,5 +1,7 @@
 import type { Task, TaskCompletion, MealPlanEntry, CartItem } from "../types";
 import { DUE_WINDOW_LABELS } from "./choreCatalog";
+import { busiestDay, dayLoads, groceryCadences, mealRhythms } from "./routines";
+import type { ScheduleEntry } from "../types";
 
 /**
  * What the app has noticed — and the rules it is bound by.
@@ -24,7 +26,7 @@ import { DUE_WINDOW_LABELS } from "./choreCatalog";
  *    confident guess.
  */
 
-export type InsightKind = "streak" | "slipping" | "meal_repeat" | "grocery_regular";
+export type InsightKind = "streak" | "slipping" | "meal_rhythm" | "grocery_due" | "busy_day";
 
 export interface Insight {
   id: string;
@@ -81,14 +83,12 @@ const SLIPS_WORTH_MENTIONING = 3;
 /** ...and missed more often than not, so a mostly-done chore is left alone. */
 const SLIP_RATE_WORTH_MENTIONING = 0.5;
 
-/** A meal has to recur this often before suggesting it again. */
-const MEAL_REPEATS_WORTH_SUGGESTING = 3;
-
 export interface InsightSources {
   tasks: Task[];
   completions: TaskCompletion[];
   mealPlan: MealPlanEntry[];
   cartItems: CartItem[];
+  schedule: ScheduleEntry[];
   today: string;
 }
 
@@ -163,59 +163,62 @@ function expectedDays(task: Task, windowStart: string, today: string): number {
   return days;
 }
 
-/** Meals the family keeps coming back to, offered rather than assumed. */
+/**
+ * Not "you eat this a lot", but "this is a Tuesday thing" — the rhythm the
+ * family has actually settled into, offered back for the day it belongs to.
+ */
 function mealInsights({ mealPlan }: InsightSources): Insight[] {
-  const counts = new Map<string, number>();
-  for (const entry of mealPlan) {
-    if (entry.slot !== "dinner") continue;
-    const name = entry.mealName.trim();
-    if (!name) continue;
-    counts.set(name, (counts.get(name) ?? 0) + 1);
-  }
-
-  return [...counts.entries()]
-    .filter(([, count]) => count >= MEAL_REPEATS_WORTH_SUGGESTING)
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+  return mealRhythms(mealPlan)
     .slice(0, 1)
-    .map(([name, count]) => ({
-      id: `meal:${name}`,
-      kind: "meal_repeat" as const,
-      title: `${name} has been dinner ${count} times lately.`,
-      because: `${count} dinners planned with that name in what's on the meal plan.`,
-      action: { label: `Plan ${name} again`, kind: "plan_meal" as const, payload: name },
+    .map((rhythm) => ({
+      id: `meal:${rhythm.weekday}:${rhythm.mealName}`,
+      kind: "meal_rhythm" as const,
+      title: `${rhythm.mealName} has become a ${rhythm.weekdayLabel} thing.`,
+      because: `Planned for dinner on ${rhythm.timesOnThisDay} of the last few ${rhythm.weekdayLabel}s.`,
+      action: { label: `Put ${rhythm.mealName} on the next ${rhythm.weekdayLabel}`, kind: "plan_meal" as const, payload: rhythm.mealName },
     }));
 }
 
 /**
- * Something the family buys again and again that isn't on the list right
- * now. Only ever a suggestion with a name attached — the app never puts
- * anything in the trolley by itself.
+ * The day of the week that's stacked *and* where the chore list fares
+ * worst. A fact about a Wednesday, never about a person — see routines.ts.
  */
-function groceryInsights({ cartItems }: InsightSources): Insight[] {
-  const normalize = (description: string) => description.trim().toLowerCase();
-  const ordered = cartItems.filter((item) => item.status === "ordered");
+function busyDayInsights({ schedule, completions, tasks, today }: InsightSources): Insight[] {
+  const windowStart = isoDaysAgo(INSIGHT_WINDOW_DAYS, new Date(`${today}T12:00:00`));
+  const worst = busiestDay(dayLoads(schedule, completions, tasks, windowStart, today));
+  if (!worst) return [];
+
+  return [
+    {
+      id: `busy:${worst.weekday}`,
+      kind: "busy_day",
+      title: `${worst.weekdayLabel}s are the stacked one.`,
+      because: `About ${worst.eventsPerDay.toFixed(1)} things on the calendar, and ${Math.round(
+        worst.choreCompletionRate * 100
+      )}% of the chores get done — the lowest of the week.`,
+    },
+  ];
+}
+
+/**
+ * Not just "you buy this a lot" but "it's been longer than usual" — the
+ * cadence the shops themselves describe. Only ever a suggestion: the app
+ * never puts anything in the trolley by itself.
+ */
+function groceryInsights({ cartItems, today }: InsightSources): Insight[] {
   const outstanding = new Set(
-    cartItems.filter((item) => item.status !== "ordered").map((item) => normalize(item.description))
+    cartItems.filter((item) => item.status !== "ordered").map((item) => item.description.trim().toLowerCase())
   );
 
-  const counts = new Map<string, { description: string; count: number }>();
-  for (const item of ordered) {
-    const key = normalize(item.description);
-    if (outstanding.has(key)) continue;
-    const current = counts.get(key);
-    counts.set(key, { description: current?.description ?? item.description.trim(), count: (current?.count ?? 0) + 1 });
-  }
-
-  return [...counts.values()]
-    .filter((entry) => entry.count >= 3)
-    .sort((a, b) => b.count - a.count || a.description.localeCompare(b.description))
+  return groceryCadences(cartItems, today)
+    .filter((cadence) => cadence.overdue && !outstanding.has(cadence.description.toLowerCase()))
     .slice(0, 1)
-    .map((entry) => ({
-      id: `grocery:${normalize(entry.description)}`,
-      kind: "grocery_regular" as const,
-      title: `${entry.description} isn't on the list this time.`,
-      because: `It's been on ${entry.count} shops already.`,
-      action: { label: `Add ${entry.description}`, kind: "add_to_list" as const, payload: entry.description },
+    .map((cadence) => ({
+      id: `grocery:${cadence.description.toLowerCase()}`,
+      kind: "grocery_due" as const,
+      title: `${cadence.description} is probably due.`,
+      because: `Usually bought about every ${cadence.everyDays} days; it's been ${cadence.daysSinceLast}.`,
+      action: { label: `Add ${cadence.description}`, kind: "add_to_list" as const, payload: cadence.description },
     }));
 }
 
@@ -228,6 +231,7 @@ export function buildInsights(sources: InsightSources): Insight[] {
   return [
     ...streakInsights(sources),
     ...slippingInsights(sources),
+    ...busyDayInsights(sources),
     ...mealInsights(sources),
     ...groceryInsights(sources),
   ].slice(0, 4);

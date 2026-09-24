@@ -66,7 +66,7 @@ describe("Dashboard", () => {
       { taskId: "t1", title: "Pack soccer bag", assignedTo: null, dueDate: null, gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
     ]);
     vi.mocked(api.listSchedules).mockResolvedValue([
-      { scheduleId: "s1", date: "2025-01-15", title: "Soccer practice", startTime: null, endTime: null, memberIds: [] },
+      { scheduleId: "s1", date: toLocalIsoDate(new Date()), title: "Soccer practice", startTime: null, endTime: null, memberIds: [] },
     ]);
     vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
 
@@ -377,15 +377,17 @@ describe("Dashboard", () => {
     render(<Dashboard />);
     await waitFor(() => expect(screen.getByText("This week")).toBeInTheDocument());
 
+    // The fetch reaches back over the insight window so rhythms are
+    // visible, but it has to extend to the end of whatever week is shown.
     const thisWeek = weekFromOffset(0);
-    expect(api.listMealPlan).toHaveBeenLastCalledWith("fam_demo", thisWeek[0], thisWeek[6]);
+    expect(api.listMealPlan).toHaveBeenLastCalledWith("fam_demo", expect.any(String), thisWeek[6]);
 
     fireEvent.click(screen.getByRole("button", { name: /show the next week/i }));
 
     // Without a re-fetch the label would change while the meals on screen
     // still belonged to the previous week.
     const nextWeek = weekFromOffset(1);
-    await waitFor(() => expect(api.listMealPlan).toHaveBeenLastCalledWith("fam_demo", nextWeek[0], nextWeek[6]));
+    await waitFor(() => expect(api.listMealPlan).toHaveBeenLastCalledWith("fam_demo", expect.any(String), nextWeek[6]));
     expect(screen.getByText(/^Week of /)).toBeInTheDocument();
   });
 

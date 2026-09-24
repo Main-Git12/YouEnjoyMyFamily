@@ -8,8 +8,9 @@ interface InsightsProps {
 const KIND_MARK: Record<Insight["kind"], string> = {
   streak: "🔥",
   slipping: "🤔",
-  meal_repeat: "🍽️",
-  grocery_regular: "🛒",
+  busy_day: "📅",
+  meal_rhythm: "🍽️",
+  grocery_due: "🛒",
 };
 
 /**

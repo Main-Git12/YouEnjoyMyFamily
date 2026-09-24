@@ -17,6 +17,8 @@ import { knownMembers } from "../lib/members";
 import { buildInsights, INSIGHT_WINDOW_DAYS, type Insight } from "../lib/insights";
 import Insights from "./Insights";
 import RetimeChore from "./RetimeChore";
+import DraftWeek from "./DraftWeek";
+import { draftWeek, type DraftedMeal } from "../lib/routines";
 import { getFamilyId } from "../lib/familyKey";
 import GroceryCart from "./GroceryCart";
 
@@ -64,8 +66,10 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   const weekDays = weekFromOffset(weekOffset);
   const weekStart = weekDays[0];
   const weekEnd = weekDays[weekDays.length - 1];
-  // The card says "Today's schedule", so ask for today rather than sending
-  // blank bounds and relying on the backend's catch-all range.
+  // The cards show today and the week on screen, but the fetches reach
+  // back over the insight window: a rhythm ("Tacos is a Tuesday thing",
+  // "Wednesdays are the busy one") isn't visible in a single day's rows.
+  // Each card filters back down to what it's meant to show.
   const today = toLocalIsoDate(new Date());
   // How far back the screen reasons over — see lib/insights.ts.
   const insightWindowStart = toLocalIsoDate(
@@ -80,15 +84,15 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
     const [taskItems, completionItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList, rewardGoalItems, gemBalanceItems] = await Promise.all([
       api.listTasks(familyId, today),
       api.listTaskCompletions(familyId, insightWindowStart, today),
-      api.listSchedules(familyId, today, today),
+      api.listSchedules(familyId, insightWindowStart, weekEnd),
       api.listStatedPreferences(familyId),
-      api.listMealPlan(familyId, weekStart, weekEnd),
+      api.listMealPlan(familyId, insightWindowStart, weekEnd),
       api.listCartItems(familyId),
       api.listRewardGoals(familyId),
       api.listGemBalances(familyId),
     ]);
     return { taskItems, completionItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList, rewardGoalItems, gemBalanceItems };
-  }, [familyId, weekStart, weekEnd, today, insightWindowStart]);
+  }, [familyId, weekEnd, today, insightWindowStart]);
 
   // Bumped at the start *and* the end of every local write. A sync that
   // overlapped a write is holding a snapshot taken before the server saw it,
@@ -199,7 +203,22 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
    * each render rather than cached: it's arithmetic over data already in
    * hand, and a stale observation is worse than none.
    */
-  const insights = buildInsights({ tasks, completions, mealPlan, cartItems, today });
+  const insights = buildInsights({ tasks, completions, mealPlan, cartItems, schedule, today });
+
+  /**
+   * A proposed set of dinners for the empty days of the week on screen,
+   * built only from meals this family has actually cooked.
+   */
+  const weekDraft = draftWeek(mealPlan, weekDays);
+
+  async function handleAcceptDraft(meals: DraftedMeal[]) {
+    // One at a time rather than in parallel: they all write to the same
+    // family, and a half-applied week is easier to understand than a
+    // scatter of races.
+    for (const meal of meals) {
+      await handleSaveMealPlanEntry(meal.date, "dinner", { mealName: meal.mealName, ingredients: [] });
+    }
+  }
 
   /**
    * Acting on an observation. Each one only ever *proposes* — the family
@@ -587,7 +606,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
           </FamilyCard>
 
           <FamilyCard title="Today's schedule" accent>
-            <Calendar entries={schedule} />
+            <Calendar entries={schedule.filter((entry) => entry.date === today)} />
           </FamilyCard>
 
           <FamilyCard title="Family favorites">
@@ -600,7 +619,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
 
           <FamilyCard title="Meal plan">
             <MealPlan
-              entries={mealPlan}
+              entries={mealPlan.filter((entry) => weekDays.includes(entry.date))}
               days={weekDays}
               weekOffset={weekOffset}
               onWeekOffsetChange={setWeekOffset}
@@ -608,6 +627,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
               onRemove={handleRemoveMealPlanEntry}
               onGenerateGroceryList={handleGenerateGroceryList}
             />
+            <DraftWeek draft={weekDraft} onAccept={handleAcceptDraft} />
           </FamilyCard>
 
           <FamilyCard title="Grocery cart">
