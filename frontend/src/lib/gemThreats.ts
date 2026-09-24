@@ -1,4 +1,5 @@
-import type { DueWindow, Task } from "../types";
+import type { Task } from "../types";
+import { WINDOW_CLOSES_AT_MINUTE, isWindowPast } from "./timeOfDay";
 
 /**
  * Something is after the kingdom's gems, and the only way to stop it is to
@@ -86,26 +87,9 @@ export function threatForChore(choreTitle: string): GemThreat {
   return GEM_THREATS[index] ?? RACCOON;
 }
 
-/** Minutes past midnight, in the viewer's own timezone. */
-function minutesIntoDay(now: Date): number {
-  return now.getHours() * 60 + now.getMinutes();
-}
-
-// When each part of the day is over. A chore only counts as slipping once
-// its window has closed — "anytime" never does.
-const WINDOW_CLOSES_AT_MINUTE: Record<DueWindow, number | null> = {
-  morning: 9 * 60,
-  after_school: 17 * 60,
-  after_dinner: 19 * 60 + 30,
-  bedtime: 20 * 60 + 30,
-  anytime: null,
-};
-
-export function isPastWindow(window: DueWindow, now: Date = new Date()): boolean {
-  const closesAt = WINDOW_CLOSES_AT_MINUTE[window];
-  if (closesAt === null) return false;
-  return minutesIntoDay(now) >= closesAt;
-}
+// One definition of when each part of the day ends, shared with the layout
+// so the two can't drift apart and disagree about whether it's bedtime.
+export const isPastWindow = isWindowPast;
 
 export interface ThreatenedChore {
   task: Task;

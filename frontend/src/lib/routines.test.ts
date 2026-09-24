@@ -218,4 +218,20 @@ describe("drafting a week from the family's own rotation", () => {
       expect(drafted.because.length).toBeGreaterThan(0);
     }
   });
+
+  it("won't propose tonight's dinner as tomorrow's", () => {
+    // The only meal they cook, eaten yesterday. Proposing it again for
+    // tomorrow is technically "their rotation" and completely useless.
+    const justHadIt = [dinner("2026-09-28", "Tacos"), dinner("2026-09-21", "Tacos"), dinner("2026-09-14", "Tacos")];
+    const draft = draftWeek(justHadIt, ["2026-09-29", "2026-09-30"]);
+
+    expect(draft.find((d) => d.date === "2026-09-29")).toBeUndefined();
+  });
+
+  it("proposes it again once enough days have passed", () => {
+    const history = [dinner("2026-09-21", "Tacos"), dinner("2026-09-14", "Tacos"), dinner("2026-09-07", "Tacos")];
+    const draft = draftWeek(history, ["2026-09-28"]);
+
+    expect(draft[0]?.mealName).toBe("Tacos");
+  });
 });

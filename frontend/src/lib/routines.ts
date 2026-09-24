@@ -262,9 +262,14 @@ export function draftWeek(history: MealPlanEntry[], days: string[]): DraftedMeal
   for (const date of days) {
     if (planned.has(date)) continue;
 
+    // Checked against what was actually eaten as well as what this draft
+    // has already used. Without the history half it will happily propose
+    // Thursday's dinner as the thing they had on Wednesday.
     const tooRecent = (name: string): boolean => {
-      const used = usedOn.get(name);
-      return used !== undefined && Math.abs(daysBetween(used, date)) < NO_REPEAT_WITHIN_DAYS;
+      for (const when of [usedOn.get(name), lastSeen.get(name)]) {
+        if (when !== undefined && Math.abs(daysBetween(when, date)) < NO_REPEAT_WITHIN_DAYS) return true;
+      }
+      return false;
     };
 
     const weekday = weekdayOf(date);

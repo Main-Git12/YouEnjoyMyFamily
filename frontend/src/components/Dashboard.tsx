@@ -14,6 +14,7 @@ import PrizeGoal from "./PrizeGoal";
 import MealPlan from "./MealPlan";
 import { toLocalIsoDate, weekFromOffset } from "../lib/dates";
 import { knownMembers } from "../lib/members";
+import { greeting } from "../lib/timeOfDay";
 import { buildInsights, INSIGHT_WINDOW_DAYS, type Insight } from "../lib/insights";
 import Insights from "./Insights";
 import RetimeChore from "./RetimeChore";
@@ -249,6 +250,8 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   // Gathered from what the family has already entered, not a registry of
   // children the app keeps on its own.
   const members = knownMembers({ tasks, completions, goals: rewardGoals, balances: gemBalances });
+
+  const choresLeftToday = tasks.filter((task) => task.status !== "done").length;
 
   // Every action funnels its failure here, and a later success clears it —
   // a stale error banner outliving the problem is its own bug.
@@ -552,8 +555,15 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
         <div className="flex items-center gap-3 min-w-0">
           <img src="/brand-mark.png" alt="" className="h-12 w-12 sm:h-14 sm:w-14 shrink-0 rounded-full ring-4 ring-olive-100" />
           <div className="min-w-0">
-            <h1 className="font-display text-2xl sm:text-3xl text-olive-700 truncate">YouEnjoyMyFamily</h1>
-            <p className="text-olive-600 font-body">Today at a glance</p>
+            {/* The day leads, not the brand. Someone walking past a kitchen
+                screen wants to know what today is and what's left of it —
+                they already know whose house they're in. */}
+            <h1 className="font-display text-2xl sm:text-3xl lg:text-4xl text-olive-800 truncate">
+              {new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}
+            </h1>
+            <p className="text-olive-700 font-body">
+              {greeting()} — {choresLeftToday === 0 ? "everything's done" : `${choresLeftToday} still to do`}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-3 shrink-0">

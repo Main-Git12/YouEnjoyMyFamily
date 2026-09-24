@@ -10,7 +10,7 @@ describe("TaskList", () => {
 
   it("shows a calm empty state when there are no tasks", () => {
     render(<TaskList tasks={[]} />);
-    expect(screen.getByText(/no tasks yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/nothing on the list/i)).toBeInTheDocument();
   });
 
   it("renders each task's title and due date", () => {
@@ -22,7 +22,7 @@ describe("TaskList", () => {
     render(<TaskList tasks={tasks} />);
 
     expect(screen.getByText("Pack soccer bag")).toBeInTheDocument();
-    expect(screen.getByText("2025-01-15")).toBeInTheDocument();
+    expect(screen.getByText(/2025-01-15/)).toBeInTheDocument();
     expect(screen.getByText("Buy milk")).toBeInTheDocument();
   });
 
@@ -62,14 +62,55 @@ describe("TaskList", () => {
     expect(screen.getByText("+5", { exact: false })).toBeInTheDocument();
   });
 
-  it("says who a chore belongs to and which part of the day it's for", () => {
+  it("groups the day by part of day, with a heading for each", () => {
     const tasks: Task[] = [
       { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "after_dinner", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
+      { taskId: "t2", title: "Get Dressed", assignedTo: "Isla", dueDate: null, gemValue: 5, dueWindow: "morning", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
     ];
 
-    render(<TaskList tasks={tasks} />);
+    render(<TaskList tasks={tasks} now={new Date(2026, 8, 23, 7, 0)} />);
 
-    expect(screen.getByText(/Parker/)).toHaveTextContent("After dinner");
+    expect(screen.getByRole("heading", { name: "Morning" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "After dinner" })).toBeInTheDocument();
+    // Each chore still says whose it is.
+    expect(screen.getByText("Parker")).toBeInTheDocument();
+    expect(screen.getByText("Isla")).toBeInTheDocument();
+  });
+
+  it("puts the part of the day you're in at the top, and marks it", () => {
+    const tasks: Task[] = [
+      { taskId: "t1", title: "Get Dressed", assignedTo: "Isla", dueDate: null, gemValue: 5, dueWindow: "morning", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
+      { taskId: "t2", title: "Put on pajamas", assignedTo: "Isla", dueDate: null, gemValue: 5, dueWindow: "bedtime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
+    ];
+
+    // Half eight in the evening: morning is history, bedtime is the thing.
+    render(<TaskList tasks={tasks} now={new Date(2026, 8, 23, 20, 0)} />);
+
+    const headings = screen.getAllByRole("heading").map((h) => h.textContent);
+    expect(headings[0]).toBe("Bedtime");
+    expect(headings[1]).toBe("Morning");
+    expect(screen.getByText("now")).toBeInTheDocument();
+  });
+
+  it("says how much of each part of the day is left", () => {
+    const tasks: Task[] = [
+      { taskId: "t1", title: "Get Dressed", assignedTo: "Isla", dueDate: null, gemValue: 5, dueWindow: "morning", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "done", gemsAwarded: 5 },
+      { taskId: "t2", title: "Brush Teeth", assignedTo: "Isla", dueDate: null, gemValue: 5, dueWindow: "morning", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
+    ];
+
+    render(<TaskList tasks={tasks} now={new Date(2026, 8, 23, 7, 0)} />);
+
+    expect(screen.getByText("1 to go")).toBeInTheDocument();
+  });
+
+  it("says so when a part of the day is finished", () => {
+    const tasks: Task[] = [
+      { taskId: "t1", title: "Get Dressed", assignedTo: "Isla", dueDate: null, gemValue: 5, dueWindow: "morning", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "done", gemsAwarded: 5 },
+    ];
+
+    render(<TaskList tasks={tasks} now={new Date(2026, 8, 23, 7, 0)} />);
+
+    expect(screen.getByText("all done")).toBeInTheDocument();
   });
 
   it("marks a chore as still to do once its part of the day has passed", () => {
