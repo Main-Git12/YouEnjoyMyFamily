@@ -305,3 +305,49 @@ test("PUT /runs rejects a body whose date isn't a date", async () => {
   );
   assert.equal(result.statusCode, 400);
 });
+
+/** Serves rows the way DynamoDB does past 1MB: in pages, linked by LastEvaluatedKey. */
+function pagedQuery(pages: unknown[][]) {
+  ddbMock.on(QueryCommand).callsFake((input: { ExclusiveStartKey?: { page: number } }) => {
+    const page = input.ExclusiveStartKey?.page ?? 0;
+    return { Items: pages[page] ?? [], LastEvaluatedKey: page + 1 < pages.length ? { page: page + 1 } : undefined };
+  });
+}
+
+test("GET /runs reads every page, not just the first 1MB", async () => {
+  // The rows for every routine share one key range and are separated by
+  // routineId afterwards. A truncated first page therefore doesn't just
+  // return fewer runs — here it returns *none* of r1's, and the median
+  // built from what's left would still be shown as a measured fact.
+  pagedQuery([
+    [{ routineId: "r2", date: "2026-09-20", steps: [] }],
+    [{ routineId: "r1", date: "2026-09-21", steps: [] }, { routineId: "r1", date: "2026-09-22", steps: [] }],
+  ]);
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({
+      method: "GET",
+      rawPath: "/families/fam_1/routines/r1/runs",
+      pathParameters: { familyId: "fam_1", routineId: "r1" },
+      headers,
+      queryStringParameters: { start: "2026-09-01", end: "2026-09-25" },
+    })
+  );
+
+  assert.equal(result.statusCode, 200);
+  const runs = JSON.parse(result.body ?? "[]") as { date: string }[];
+  assert.deepEqual(runs.map((run) => run.date), ["2026-09-21", "2026-09-22"]);
+});
+
+test("GET /routines reads every page", async () => {
+  pagedQuery([[{ routineId: "r1", kind: "morning" }], [{ routineId: "r2", kind: "bedtime" }]]);
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(makeEvent({ method: "GET", pathParameters: { familyId: "fam_1" }, headers }));
+
+  const routines = JSON.parse(result.body ?? "[]") as { kind: string }[];
+  // A household with a morning and a bedtime routine must get both, or the
+  // screen silently stops running one of them.
+  assert.deepEqual(routines.map((routine) => routine.kind), ["morning", "bedtime"]);
+});

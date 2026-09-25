@@ -1,7 +1,8 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 import { ulid } from "ulid";
-import { PutCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { PutCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import { docClient, TABLE_NAME } from "../lib/dynamoClient";
+import { queryAll } from "../lib/queryAll";
 import { ok, created, badRequest, serverError } from "../lib/response";
 import { parseBody, ValidationError } from "../lib/validation";
 import { authenticateFamily } from "../lib/auth";
@@ -16,22 +17,25 @@ const focusKey = (familyId: string, isoDate: string, blockId: string) => ({
  * A date range of finished blocks. This is both the timesheet for a day
  * and the evidence for what block length actually works — same rows, read
  * two ways.
+ *
+ * Paged to the end. A year of blocks with their narratives runs past a
+ * single Query's 1MB, and a truncated read here doesn't fail — it produces
+ * a confident "100% of your 60-minute blocks ran to the end, over 20 of
+ * them" from whatever happened to fit. A wrong number offered with its
+ * evidence is worse than no number.
  */
 async function listFocusBlocks(familyId: string, start?: string, end?: string): Promise<FocusBlockItem[]> {
-  const result = await docClient.send(
-    new QueryCommand({
-      TableName: TABLE_NAME,
-      KeyConditionExpression: "PK = :pk AND SK BETWEEN :from AND :to",
-      ExpressionAttributeValues: {
-        ":pk": `FAMILY#${familyId}`,
-        // `||` not `??`: an omitted query param arrives as an empty string,
-        // which would build a range sorting below every real FOCUS# key.
-        ":from": `FOCUS#${start || "0000-00-00"}`,
-        ":to": `FOCUS#${end || "9999-12-31"}#￿`,
-      },
-    })
-  );
-  return (result.Items ?? []) as FocusBlockItem[];
+  return queryAll<FocusBlockItem>({
+    TableName: TABLE_NAME,
+    KeyConditionExpression: "PK = :pk AND SK BETWEEN :from AND :to",
+    ExpressionAttributeValues: {
+      ":pk": `FAMILY#${familyId}`,
+      // `||` not `??`: an omitted query param arrives as an empty string,
+      // which would build a range sorting below every real FOCUS# key.
+      ":from": `FOCUS#${start || "0000-00-00"}`,
+      ":to": `FOCUS#${end || "9999-12-31"}#￿`,
+    },
+  });
 }
 
 /**

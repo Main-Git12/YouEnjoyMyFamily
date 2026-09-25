@@ -197,3 +197,32 @@ test("DELETE removes one line by key", async () => {
     SK: "FOCUS#2026-09-25#b1",
   });
 });
+
+test("GET reads every page, so a year of blocks isn't silently truncated", async () => {
+  // A truncated read here doesn't fail — it produces a confident
+  // "100% of your 60-minute blocks ran to the end, over 20 of them" from
+  // whatever happened to fit in the first megabyte.
+  ddbMock.on(QueryCommand).callsFake((input: { ExclusiveStartKey?: { page: number } }) => {
+    const pages = [
+      [{ blockId: "b1", plannedMinutes: 60, outcome: "completed" }],
+      [{ blockId: "b2", plannedMinutes: 60, outcome: "abandoned" }],
+      [{ blockId: "b3", plannedMinutes: 60, outcome: "abandoned" }],
+    ];
+    const page = input.ExclusiveStartKey?.page ?? 0;
+    return { Items: pages[page] ?? [], LastEvaluatedKey: page + 1 < pages.length ? { page: page + 1 } : undefined };
+  });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({
+      method: "GET",
+      pathParameters: { familyId: "fam_1" },
+      headers,
+      queryStringParameters: { start: "2026-01-01", end: "2026-09-25" },
+    })
+  );
+
+  const blocks = JSON.parse(result.body ?? "[]") as { blockId: string }[];
+  // Reading only page one says 60-minute blocks always finish. They don't.
+  assert.deepEqual(blocks.map((block) => block.blockId), ["b1", "b2", "b3"]);
+});

@@ -1,7 +1,8 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 import { ulid } from "ulid";
-import { GetCommand, PutCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import { docClient, TABLE_NAME } from "../lib/dynamoClient";
+import { queryAll } from "../lib/queryAll";
 import { ok, created, badRequest, notFound, serverError } from "../lib/response";
 import { parseBody, ValidationError } from "../lib/validation";
 import { authenticateFamily } from "../lib/auth";
@@ -42,14 +43,11 @@ function toStoredSteps(steps: RoutineStepInput[]): RoutineStep[] {
 }
 
 async function listRoutines(familyId: string): Promise<RoutineItem[]> {
-  const result = await docClient.send(
-    new QueryCommand({
-      TableName: TABLE_NAME,
-      KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)",
-      ExpressionAttributeValues: { ":pk": `FAMILY#${familyId}`, ":prefix": "ROUTINE#" },
-    })
-  );
-  return (result.Items ?? []) as RoutineItem[];
+  return queryAll<RoutineItem>({
+    TableName: TABLE_NAME,
+    KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)",
+    ExpressionAttributeValues: { ":pk": `FAMILY#${familyId}`, ":prefix": "ROUTINE#" },
+  });
 }
 
 async function createRoutine(familyId: string, input: RoutineInput): Promise<RoutineItem> {
@@ -119,20 +117,25 @@ async function updateRoutine(
  * from. Bounded the same way schedules are: `||` rather than `??`, because
  * an omitted query param arrives as an empty string and would build a range
  * that sorts below every real key and return nothing.
+ *
+ * Paged to the end, and that matters more here than it looks. The rows for
+ * every routine share one key range and are separated by `routineId`
+ * afterwards, so a truncated first page doesn't just return fewer runs —
+ * it can return *none* of the second routine's, and the median built from
+ * what's left is then presented on screen as a measured fact. An app whose
+ * whole claim is "this number came from your own mornings, and here is how
+ * many" cannot afford to quietly compute it from an arbitrary prefix.
  */
 async function listRuns(familyId: string, start?: string, end?: string): Promise<RoutineRunItem[]> {
-  const result = await docClient.send(
-    new QueryCommand({
-      TableName: TABLE_NAME,
-      KeyConditionExpression: "PK = :pk AND SK BETWEEN :from AND :to",
-      ExpressionAttributeValues: {
-        ":pk": `FAMILY#${familyId}`,
-        ":from": `RUN#${start || "0000-00-00"}`,
-        ":to": `RUN#${end || "9999-12-31"}#￿`,
-      },
-    })
-  );
-  return (result.Items ?? []) as RoutineRunItem[];
+  return queryAll<RoutineRunItem>({
+    TableName: TABLE_NAME,
+    KeyConditionExpression: "PK = :pk AND SK BETWEEN :from AND :to",
+    ExpressionAttributeValues: {
+      ":pk": `FAMILY#${familyId}`,
+      ":from": `RUN#${start || "0000-00-00"}`,
+      ":to": `RUN#${end || "9999-12-31"}#￿`,
+    },
+  });
 }
 
 /**
