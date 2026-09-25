@@ -64,6 +64,27 @@ describe("Dashboard", () => {
     vi.mocked(api.listFocusBlocks).mockResolvedValue([]);
   });
 
+  /**
+   * The dashboard now commits to a few panels at a time and puts the rest
+   * one tap away (see lib/dashboardLayout.ts). Tests that exercise a panel
+   * open it the way a person would rather than asserting against a screen
+   * nobody actually sees.
+   */
+  async function openPanel(title: string | RegExp) {
+    if (screen.queryByRole("heading", { name: title })) return;
+    const drawer = screen.queryByRole("button", { name: /Everything else/ });
+    if (drawer) {
+      fireEvent.click(drawer);
+      await waitFor(() => expect(screen.getByRole("heading", { name: title })).toBeInTheDocument());
+    }
+  }
+
+  /** The meal plan and the shopping list share one panel, behind tabs. */
+  async function openKitchenTab(tab: "This week" | "Shopping list") {
+    await openPanel("Kitchen");
+    fireEvent.click(screen.getByRole("tab", { name: new RegExp(tab) }));
+  }
+
   afterEach(() => {
     // Restore here rather than at the end of each test, so a failing
     // assertion can't leave the next test frozen at somebody else's clock.
@@ -124,7 +145,7 @@ describe("Dashboard", () => {
 
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
     expect(within(screen.getByRole("alert")).getByText("+10 gems")).toBeInTheDocument();
-    expect(screen.getByText("10 gems collected")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Visit the Gem Castle — 10 gems/ })).toBeInTheDocument();
   });
 
   it("adds a stated preference a family member says out loud", async () => {
@@ -140,7 +161,9 @@ describe("Dashboard", () => {
 
     render(<Dashboard />);
 
-    await waitFor(() => expect(screen.getByText("Nothing remembered yet.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Today's chores" })).toBeInTheDocument());
+    await openPanel("Family favorites");
+    expect(screen.getByText("Nothing remembered yet.")).toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText("Who said it?"), { target: { value: "Isla" } });
     fireEvent.change(screen.getByPlaceholderText(/what did they say/i), {
@@ -318,11 +341,15 @@ describe("Dashboard", () => {
 
     render(<Dashboard />);
 
-    await waitFor(() => expect(screen.getByText("Tacos (2)")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Today's chores" })).toBeInTheDocument());
+    await openKitchenTab("This week");
+    expect(screen.getByText("Tacos (2)")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /generate grocery list for this week/i }));
 
     await waitFor(() => expect(screen.getByText(/Added 2 ingredients/)).toBeInTheDocument());
+    // The generated lines land on the other tab of the same panel.
+    fireEvent.click(screen.getByRole("tab", { name: /Shopping list/ }));
     expect(screen.getByText("Tortillas")).toBeInTheDocument();
   });
 
@@ -342,7 +369,10 @@ describe("Dashboard", () => {
 
     render(<Dashboard />);
 
-    await waitFor(() => expect(screen.getByText("Nothing in the cart yet.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Today's chores" })).toBeInTheDocument());
+    await openKitchenTab("Shopping list");
+    expect(screen.getByText("Nothing in the cart yet.")).toBeInTheDocument();
+
 
     fireEvent.change(screen.getByPlaceholderText("Add an item"), { target: { value: "Milk" } });
     fireEvent.click(screen.getByRole("button", { name: /^add$/i }));
@@ -370,12 +400,17 @@ describe("Dashboard", () => {
 
     render(<Dashboard />);
 
-    await waitFor(() => expect(screen.getByText("Spaghetti")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Today's chores" })).toBeInTheDocument());
+    await openKitchenTab("Shopping list");
+    expect(screen.getByText("Spaghetti")).toBeInTheDocument();
     // Removal takes a deliberate second tap.
     fireEvent.click(screen.getByLabelText('Remove "Spaghetti" from the cart'));
     fireEvent.click(screen.getByLabelText('Tap again to remove "Spaghetti" from the cart'));
 
-    await waitFor(() => expect(screen.getByText("Nothing in the cart yet.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Today's chores" })).toBeInTheDocument());
+    await openKitchenTab("Shopping list");
+    expect(screen.getByText("Nothing in the cart yet.")).toBeInTheDocument();
+
     expect(api.removeCartItem).toHaveBeenCalledWith("fam_demo", "c1");
   });
 
@@ -385,7 +420,8 @@ describe("Dashboard", () => {
     vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
 
     render(<Dashboard />);
-    await waitFor(() => expect(screen.getByText("This week")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Today's chores" })).toBeInTheDocument());
+    await openKitchenTab("This week");
 
     // The fetch reaches back over the insight window so rhythms are
     // visible, but it has to extend to the end of whatever week is shown.
@@ -433,7 +469,7 @@ describe("Dashboard", () => {
     // Mid-flight, a child ticks the chore off and sees the gems land.
     vi.mocked(api.completeTask).mockResolvedValue({ ...pending, gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "done", gemsAwarded: 10 });
     fireEvent.click(screen.getByLabelText('Mark "Feed the dog" done'));
-    await waitFor(() => expect(screen.getByText("10 gems collected")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /Visit the Gem Castle — 10 gems/ })).toBeInTheDocument());
 
     // Now the stale snapshot finally lands, still showing the chore as pending.
     await act(async () => {
@@ -441,7 +477,7 @@ describe("Dashboard", () => {
     });
 
     // It must not un-tick the chore or roll the gem total backwards.
-    expect(screen.getByText("10 gems collected")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Visit the Gem Castle — 10 gems/ })).toBeInTheDocument();
     expect(screen.queryByLabelText('Mark "Feed the dog" done')).not.toBeInTheDocument();
   });
 
@@ -457,7 +493,8 @@ describe("Dashboard", () => {
 
     render(<Dashboard />);
 
-    await waitFor(() => expect(screen.getByText("Meal plan")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Today's chores" })).toBeInTheDocument());
+    await openKitchenTab("This week");
     expect(screen.queryByText("Tacos")).not.toBeInTheDocument();
 
     // The phone wakes up / the tab is refocused.
@@ -582,7 +619,7 @@ describe("Dashboard", () => {
 
     render(<Dashboard />);
 
-    await waitFor(() => expect(screen.getByText("20 gems collected")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /Visit the Gem Castle — 20 gems/ })).toBeInTheDocument());
     // Today's chore is waiting again, with nothing awarded yet.
     expect(screen.getByLabelText('Mark "Wipe Table" done')).toBeInTheDocument();
   });
@@ -601,11 +638,11 @@ describe("Dashboard", () => {
     });
 
     render(<Dashboard />);
-    await waitFor(() => expect(screen.getByText("0 gems collected")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /Visit the Gem Castle — 0 gems/ })).toBeInTheDocument());
 
     fireEvent.click(screen.getByLabelText('Mark "Wipe Table" done'));
 
-    await waitFor(() => expect(screen.getByText("10 gems collected")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /Visit the Gem Castle — 10 gems/ })).toBeInTheDocument());
   });
 
   it("claims a prize, spending the gems and clearing the board", async () => {
@@ -629,11 +666,11 @@ describe("Dashboard", () => {
 
     render(<Dashboard />);
 
-    await waitFor(() => expect(screen.getByText("60 gems collected")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /Visit the Gem Castle — 60 gems/ })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Claim LEGO set" }));
 
     // The gems are spent, so the total comes down and the prize leaves the board.
-    await waitFor(() => expect(screen.getByText("10 gems collected")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /Visit the Gem Castle — 10 gems/ })).toBeInTheDocument());
     expect(screen.queryByText("LEGO set")).not.toBeInTheDocument();
     expect(screen.getByText(/no prizes set yet/i)).toBeInTheDocument();
   });
@@ -660,13 +697,13 @@ describe("Dashboard", () => {
     fireEvent.click(screen.getByLabelText('Mark "Wipe Table" done'));
 
     // A child taps and the gems land. No pause, no dead-looking button.
-    await waitFor(() => expect(screen.getByText("10 gems collected")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /Visit the Gem Castle — 10 gems/ })).toBeInTheDocument());
     expect(screen.queryByLabelText('Mark "Wipe Table" done')).not.toBeInTheDocument();
 
     await act(async () => {
       settle({ taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "done", gemsAwarded: 10 });
     });
-    expect(screen.getByText("10 gems collected")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Visit the Gem Castle — 10 gems/ })).toBeInTheDocument();
   });
 
   it("puts a chore back exactly as it was when the write fails", async () => {
@@ -683,13 +720,13 @@ describe("Dashboard", () => {
     vi.mocked(api.completeTask).mockRejectedValue(new Error("Can't reach the family account — check the wi-fi."));
 
     render(<Dashboard />);
-    await waitFor(() => expect(screen.getByText("0 gems collected")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /Visit the Gem Castle — 0 gems/ })).toBeInTheDocument());
 
     fireEvent.click(screen.getByLabelText('Mark "Wipe Table" done'));
 
     // The gems go back and the chore is waiting again, with the reason shown.
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/check the wi-fi/i));
-    expect(screen.getByText("0 gems collected")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Visit the Gem Castle — 0 gems/ })).toBeInTheDocument();
     expect(screen.getByLabelText('Mark "Wipe Table" done')).toBeInTheDocument();
     // And no celebration for something that didn't happen.
     expect(screen.queryByText("+10 gems")).not.toBeInTheDocument();
@@ -762,6 +799,39 @@ describe("Dashboard", () => {
     // Four weeks back — bounded, so this doesn't grow without limit.
     expect(start).toBe(toLocalIsoDate(new Date(Date.now() - 28 * 24 * 60 * 60 * 1000)));
   });
+  it("keeps a panel's state when the layout moves it", async () => {
+    // Adding a grocery line changes a signal the layout reads, so the
+    // Kitchen panel can move between the rail and the drawer while
+    // someone is using it. Every panel but the lead lives in one list
+    // with a stable key precisely so that is a reorder and not an
+    // unmount — otherwise the tab this person is on is thrown away
+    // underneath them.
+    vi.mocked(api.listTasks).mockResolvedValue([]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+    vi.mocked(api.listCartItems).mockResolvedValue([]);
+    vi.mocked(api.addCartItem).mockResolvedValue({
+      itemId: "c9",
+      description: "Milk",
+      quantity: 1,
+      status: "pending",
+      substituteDescription: null,
+      orderedAt: null,
+      source: "manual",
+    });
+
+    render(<Dashboard />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Today's chores" })).toBeInTheDocument());
+    await openKitchenTab("Shopping list");
+
+    fireEvent.change(screen.getByLabelText(/add an item/i), { target: { value: "Milk" } });
+    fireEvent.click(screen.getByRole("button", { name: /^add$/i }));
+
+    await waitFor(() => expect(screen.getByText("Milk")).toBeInTheDocument());
+    // Still on the tab we were on, in the panel we opened.
+    expect(screen.getByRole("tab", { name: /Shopping list/ })).toHaveAttribute("aria-selected", "true");
+  });
+
   describe("the morning", () => {
     const MORNING_ROUTINE = {
       routineId: "r1",
@@ -1092,7 +1162,13 @@ describe("Dashboard", () => {
       );
       await waitFor(() => expect(screen.queryByRole("dialog", { name: /Bedtime at/ })).not.toBeInTheDocument());
 
-      fireEvent.click(screen.getAllByRole("button", { name: "Start now" })[0] as HTMLElement);
+      await openPanel("The morning");
+      fireEvent.click(
+        within(screen.getByRole("heading", { name: "The morning" }).closest("section") as HTMLElement).getByRole(
+          "button",
+          { name: "Start now" }
+        )
+      );
       await waitFor(() => expect(screen.getByRole("dialog", { name: /The bus at/ })).toBeInTheDocument());
       expect(within(screen.getByRole("dialog", { name: /The bus at/ })).getByText("Out the door")).toBeInTheDocument();
     });

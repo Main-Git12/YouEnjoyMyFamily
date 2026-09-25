@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, ApiError } from "../lib/api";
 import type { Task, TaskCompletion, ScheduleEntry, StatedPreference, StatedPreferenceCategory, MealPlanEntry, MealSlot, CartItem, RewardGoal, GemBalance, DueWindow, Routine, RoutineRun, RoutineStep, FocusBlock } from "../types";
 import { chooseThreatenedChore, type ThreatenedChore } from "../lib/gemThreats";
@@ -8,7 +8,6 @@ import ChoreLibrary, { type NewChore } from "./ChoreLibrary";
 import Calendar from "./Calendar";
 import Celebration from "./Celebration";
 import FamilyFavorites from "./FamilyFavorites";
-import GemCastle from "./GemCastle";
 import GemThreatAlert from "./GemThreatAlert";
 import PrizeGoal from "./PrizeGoal";
 import MealPlan from "./MealPlan";
@@ -22,6 +21,23 @@ import DraftWeek from "./DraftWeek";
 import { draftWeek, type DraftedMeal } from "../lib/routines";
 import { getFamilyId } from "../lib/familyKey";
 import GroceryCart from "./GroceryCart";
+import Kitchen from "./Kitchen";
+import CastleOverlay from "./CastleOverlay";
+import { planPanels, drawerLabel, type PanelId } from "../lib/dashboardLayout";
+import type { CardSize } from "./FamilyCard";
+import { currentWindow } from "../lib/timeOfDay";
+
+/**
+ * How each window reads in a sentence. "1 left before after school" is
+ * what you get from pasting a label into a template; a person says "one
+ * to go after school".
+ */
+const WHEN_IT_IS: Record<Exclude<DueWindow, "anytime">, string> = {
+  morning: "this morning",
+  after_school: "after school",
+  after_dinner: "after dinner",
+  bedtime: "before bed",
+};
 import MorningRoutine from "./MorningRoutine";
 import MorningLaunch from "./MorningLaunch";
 import { planRoutine, appliesOn, isRoutineDue, type PlannedStep } from "../lib/routinePlan";
@@ -116,6 +132,8 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   const [clock, setClock] = useState(() => new Date());
   const [focusBlocks, setFocusBlocks] = useState<FocusBlock[]>([]);
   const [focusOpen, setFocusOpen] = useState(false);
+  const [castleOpen, setCastleOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   // Recomputed every render rather than memoized, so an always-on kitchen
   // display rolls over to the new day at midnight on its own.
@@ -549,6 +567,57 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
 
   const choresLeftToday = tasks.filter((task) => task.status !== "done").length;
 
+  // Lines still to buy — an ordered item is last week's shop, not a
+  // standing line. Same rule the backend's checkout uses.
+  const outstandingCartCount = cartItems.filter(
+    (item) => item.status !== "ordered" && item.status !== "unavailable"
+  ).length;
+
+  /**
+   * The header's status line, said against the deadline rather than the
+   * day. At twenty past eight "5 still to do" counts four morning chores
+   * nobody can do anything about; "2 left before bedtime" is the number a
+   * person can act on. Phrased about the chores, never about who they
+   * were assigned to.
+   */
+  const headerStatus = (() => {
+    const here = currentWindow(clock);
+    if (here === null || here === "anytime") {
+      return choresLeftToday === 0
+        ? "the day's done"
+        : `the day's done — ${choresLeftToday} didn't get to it today`;
+    }
+    const leftInWindow = tasks.filter(
+      (task) => task.status !== "done" && (task.dueWindow === here || task.dueWindow === "anytime")
+    ).length;
+    if (leftInWindow === 0) return choresLeftToday === 0 ? "everything's done" : "nothing left right now";
+    return `${leftInWindow} to go ${WHEN_IT_IS[here]}`;
+  })();
+
+  /**
+   * Which panels are on screen and how loudly — see lib/dashboardLayout.ts.
+   *
+   * Recomputed every render, like everything else time-aware here. What
+   * makes that safe is the render below: every panel but the lead lives in
+   * one list with a stable key, so a panel moving between the rail and the
+   * drawer is a reorder rather than an unmount. React carries its state
+   * across — the tab someone is on, the "added 2 ingredients" they are
+   * reading — which an earlier version of this lost by rendering the two
+   * groups as separate lists.
+   */
+  const panelSignals = {
+    now: clock,
+    choresLeft: choresLeftToday,
+    outstandingCartItems: outstandingCartCount,
+    insightCount: insights.length,
+    scheduleEntriesToday: schedule.filter((entry) => entry.date === today).length,
+    hasMorningRoutine: morningRoutine !== null,
+    hasBedtimeRoutine: bedtimeRoutine !== null,
+    focusBlocksToday: focusBlocks.filter((block) => block.date === today).length,
+    statedPreferenceCount: preferences.length,
+  };
+  const panelPlan = planPanels(panelSignals);
+
   // Every action funnels its failure here, and a later success clears it —
   // a stale error banner outliving the problem is its own bug.
   function reportError(err: unknown) {
@@ -845,20 +914,160 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
     return productsLinkUrl;
   }
 
+  /**
+   * Every panel the dashboard can show, keyed by id, so the layout plan
+   * can place them without the render knowing what's in any of them.
+   */
+  const PANELS: Record<PanelId, { title: string; subtitle?: string; body: ReactNode }> = {
+    chores: {
+      title: "Today's chores",
+      subtitle: choresLeftToday === 0 ? "all done" : `${choresLeftToday} to go`,
+      body: (
+        <>
+          <TaskList tasks={tasks} onComplete={handleComplete} />
+          <ChoreLibrary onAdd={handleAddChore} members={members} />
+        </>
+      ),
+    },
+    schedule: {
+      title: "Today's schedule",
+      body: <Calendar entries={schedule.filter((entry) => entry.date === today)} />,
+    },
+    insights: {
+      title: "What we've noticed",
+      body: <Insights insights={insights} onAct={handleInsightAction} />,
+    },
+    prize: {
+      title: "Working toward",
+      body: (
+        <PrizeGoal
+          goals={rewardGoals}
+          gemsByChild={gemsByChild}
+          onSetGoal={handleSetRewardGoal}
+          onClaim={handleClaimRewardGoal}
+          members={members}
+        />
+      ),
+    },
+    kitchen: {
+      title: "Kitchen",
+      subtitle: outstandingCartCount > 0 ? `${outstandingCartCount} to buy` : undefined,
+      body: (
+        <Kitchen
+          outstandingCount={outstandingCartCount}
+          mealPlan={
+            <>
+              <MealPlan
+                entries={mealPlan.filter((entry) => weekDays.includes(entry.date))}
+                days={weekDays}
+                weekOffset={weekOffset}
+                onWeekOffsetChange={setWeekOffset}
+                onSave={handleSaveMealPlanEntry}
+                onRemove={handleRemoveMealPlanEntry}
+                onGenerateGroceryList={handleGenerateGroceryList}
+              />
+              <DraftWeek draft={weekDraft} onAccept={handleAcceptDraft} />
+            </>
+          }
+          groceries={
+            <GroceryCart
+              items={cartItems}
+              onAdd={handleAddCartItem}
+              onMarkUnavailable={handleMarkCartItemUnavailable}
+              onConfirmSubstitute={handleConfirmCartItemSubstitute}
+              onRemove={handleRemoveCartItem}
+              onRestore={handleRestoreCartItem}
+              onCheckout={handleCheckout}
+            />
+          }
+        />
+      ),
+    },
+    favorites: {
+      title: "Family favorites",
+      body: (
+        <FamilyFavorites preferences={preferences} onAdd={handleAddPreference} onRemove={handleRemovePreference} />
+      ),
+    },
+    morning: {
+      title: "The morning",
+      subtitle: morningRoutine ? `out by ${morningRoutine.anchorTime}` : undefined,
+      body: (
+        <MorningRoutine
+          routine={morningRoutine}
+          plan={morningPlan}
+          tasks={tasks}
+          members={members}
+          kind="morning"
+          onSave={(input) => handleSaveRoutine(input, "morning")}
+          onSetActive={(active) => handleSetRoutineActive(active, "morning")}
+          onStartNow={() => {
+            if (!morningRoutine) return;
+            setLaunchDismissedFor(null);
+            setLaunchForced(morningRoutine.routineId);
+          }}
+        />
+      ),
+    },
+    bedtime: {
+      title: "Bedtime",
+      subtitle: bedtimeRoutine ? `lights out ${bedtimeRoutine.anchorTime}` : undefined,
+      body: (
+        <MorningRoutine
+          routine={bedtimeRoutine}
+          plan={bedtimePlan}
+          tasks={tasks}
+          members={members}
+          kind="bedtime"
+          onSave={(input) => handleSaveRoutine(input, "bedtime")}
+          onSetActive={(active) => handleSetRoutineActive(active, "bedtime")}
+          onStartNow={() => {
+            if (!bedtimeRoutine) return;
+            setLaunchDismissedFor(null);
+            setLaunchForced(bedtimeRoutine.routineId);
+          }}
+        />
+      ),
+    },
+    focus: {
+      title: "Focused work",
+      body: (
+        <FocusDay
+          blocks={focusBlocks}
+          today={today}
+          suggestion={focusSuggestion}
+          onStart={() => setFocusOpen(true)}
+        />
+      ),
+    },
+  };
+
+  const renderPanel = (id: PanelId, size: CardSize, className?: string) => {
+    const panel = PANELS[id];
+    return (
+      <FamilyCard key={id} title={panel.title} subtitle={panel.subtitle} size={size} className={className}>
+        {panel.body}
+      </FamilyCard>
+    );
+  };
+
+  // On a wall display the page itself is exactly one screen, with each
+  // column scrolling inside itself — a kitchen display you have to scroll
+  // as a whole is one nobody scrolls. Phones keep ordinary document flow.
   return (
-    <main className="min-h-screen bg-white p-4 sm:p-6 lg:p-8 grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 items-start">
-      <header className="md:col-span-2 flex flex-wrap items-center justify-between gap-3">
+    <main className="min-h-screen lg:h-screen lg:overflow-hidden bg-white flex flex-col">
+      <header className="shrink-0 flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-3">
         <div className="flex items-center gap-3 min-w-0">
-          <img src="/brand-mark.png" alt="" className="h-12 w-12 sm:h-14 sm:w-14 shrink-0 rounded-full ring-4 ring-olive-100" />
+          <img src="/brand-mark.png" alt="" className="h-12 w-12 sm:h-14 sm:w-14 short:h-10 short:w-10 shrink-0 rounded-full ring-4 ring-olive-100" />
           <div className="min-w-0">
             {/* The day leads, not the brand. Someone walking past a kitchen
                 screen wants to know what today is and what's left of it —
                 they already know whose house they're in. */}
-            <h1 className="font-display text-2xl sm:text-3xl lg:text-4xl text-olive-800 truncate">
+            <h1 className="font-display text-2xl sm:text-3xl lg:text-4xl short:text-2xl text-olive-800 truncate">
               {new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}
             </h1>
             <p className="text-olive-700 font-body">
-              {greeting()} — {choresLeftToday === 0 ? "everything's done" : `${choresLeftToday} still to do`}
+              {greeting()} — {headerStatus}
             </p>
           </div>
         </div>
@@ -872,126 +1081,71 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
           >
             {isSyncing ? "Refreshing…" : "Refresh"}
           </button>
-          <p className="font-display text-base sm:text-lg bg-olive-600 text-white rounded-full px-4 sm:px-5 py-2 shadow-[var(--shadow-card)]">
-            {totalGems} gems collected
-          </p>
+          {/* The castle lives behind this rather than in a cell of its own:
+              the number was already printed here, two inches above it. */}
+          <button
+            type="button"
+            onClick={() => setCastleOpen(true)}
+            aria-label={`Visit the Gem Castle — ${totalGems} gems`}
+            className="font-display text-base sm:text-lg bg-olive-600 text-white rounded-full px-4 sm:px-5 py-2 shadow-[var(--shadow-card)] hover:bg-olive-700 active:scale-95 transition"
+          >
+            {totalGems} gems
+          </button>
         </div>
       </header>
 
       {error && (
-        <p role="alert" className="md:col-span-2 text-clay-900 bg-clay-100 rounded-card px-4 py-3">
+        <p role="alert" className="mx-4 sm:mx-6 lg:mx-8 text-clay-900 bg-clay-100 rounded-card px-4 py-3">
           {error}
         </p>
       )}
 
       {isLoading && (
-        <p role="status" className="md:col-span-2 text-olive-600 italic text-center py-8">
+        <p role="status" className="text-olive-600 italic text-center py-8">
           Loading your family&apos;s day&hellip;
         </p>
       )}
 
       {!isLoading && (
-        <>
-          <FamilyCard title="Today's chores" hero>
-            <TaskList tasks={tasks} onComplete={handleComplete} />
-            <ChoreLibrary onAdd={handleAddChore} members={members} />
-          </FamilyCard>
+        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 px-4 sm:px-6 lg:px-8 pb-6 items-start lg:items-stretch">
+          {/* The one thing the screen is for. */}
+          {renderPanel(panelPlan.lead, "hero", "lg:col-span-7 xl:col-span-8 lg:min-h-0 lg:overflow-y-auto")}
 
-          <FamilyCard title="The morning">
-            <MorningRoutine
-              routine={morningRoutine}
-              plan={morningPlan}
-              tasks={tasks}
-              members={members}
-              kind="morning"
-              onSave={(input) => handleSaveRoutine(input, "morning")}
-              onSetActive={(active) => handleSetRoutineActive(active, "morning")}
-              onStartNow={() => {
-                if (!morningRoutine) return;
-                setLaunchDismissedFor(null);
-                setLaunchForced(morningRoutine.routineId);
-              }}
-            />
-          </FamilyCard>
+          {/* Alongside it: what this hour actually needs, quieter. */}
+          <aside
+            aria-label="Alongside"
+            className="lg:col-span-5 xl:col-span-4 lg:min-h-0 lg:overflow-y-auto flex flex-col gap-4 sm:gap-6 show:grid show:grid-cols-2 lg:flex lg:flex-col"
+          >
+            {/* One list, stable keys. The drawer's panels are hidden
+                rather than unmounted, so a panel that moves between the
+                rail and the drawer keeps whatever state it had — and so
+                the drawer opens instantly rather than rebuilding itself. */}
+            {[...panelPlan.rail, ...panelPlan.drawer].map((id, index) =>
+              renderPanel(
+                id,
+                "compact",
+                index >= panelPlan.rail.length && !drawerOpen ? "hidden" : undefined
+              )
+            )}
 
-          <FamilyCard title="Bedtime">
-            <MorningRoutine
-              routine={bedtimeRoutine}
-              plan={bedtimePlan}
-              tasks={tasks}
-              members={members}
-              kind="bedtime"
-              onSave={(input) => handleSaveRoutine(input, "bedtime")}
-              onSetActive={(active) => handleSetRoutineActive(active, "bedtime")}
-              onStartNow={() => {
-                if (!bedtimeRoutine) return;
-                setLaunchDismissedFor(null);
-                setLaunchForced(bedtimeRoutine.routineId);
-              }}
-            />
-          </FamilyCard>
-
-          <FamilyCard title="Focused work">
-            <FocusDay
-              blocks={focusBlocks}
-              today={today}
-              suggestion={focusSuggestion}
-              onStart={() => setFocusOpen(true)}
-            />
-          </FamilyCard>
-
-          <FamilyCard title="What we've noticed">
-            <Insights insights={insights} onAct={handleInsightAction} />
-          </FamilyCard>
-
-          <FamilyCard title="Working toward">
-            <PrizeGoal
-              goals={rewardGoals}
-              gemsByChild={gemsByChild}
-              onSetGoal={handleSetRewardGoal}
-              onClaim={handleClaimRewardGoal}
-              members={members}
-            />
-          </FamilyCard>
-
-          <FamilyCard title="Today's schedule" accent>
-            <Calendar entries={schedule.filter((entry) => entry.date === today)} />
-          </FamilyCard>
-
-          <FamilyCard title="Family favorites">
-            <FamilyFavorites preferences={preferences} onAdd={handleAddPreference} onRemove={handleRemovePreference} />
-          </FamilyCard>
-
-          <FamilyCard title="Gem Castle">
-            <GemCastle totalGems={totalGems} />
-          </FamilyCard>
-
-          <FamilyCard title="Meal plan">
-            <MealPlan
-              entries={mealPlan.filter((entry) => weekDays.includes(entry.date))}
-              days={weekDays}
-              weekOffset={weekOffset}
-              onWeekOffsetChange={setWeekOffset}
-              onSave={handleSaveMealPlanEntry}
-              onRemove={handleRemoveMealPlanEntry}
-              onGenerateGroceryList={handleGenerateGroceryList}
-            />
-            <DraftWeek draft={weekDraft} onAccept={handleAcceptDraft} />
-          </FamilyCard>
-
-          <FamilyCard title="Grocery cart">
-            <GroceryCart
-              items={cartItems}
-              onAdd={handleAddCartItem}
-              onMarkUnavailable={handleMarkCartItemUnavailable}
-              onConfirmSubstitute={handleConfirmCartItemSubstitute}
-              onRemove={handleRemoveCartItem}
-              onRestore={handleRestoreCartItem}
-              onCheckout={handleCheckout}
-            />
-          </FamilyCard>
-        </>
+            {/* Everything else. One tap, never lost — the point is that the
+                screen commits to a few things at a time, not that it hides
+                anything. */}
+            {panelPlan.drawer.length > 0 && (
+              <button
+                type="button"
+                aria-expanded={drawerOpen}
+                onClick={() => setDrawerOpen((open) => !open)}
+                className="w-full font-body text-olive-700 bg-olive-50 border border-olive-100 rounded-card px-4 py-3"
+              >
+                {drawerOpen ? "Show less" : `Everything else · ${drawerLabel(panelPlan)}`}
+              </button>
+            )}
+          </aside>
+        </div>
       )}
+
+      {castleOpen && <CastleOverlay totalGems={totalGems} onDismiss={() => setCastleOpen(false)} />}
 
       {/* Rendered before the other overlays on purpose. At ten to eight
           getting out of the door outranks a chore scenario, and two

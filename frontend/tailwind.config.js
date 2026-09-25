@@ -3,6 +3,14 @@ export default {
   content: ["./index.html", "./src/**/*.{js,jsx,ts,tsx}"],
   theme: {
     extend: {
+      screens: {
+        // The portrait Echo Show is 600px wide — below Tailwind's `sm`, so
+        // without this it gets the phone layout on a 10-inch screen.
+        show: '600px',
+        // ...and the landscape one has only 600px of height, where the
+        // default vertical rhythm pushes the first card off the bottom.
+        short: { raw: '(max-height: 700px)' },
+      },
       colors: {
         // Olive / earthy palette — calm, low-glare, high-contrast for Echo Show.
         olive: {
