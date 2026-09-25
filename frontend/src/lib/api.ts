@@ -1,4 +1,4 @@
-import type { Task, TaskCompletion, ScheduleEntry, CartItem, StatedPreference, MealPlanEntry, MealSlot, RewardGoal, GemBalance, GemBalanceReport } from "../types";
+import type { Task, TaskCompletion, ScheduleEntry, CartItem, StatedPreference, MealPlanEntry, MealSlot, RewardGoal, GemBalance, GemBalanceReport, Routine, RoutineRun, RoutineStep } from "../types";
 
 import { getFamilyApiKey } from "./familyKey";
 
@@ -177,4 +177,29 @@ export const api = {
       `/families/${familyId}/stated-preferences/${preferenceId}?memberId=${encodeURIComponent(memberId)}`,
       { method: "DELETE" }
     ),
+  listRoutines: (familyId: string) => request<Routine[]>(`/families/${familyId}/routines`),
+  createRoutine: (
+    familyId: string,
+    routine: Omit<Routine, "routineId" | "steps" | "active"> & { steps: Omit<RoutineStep, "stepId">[]; active?: boolean }
+  ) => request<Routine>(`/families/${familyId}/routines`, { method: "POST", body: JSON.stringify(routine) }),
+  updateRoutine: (
+    familyId: string,
+    routineId: string,
+    patch: Partial<Omit<Routine, "routineId" | "steps">> & { steps?: Omit<RoutineStep, "stepId">[] }
+  ) => request<Routine>(`/families/${familyId}/routines/${routineId}`, { method: "PUT", body: JSON.stringify(patch) }),
+  deleteRoutine: (familyId: string, routineId: string) =>
+    request<{ deleted: string }>(`/families/${familyId}/routines/${routineId}`, { method: "DELETE" }),
+  listRoutineRuns: (familyId: string, routineId: string, start: string, end: string) =>
+    request<RoutineRun[]>(`/families/${familyId}/routines/${routineId}/runs?start=${start}&end=${end}`),
+  /**
+   * Writes the whole of today's run, every time. It is a PUT to a key built
+   * from the caller's own date, so it is idempotent by construction — which
+   * is what lets the one write this screen does happen on every tick of the
+   * morning without the retry in `request` being a hazard.
+   */
+  saveRoutineRun: (familyId: string, routineId: string, run: Omit<RoutineRun, "routineId">) =>
+    request<RoutineRun>(`/families/${familyId}/routines/${routineId}/runs`, {
+      method: "PUT",
+      body: JSON.stringify(run),
+    }),
 };

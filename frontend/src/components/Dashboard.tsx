@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../lib/api";
-import type { Task, TaskCompletion, ScheduleEntry, StatedPreference, StatedPreferenceCategory, MealPlanEntry, MealSlot, CartItem, RewardGoal, GemBalance, DueWindow } from "../types";
+import type { Task, TaskCompletion, ScheduleEntry, StatedPreference, StatedPreferenceCategory, MealPlanEntry, MealSlot, CartItem, RewardGoal, GemBalance, DueWindow, Routine, RoutineRun, RoutineStep } from "../types";
 import { chooseThreatenedChore, type ThreatenedChore } from "../lib/gemThreats";
 import FamilyCard from "./FamilyCard";
 import TaskList from "./TaskList";
@@ -22,6 +22,9 @@ import DraftWeek from "./DraftWeek";
 import { draftWeek, type DraftedMeal } from "../lib/routines";
 import { getFamilyId } from "../lib/familyKey";
 import GroceryCart from "./GroceryCart";
+import MorningRoutine from "./MorningRoutine";
+import MorningLaunch from "./MorningLaunch";
+import { planRoutine, appliesOn, isRoutineDue, type PlannedStep } from "../lib/routinePlan";
 
 // Which family this screen belongs to, set once per device (see
 // LinkDevice). Read at render rather than module load so a screen linked
@@ -31,6 +34,23 @@ const FALLBACK_FAMILY_ID = "fam_demo";
 // How often an idle screen re-reads the family's data, so a meal added on a
 // phone shows up on the Echo Show (and vice versa) without anyone reloading.
 const SYNC_INTERVAL_MS = 30_000;
+
+// How often the morning countdown re-reads the clock. Fast enough that
+// "6 min spare" doesn't sit there lying while the minute turns over, slow
+// enough that it isn't re-rendering the screen for its own sake.
+const CLOCK_TICK_MS = 15_000;
+
+// How far back the routine engine looks to learn how long each step
+// actually takes. Four weeks is about twenty school mornings — enough for
+// a median to mean something, recent enough to still describe this term.
+const ROUTINE_HISTORY_DAYS = 28;
+
+// How long the launch screen stays up after the last step is ticked.
+// `isRoutineDue` goes false the instant the routine is finished, so without
+// this the screen would vanish under the hand that just finished it — and
+// "out the door, with 12 minutes to spare" is the whole payoff of the
+// thing. It is the reason anyone plays along again tomorrow.
+const MORNING_CELEBRATION_MS = 90_000;
 
 interface DashboardProps {
   /** Raised when the backend rejects this device's key outright. */
@@ -61,6 +81,18 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   const [defending, setDefending] = useState(false);
   // 0 = the coming 7 days; the family can page forward to plan ahead.
   const [weekOffset, setWeekOffset] = useState(0);
+  const [routines, setRoutines] = useState<Routine[]>([]);
+  const [routineRuns, setRoutineRuns] = useState<RoutineRun[]>([]);
+  // Set when someone taps "back to the dashboard", so the launch screen
+  // doesn't immediately reassert itself over whatever they wanted to look
+  // at. Cleared when the routine next finishes or the day rolls over.
+  const [launchDismissedFor, setLaunchDismissedFor] = useState<string | null>(null);
+  // Lets "Start now" open the launch screen outside its usual window.
+  const [launchForced, setLaunchForced] = useState(false);
+  // Re-read on a timer so the countdown is live. Held in state rather than
+  // read at render because nothing else would re-render the screen between
+  // syncs, and a stalled countdown is worse than no countdown.
+  const [clock, setClock] = useState(() => new Date());
 
   // Recomputed every render rather than memoized, so an always-on kitchen
   // display rolls over to the new day at midnight on its own.
@@ -94,6 +126,23 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
     ]);
     return { taskItems, completionItems, scheduleItems, preferenceItems, mealPlanItems, cartItemsList, rewardGoalItems, gemBalanceItems };
   }, [familyId, weekEnd, today, insightWindowStart]);
+
+  /**
+   * Routines, and the recent runs of the morning one.
+   *
+   * Deliberately not folded into `fetchEverything`: that is a single
+   * `Promise.all` of independent calls, and this is a dependent pair — the
+   * runs can't be asked for until the routine list says which routine to
+   * ask about.
+   */
+  const fetchRoutines = useCallback(async () => {
+    const routineItems = await api.listRoutines(familyId);
+    const morning = routineItems.find((routine) => routine.kind === "morning") ?? null;
+    if (!morning) return { routineItems, runItems: [] as RoutineRun[] };
+    const historyStart = toLocalIsoDate(new Date(Date.now() - ROUTINE_HISTORY_DAYS * 24 * 60 * 60 * 1000));
+    const runItems = await api.listRoutineRuns(familyId, morning.routineId, historyStart, today);
+    return { routineItems, runItems };
+  }, [familyId, today]);
 
   // Bumped at the start *and* the end of every local write. A sync that
   // overlapped a write is holding a snapshot taken before the server saw it,
@@ -144,6 +193,37 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
       superseded = true;
     };
   }, [fetchEverything, applyEverything]);
+
+  // Loaded alongside the main fetch. A failure here is quiet: a screen
+  // that can't reach the routine still shows the day perfectly well, and
+  // an error banner over the whole dashboard because the morning list
+  // didn't load would be out of proportion.
+  useEffect(() => {
+    let superseded = false;
+    void fetchRoutines()
+      .then(({ routineItems, runItems }) => {
+        if (superseded) return;
+        setRoutines(routineItems);
+        setRoutineRuns(runItems);
+      })
+      .catch(() => undefined);
+    return () => {
+      superseded = true;
+    };
+  }, [fetchRoutines]);
+
+  /**
+   * The countdown's own clock.
+   *
+   * Only runs while a morning routine exists, so a household that has
+   * never set one up isn't re-rendering its dashboard four times a minute
+   * for a feature it doesn't use.
+   */
+  useEffect(() => {
+    if (!routines.some((routine) => routine.kind === "morning" && routine.active)) return;
+    const interval = setInterval(() => setClock(new Date()), CLOCK_TICK_MS);
+    return () => clearInterval(interval);
+  }, [routines]);
 
   // Keeps every screen in the house on the same page — a meal or grocery
   // item edited on someone's phone appears here on the next tick, and a
@@ -205,6 +285,113 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
    * hand, and a stale observation is worse than none.
    */
   const insights = buildInsights({ tasks, completions, mealPlan, cartItems, schedule, today });
+
+  /**
+   * The morning, as it stands right now.
+   *
+   * Recomputed each render off `clock` rather than memoized: it is
+   * arithmetic over rows already in hand, and a countdown that has
+   * quietly stopped updating is worse than no countdown at all.
+   */
+  const morningRoutine = routines.find((routine) => routine.kind === "morning") ?? null;
+  const todayRun = routineRuns.find((run) => run.date === today) ?? null;
+  const morningPlan =
+    morningRoutine && appliesOn(morningRoutine, clock)
+      ? planRoutine({ routine: morningRoutine, history: routineRuns, today: todayRun, isoDate: today, now: clock })
+      : null;
+  // The launch screen takes over when the morning is actually due — or
+  // when someone asked for it. Dismissal is per-day, so waving it away to
+  // check the calendar doesn't switch the feature off for good.
+  // Derived from the record rather than held in state, so it survives a
+  // re-render, a background sync, or another screen in the house writing
+  // the same run.
+  const justFinished =
+    todayRun?.finishedAt !== null && todayRun?.finishedAt !== undefined
+      ? clock.getTime() - Date.parse(todayRun.finishedAt) < MORNING_CELEBRATION_MS
+      : false;
+  const showMorningLaunch =
+    morningPlan !== null &&
+    launchDismissedFor !== today &&
+    (launchForced || isRoutineDue(morningPlan, clock) || justFinished);
+
+  /**
+   * Writes the whole of today's run, every time.
+   *
+   * The endpoint is a PUT keyed on the family's own date, so this is
+   * idempotent by construction — which is what makes it safe to fire on
+   * every tick of a morning where the wi-fi is patchy and someone is
+   * tapping quickly.
+   */
+  async function saveRun(routineId: string, steps: RoutineRun["steps"], finished: boolean) {
+    const startedAt = steps[0]?.startedAt ?? new Date().toISOString();
+    const run: Omit<RoutineRun, "routineId"> = {
+      date: today,
+      startedAt,
+      finishedAt: finished ? new Date().toISOString() : null,
+      steps,
+    };
+    // Applied locally first: a child taps "Done" and the next step has to
+    // appear now, not after a round-trip on kitchen wi-fi.
+    setRoutineRuns((prev) => [...prev.filter((existing) => existing.date !== today), { routineId, ...run }]);
+    try {
+      await guardedWrite(() => api.saveRoutineRun(familyId, routineId, run));
+      setError(null);
+    } catch (err) {
+      reportError(err);
+    }
+  }
+
+  /**
+   * Ticking a step off. The step's own start time is when the one before
+   * it finished — or now, for the first — so the durations this learns
+   * from are the real elapsed time rather than a stopwatch someone had to
+   * remember to press.
+   */
+  function handleFinishStep(step: PlannedStep) {
+    if (!morningRoutine || !morningPlan) return;
+    const existing = todayRun?.steps ?? [];
+    const finishedAt = new Date().toISOString();
+    const previous = existing[existing.length - 1];
+    const startedAt = previous?.finishedAt ?? todayRun?.startedAt ?? finishedAt;
+    const already = existing.find((entry) => entry.stepId === step.stepId);
+    const steps: RoutineRun["steps"] = already
+      ? existing.map((entry) => (entry.stepId === step.stepId ? { ...entry, finishedAt } : entry))
+      : [...existing, { stepId: step.stepId, title: step.title, startedAt, finishedAt }];
+    const finished = morningRoutine.steps.every((defined) =>
+      steps.some((entry) => entry.stepId === defined.stepId && entry.finishedAt)
+    );
+    void saveRun(morningRoutine.routineId, steps, finished);
+  }
+
+  /** A mis-tap on a wall screen at seven in the morning is routine. */
+  function handleUndoStep(step: PlannedStep) {
+    if (!morningRoutine) return;
+    const steps = (todayRun?.steps ?? []).filter((entry) => entry.stepId !== step.stepId);
+    void saveRun(morningRoutine.routineId, steps, false);
+  }
+
+  async function handleSaveRoutine(input: {
+    name: string;
+    anchorTime: string;
+    daysOfWeek: number[];
+    steps: Omit<RoutineStep, "stepId">[];
+  }) {
+    const saved = morningRoutine
+      ? await guardedWrite(() => api.updateRoutine(familyId, morningRoutine.routineId, input))
+      : await guardedWrite(() => api.createRoutine(familyId, { ...input, kind: "morning" }));
+    setRoutines((prev) => [...prev.filter((routine) => routine.routineId !== saved.routineId), saved]);
+  }
+
+  async function handleSetRoutineActive(active: boolean) {
+    if (!morningRoutine) return;
+    try {
+      const saved = await guardedWrite(() => api.updateRoutine(familyId, morningRoutine.routineId, { active }));
+      setRoutines((prev) => prev.map((routine) => (routine.routineId === saved.routineId ? saved : routine)));
+      setError(null);
+    } catch (err) {
+      reportError(err);
+    }
+  }
 
   /**
    * A proposed set of dinners for the empty days of the week on screen,
@@ -601,6 +788,21 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
             <ChoreLibrary onAdd={handleAddChore} members={members} />
           </FamilyCard>
 
+          <FamilyCard title="The morning">
+            <MorningRoutine
+              routine={morningRoutine}
+              plan={morningPlan}
+              tasks={tasks}
+              members={members}
+              onSave={handleSaveRoutine}
+              onSetActive={handleSetRoutineActive}
+              onStartNow={() => {
+                setLaunchDismissedFor(null);
+                setLaunchForced(true);
+              }}
+            />
+          </FamilyCard>
+
           <FamilyCard title="What we've noticed">
             <Insights insights={insights} onAct={handleInsightAction} />
           </FamilyCard>
@@ -654,6 +856,22 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
         </>
       )}
 
+      {/* Rendered before the other overlays on purpose. At ten to eight
+          getting out of the door outranks a chore scenario, and two
+          full-screen boxes competing would be worse than either. */}
+      {showMorningLaunch && morningPlan && (
+        <MorningLaunch
+          plan={morningPlan}
+          anchorLabel={morningRoutine?.name ?? "Out the door"}
+          onFinishStep={handleFinishStep}
+          onUndoStep={handleUndoStep}
+          onDismiss={() => {
+            setLaunchForced(false);
+            setLaunchDismissedFor(today);
+          }}
+        />
+      )}
+
       {celebration && (
         <Celebration
           gemsEarned={celebration.gemsEarned}
@@ -673,7 +891,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
         ) : null;
       })()}
 
-      {threatened && (
+      {threatened && !showMorningLaunch && (
         <GemThreatAlert threatened={threatened} onDefend={handleDefendGems} onDismiss={handleDismissThreat} />
       )}
     </main>

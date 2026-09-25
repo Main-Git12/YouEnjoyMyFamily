@@ -40,6 +40,11 @@ vi.mock("../lib/api", () => ({
     updateTask: vi.fn(),
     claimRewardGoal: vi.fn(),
     setRewardGoal: vi.fn(),
+    listRoutines: vi.fn(),
+    listRoutineRuns: vi.fn(),
+    createRoutine: vi.fn(),
+    updateRoutine: vi.fn(),
+    saveRoutineRun: vi.fn(),
   },
 }));
 
@@ -52,6 +57,8 @@ describe("Dashboard", () => {
     vi.mocked(api.listRewardGoals).mockResolvedValue([]);
     vi.mocked(api.listTaskCompletions).mockResolvedValue([]);
     vi.mocked(api.listGemBalances).mockResolvedValue({ balances: [], family: { earned: 0, spent: 0, balance: 0 } });
+    vi.mocked(api.listRoutines).mockResolvedValue([]);
+    vi.mocked(api.listRoutineRuns).mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -636,6 +643,8 @@ describe("Dashboard", () => {
     vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
     vi.mocked(api.listTaskCompletions).mockResolvedValue([]);
     vi.mocked(api.listGemBalances).mockResolvedValue({ balances: [], family: { earned: 0, spent: 0, balance: 0 } });
+    vi.mocked(api.listRoutines).mockResolvedValue([]);
+    vi.mocked(api.listRoutineRuns).mockResolvedValue([]);
 
     // A slow write, still in flight.
     let settle: (task: Task) => void = () => {};
@@ -664,6 +673,8 @@ describe("Dashboard", () => {
     vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
     vi.mocked(api.listTaskCompletions).mockResolvedValue([]);
     vi.mocked(api.listGemBalances).mockResolvedValue({ balances: [], family: { earned: 0, spent: 0, balance: 0 } });
+    vi.mocked(api.listRoutines).mockResolvedValue([]);
+    vi.mocked(api.listRoutineRuns).mockResolvedValue([]);
     vi.mocked(api.completeTask).mockRejectedValue(new Error("Can't reach the family account — check the wi-fi."));
 
     render(<Dashboard />);
@@ -745,5 +756,219 @@ describe("Dashboard", () => {
     expect(end).toBe(toLocalIsoDate(new Date()));
     // Four weeks back — bounded, so this doesn't grow without limit.
     expect(start).toBe(toLocalIsoDate(new Date(Date.now() - 28 * 24 * 60 * 60 * 1000)));
+  });
+  describe("the morning", () => {
+    const MORNING_ROUTINE = {
+      routineId: "r1",
+      name: "The bus",
+      kind: "morning" as const,
+      anchorTime: "07:52",
+      // 2026-09-23 is a Wednesday.
+      daysOfWeek: [1, 2, 3, 4, 5],
+      active: true,
+      steps: [
+        { stepId: "s1", title: "Get dressed", targetMinutes: 10, memberId: "Parker" },
+        { stepId: "s2", title: "Breakfast", targetMinutes: 15, memberId: null },
+      ],
+    };
+
+    function stubQuietDay() {
+      vi.mocked(api.listTasks).mockResolvedValue([]);
+      vi.mocked(api.listSchedules).mockResolvedValue([]);
+      vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+    }
+
+    it("takes over the screen when the morning is actually due", async () => {
+      // 07:15 on a Wednesday. 25 minutes of routine + 20 minutes of lead
+      // means the launch screen is open from 07:07.
+      vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date(2026, 8, 23, 7, 15) });
+      stubQuietDay();
+      vi.mocked(api.listRoutines).mockResolvedValue([MORNING_ROUTINE]);
+
+      render(<Dashboard />);
+
+      await waitFor(() => expect(screen.getByRole("dialog", { name: /The bus at/ })).toBeInTheDocument());
+      const launch = within(screen.getByRole("dialog", { name: /The bus at/ }));
+      expect(launch.getByRole("heading", { name: "Get dressed" })).toBeInTheDocument();
+      // 37 minutes to the bus, 25 minutes of routine left.
+      expect(launch.getByText("12 min spare")).toBeInTheDocument();
+    });
+
+    it("stays out of the way the rest of the day", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date(2026, 8, 23, 16, 0) });
+      stubQuietDay();
+      vi.mocked(api.listRoutines).mockResolvedValue([MORNING_ROUTINE]);
+
+      render(<Dashboard />);
+
+      await waitFor(() => expect(screen.getByText("The morning")).toBeInTheDocument());
+      expect(screen.queryByRole("dialog", { name: /The bus at/ })).not.toBeInTheDocument();
+    });
+
+    it("does not run at the weekend", async () => {
+      // 2026-09-26 is a Saturday, at the same time of the morning.
+      vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date(2026, 8, 26, 7, 15) });
+      stubQuietDay();
+      vi.mocked(api.listRoutines).mockResolvedValue([MORNING_ROUTINE]);
+
+      render(<Dashboard />);
+
+      await waitFor(() => expect(screen.getByText("The morning")).toBeInTheDocument());
+      expect(screen.queryByRole("dialog", { name: /The bus at/ })).not.toBeInTheDocument();
+    });
+
+    it("records the step against the family's own date when it's ticked", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date(2026, 8, 23, 7, 15) });
+      stubQuietDay();
+      vi.mocked(api.listRoutines).mockResolvedValue([MORNING_ROUTINE]);
+      vi.mocked(api.saveRoutineRun).mockResolvedValue({
+        routineId: "r1",
+        date: "2026-09-23",
+        startedAt: null,
+        finishedAt: null,
+        steps: [],
+      });
+
+      render(<Dashboard />);
+      await waitFor(() => expect(screen.getByRole("dialog", { name: /The bus at/ })).toBeInTheDocument());
+      fireEvent.click(within(screen.getByRole("dialog", { name: /The bus at/ })).getByRole("button", { name: "Done" }));
+
+      await waitFor(() => expect(api.saveRoutineRun).toHaveBeenCalled());
+      const [, routineId, run] = vi.mocked(api.saveRoutineRun).mock.calls[0] ?? [];
+      expect(routineId).toBe("r1");
+      expect(run?.date).toBe("2026-09-23");
+      expect(run?.steps).toHaveLength(1);
+      expect(run?.steps[0]?.stepId).toBe("s1");
+      expect(run?.steps[0]?.finishedAt).not.toBeNull();
+      // Two steps in the routine, one ticked — the morning isn't over.
+      expect(run?.finishedAt).toBeNull();
+    });
+
+    it("moves on to the next step once one is ticked", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date(2026, 8, 23, 7, 15) });
+      stubQuietDay();
+      vi.mocked(api.listRoutines).mockResolvedValue([MORNING_ROUTINE]);
+      vi.mocked(api.saveRoutineRun).mockResolvedValue({
+        routineId: "r1",
+        date: "2026-09-23",
+        startedAt: null,
+        finishedAt: null,
+        steps: [],
+      });
+
+      render(<Dashboard />);
+      await waitFor(() => expect(screen.getByRole("dialog", { name: /The bus at/ })).toBeInTheDocument());
+      fireEvent.click(within(screen.getByRole("dialog", { name: /The bus at/ })).getByRole("button", { name: "Done" }));
+
+      await waitFor(() =>
+        expect(
+          within(screen.getByRole("dialog", { name: /The bus at/ })).getByRole("heading", { name: "Breakfast" })
+        ).toBeInTheDocument()
+      );
+    });
+
+    it("can be put away, and stays away for the rest of that morning", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date(2026, 8, 23, 7, 15) });
+      stubQuietDay();
+      vi.mocked(api.listRoutines).mockResolvedValue([MORNING_ROUTINE]);
+
+      render(<Dashboard />);
+      await waitFor(() => expect(screen.getByRole("dialog", { name: /The bus at/ })).toBeInTheDocument());
+      fireEvent.click(
+        within(screen.getByRole("dialog", { name: /The bus at/ })).getByRole("button", { name: /back to the dashboard/i })
+      );
+
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: /The bus at/ })).not.toBeInTheDocument());
+      // The clock ticks on; it must not reassert itself over whatever the
+      // parent went to the dashboard to look at.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(screen.queryByRole("dialog", { name: /The bus at/ })).not.toBeInTheDocument();
+    });
+
+    it("stays up to say they made it, rather than vanishing under the hand that finished it", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date(2026, 8, 23, 7, 15) });
+      stubQuietDay();
+      vi.mocked(api.listRoutines).mockResolvedValue([MORNING_ROUTINE]);
+      vi.mocked(api.saveRoutineRun).mockResolvedValue({
+        routineId: "r1",
+        date: "2026-09-23",
+        startedAt: null,
+        finishedAt: null,
+        steps: [],
+      });
+
+      render(<Dashboard />);
+      await waitFor(() => expect(screen.getByRole("dialog", { name: /The bus at/ })).toBeInTheDocument());
+
+      // Both steps.
+      for (let step = 0; step < 2; step++) {
+        fireEvent.click(
+          within(screen.getByRole("dialog", { name: /The bus at/ })).getByRole("button", { name: "Done" })
+        );
+        await act(async () => {
+          await Promise.resolve();
+        });
+      }
+
+      // isRoutineDue goes false the moment the routine is finished, so
+      // without the celebration window the screen would be gone by now.
+      await waitFor(() =>
+        expect(within(screen.getByRole("dialog", { name: /The bus at/ })).getByText("Out the door")).toBeInTheDocument()
+      );
+      expect(
+        within(screen.getByRole("dialog", { name: /The bus at/ })).getByText(/minutes to spare/)
+      ).toBeInTheDocument();
+    });
+
+    it("lets the morning go once the moment has passed", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date(2026, 8, 23, 7, 15) });
+      stubQuietDay();
+      vi.mocked(api.listRoutines).mockResolvedValue([MORNING_ROUTINE]);
+      vi.mocked(api.saveRoutineRun).mockResolvedValue({
+        routineId: "r1",
+        date: "2026-09-23",
+        startedAt: null,
+        finishedAt: null,
+        steps: [],
+      });
+
+      render(<Dashboard />);
+      await waitFor(() => expect(screen.getByRole("dialog", { name: /The bus at/ })).toBeInTheDocument());
+      for (let step = 0; step < 2; step++) {
+        fireEvent.click(
+          within(screen.getByRole("dialog", { name: /The bus at/ })).getByRole("button", { name: "Done" })
+        );
+        await act(async () => {
+          await Promise.resolve();
+        });
+      }
+      await waitFor(() => expect(screen.getByText("Out the door")).toBeInTheDocument());
+
+      // Two minutes on, the family are in the car and the screen has no
+      // business still showing a countdown.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(120_000);
+      });
+      expect(screen.queryByRole("dialog", { name: /The bus at/ })).not.toBeInTheDocument();
+    });
+
+    it("keeps a chore scenario off the screen while the morning is running", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date(2026, 8, 23, 7, 15) });
+      // A chore whose window closed — normally this raises a scenario.
+      vi.mocked(api.listTasks).mockResolvedValue([
+        { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "bedtime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
+      ]);
+      vi.mocked(api.listSchedules).mockResolvedValue([]);
+      vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+      vi.mocked(api.listRoutines).mockResolvedValue([MORNING_ROUTINE]);
+
+      render(<Dashboard />);
+
+      await waitFor(() => expect(screen.getByRole("dialog", { name: /The bus at/ })).toBeInTheDocument());
+      // Getting out of the door outranks a raccoon.
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    });
   });
 });
