@@ -9,20 +9,46 @@ muted colors.
 
 ```
 src/
-  App.tsx                  Root component
+  App.tsx                  Root — setup screen until the device is linked, then the dashboard
   main.tsx                 Vite entry point
-  theme.css                Tailwind entrypoint + CSS custom properties for the palette
-  types.ts                 Task/ScheduleEntry/CartItem shapes returned by the backend
-  lib/
-    api.ts                   Thin, typed fetch client for the YouEnjoyMyFamily backend
-    api.test.ts              Vitest tests (mocked global fetch)
+  theme.css                Tailwind entrypoint, palette custom properties, the global 44px
+                            touch floor, the focus ring, and prefers-reduced-motion
+  types.ts                 The shapes the backend returns (mirrors backend/src/types.ts)
+  lib/                       (the reasoning; all pure, all with a matching *.test.ts)
+    dashboardLayout.ts       Which panels are on screen and how loudly — decided by the clock
+                              and by whether a panel has anything in it. One lead panel plus
+                              three alongside; everything else is one tap away
+    timeOfDay.ts             Which part of the day it is, and how to stack the day around it
+    routinePlan.ts           The morning and bedtime, planned *backwards* from the time they
+                              have to be finished. Learns each step's real duration as the
+                              median of finished runs; a step nobody ticked has no duration
+    focusRhythm.ts           Which length of work block actually gets finished, hours filed
+                              vs hours merely worked, and what the record shows about when
+                              blocks hold together
+    insights.ts              "What we've noticed" — every observation carries its evidence,
+                              and its subject is a chore or a meal or a list, never a person
+    routines.ts              Meal rhythms, grocery cadences, busiest day, and the week draft
+    gemThreats.ts            Which chore has slipped its window, and which character comes for it
+    familyKey.ts             The per-device family id + key (see "Connecting a screen" below)
+    api.ts                   Typed fetch client: friendly errors, a 12s timeout, one retry on reads
   components/                (every component below has a matching *.test.tsx)
-    Dashboard.tsx            Fetches tasks/schedule and lays out the two-panel view;
-                              tests mock ../lib/api to cover the success and error states
-    FamilyCard.tsx           Reusable card surface (olive or clay accent)
-    TaskList.tsx             Task list panel
-    Calendar.tsx             Schedule list panel
+    Dashboard.tsx            Fetches everything, holds the state, and places the panels
+    FamilyCard.tsx           The card surface — hero/default/compact, and it does *not* choose
+                              its own grid span; placement comes from whoever lays out the screen
+    MorningLaunch.tsx        The full-screen routine: one step, the deadline, the slack
+    MorningRoutine.tsx       Setting a routine up and checking it (morning or bedtime)
+    FocusSession.tsx         A work block and the timesheet line that closes it
+    FocusDay.tsx             The day's filed hours, and the way into the next block
+    TaskList.tsx             Today's chores, grouped by part of the day and reordered by the clock
+    Kitchen.tsx              The meal plan and the shopping list, behind one pair of tabs
+    Insights.tsx             What we've noticed, each with its because
+    PrizeGoal.tsx            What each child is saving for, and claiming it
+    GemCastle.tsx            The castle, opened from the header's gem total
+    Calendar.tsx / MealPlan.tsx / GroceryCart.tsx / FamilyFavorites.tsx / ChoreLibrary.tsx
+    LinkDevice.tsx           First-run setup; ErrorBoundary.tsx keeps a crash off the wall
   test/setup.ts             Vitest setup (jest-dom matchers)
+  theme.contrast.test.ts     Reads the palette out of tailwind.config.js and asserts a real
+                              contrast ratio per pair the components actually render
 ```
 
 ## Local development
