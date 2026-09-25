@@ -1,6 +1,7 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
-import { PutCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { PutCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import { docClient, TABLE_NAME } from "../lib/dynamoClient";
+import { queryAll } from "../lib/queryAll";
 import { ok, badRequest, serverError } from "../lib/response";
 import { parseBody, ValidationError } from "../lib/validation";
 import { authenticateFamily } from "../lib/auth";
@@ -20,22 +21,25 @@ function isMealSlot(value: string | undefined): value is MealSlot {
   return !!value && (MEAL_SLOTS as readonly string[]).includes(value);
 }
 
+/**
+ * Paged to the end. This read is what `generateGroceryListFromMealPlan`
+ * aggregates over, so a truncated page doesn't show up as a short list of
+ * meals — it shows up at the shop, as ingredients that were planned and
+ * silently never made it onto the list.
+ */
 export async function listMealPlan(familyId: string, start?: string, end?: string): Promise<MealPlanEntryItem[]> {
-  const result = await docClient.send(
-    new QueryCommand({
-      TableName: TABLE_NAME,
-      KeyConditionExpression: "PK = :pk AND SK BETWEEN :from AND :to",
-      ExpressionAttributeValues: {
-        ":pk": `FAMILY#${familyId}`,
-        // `||`, not `??` — an omitted query param arrives as an empty string,
-        // which would build a range sorting below every real key (see the
-        // same guard in schedules.ts).
-        ":from": `MEALPLAN#${start || "0000-00-00"}`,
-        ":to": `MEALPLAN#${end || "9999-12-31"}#￿`,
-      },
-    })
-  );
-  return (result.Items ?? []) as MealPlanEntryItem[];
+  return queryAll<MealPlanEntryItem>({
+    TableName: TABLE_NAME,
+    KeyConditionExpression: "PK = :pk AND SK BETWEEN :from AND :to",
+    ExpressionAttributeValues: {
+      ":pk": `FAMILY#${familyId}`,
+      // `||`, not `??` — an omitted query param arrives as an empty string,
+      // which would build a range sorting below every real key (see the
+      // same guard in schedules.ts).
+      ":from": `MEALPLAN#${start || "0000-00-00"}`,
+      ":to": `MEALPLAN#${end || "9999-12-31"}#￿`,
+    },
+  });
 }
 
 async function upsertMealPlanEntry(

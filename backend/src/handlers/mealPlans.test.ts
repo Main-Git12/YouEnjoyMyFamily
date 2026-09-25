@@ -422,3 +422,31 @@ test("regenerating the same week doesn't add a second line beside one marked una
   assert.deepEqual(result, { added: 0, skipped: 2 });
   assert.equal(generatedCartPuts().length, 0);
 });
+
+test("listMealPlan reads every page, so a planned ingredient can't vanish before the shop", async () => {
+  // This read is what generateGroceryListFromMealPlan aggregates over. A
+  // truncated page doesn't look like a bug — it looks like standing in the
+  // shop without the tortillas.
+  ddbMock.on(QueryCommand).callsFake((input: { ExclusiveStartKey?: { page: number } }) => {
+    const pages: MealPlanEntryItem[][] = [
+      [{ date: "2026-09-21", slot: "dinner", mealName: "Pasta", ingredients: ["Pasta"] } as MealPlanEntryItem],
+      [{ date: "2026-09-23", slot: "dinner", mealName: "Tacos", ingredients: ["Tortillas"] } as MealPlanEntryItem],
+    ];
+    const page = input.ExclusiveStartKey?.page ?? 0;
+    return { Items: pages[page] ?? [], LastEvaluatedKey: page + 1 < pages.length ? { page: page + 1 } : undefined };
+  });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({
+      method: "GET",
+      rawPath: "/families/fam_1/meal-plan",
+      pathParameters: { familyId: "fam_1" },
+      headers,
+      queryStringParameters: { start: "2026-09-01", end: "2026-09-30" },
+    })
+  );
+
+  const entries = JSON.parse(result.body ?? "[]") as MealPlanEntryItem[];
+  assert.deepEqual(entries.map((entry) => entry.mealName), ["Pasta", "Tacos"]);
+});
