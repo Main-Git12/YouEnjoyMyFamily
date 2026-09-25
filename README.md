@@ -64,7 +64,10 @@ Amazon Echo Show devices.
 
 ## Getting started
 
-Each subproject has its own README with setup/deploy instructions:
+**Deploying it for real: [`DEPLOY.md`](DEPLOY.md)** — the whole sequence in
+order, from an empty AWS account to a linked Echo Show.
+
+Each subproject has its own README with setup/deploy detail:
 
 - [`backend/README.md`](backend/README.md)
 - [`frontend/README.md`](frontend/README.md)

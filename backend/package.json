@@ -10,7 +10,8 @@
     "deploy": "sam deploy --guided",
     "local:api": "sam local start-api",
     "lint": "eslint src",
-    "test": "TABLE_NAME=YouEnjoyMyFamily-test node --import tsx --test $(find src -name '*.test.ts')"
+    "test": "TABLE_NAME=YouEnjoyMyFamily-test node --import tsx --test $(find src -name '*.test.ts')",
+    "verify:template": "node scripts/check-template.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.632.0",

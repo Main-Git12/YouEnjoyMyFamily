@@ -106,8 +106,22 @@ npm run local:api        # SAM local API on http://localhost:3000
 
 ## Deploy
 
+See [`DEPLOY.md`](../DEPLOY.md) for the whole sequence — SSM parameters
+first (a missing one rolls the stack back), then the backend, the web app,
+and linking the screens.
+
+The short version, once that's been done at least once:
+
 ```bash
-npm run build
-npm run deploy          # sam deploy --guided (first run), then `sam deploy` after
+npm run verify:template   # no AWS access needed; catches what sam build won't
+npm run build             # sam build
+npm run deploy            # sam deploy --guided first time, then `sam deploy`
 ```
+
+`npm run verify:template` is worth the second it takes. Typecheck, lint and
+the tests never read `template.yaml`, so a route pointing at a logical id
+that doesn't exist passes all of them and fails four minutes into a deploy
+— which has happened here. It also catches a handler whose DynamoDB policy
+has gone missing, which `sam build` accepts and which then fails at
+runtime with `AccessDenied`.
 

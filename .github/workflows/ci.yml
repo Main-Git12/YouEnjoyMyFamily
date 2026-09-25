@@ -23,8 +23,14 @@ jobs:
       - run: npm run lint
       - run: npm test
       # Typecheck and tests never read template.yaml, so a route pointing at
-      # a nonexistent ApiId passes them and only fails at deploy. This
-      # catches it here. SAM's esbuild builder needs esbuild on PATH.
+      # a nonexistent ApiId passes them and only fails at deploy. These two
+      # catch it here. The first needs no AWS tooling, runs in a second and
+      # says which logical id you meant; it also catches a handler whose
+      # DynamoDB policy is missing, which `sam build` happily accepts and
+      # which then fails at runtime with AccessDenied.
+      - run: npm run verify:template
+      # And this one compiles every handler the way the deploy will.
+      # SAM's esbuild builder needs esbuild on PATH.
       - uses: aws-actions/setup-sam@v2
         with:
           use-installer: true
