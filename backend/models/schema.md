@@ -22,7 +22,7 @@ items returned from a `Query` without a second read.
 | Reward goal         | `FAMILY#<familyId>`   | `REWARDGOAL#<memberId>`     | —                       | —                          |
 | Reward claim        | `FAMILY#<familyId>`   | `REWARDCLAIM#<claimId>`     | —                       | —                          |
 | Gem ledger version  | `FAMILY#<familyId>`   | `GEMLEDGER#<memberId>`      | —                       | —                          |
-| OAuth token set     | `FAMILY#<familyId>`   | `TOKEN#<provider>`          | —                       | —                          |
+| OAuth token set     | `FAMILY#<familyId>`   | `TOKEN#<provider>`          | `PROVIDER#<provider>`   | `FAMILY#<familyId>`        |
 | Routine (definition)| `FAMILY#<familyId>`   | `ROUTINE#<routineId>`       | —                       | —                          |
 | Routine run         | `FAMILY#<familyId>`   | `RUN#<isoDate>#<routineId>` | —                       | —                          |
 | Focus block         | `FAMILY#<familyId>`   | `FOCUS#<isoDate>#<blockId>` | —                       | —                          |
@@ -143,11 +143,12 @@ privileged.
 - Get a family + all members: `Query PK = FAMILY#<familyId>`, filter/prefix on `SK`.
 - List a family's chore definitions: `Query PK = FAMILY#<familyId>, SK begins_with TASK#`.
 - List what got done over a date range: `Query PK = FAMILY#<familyId>, SK between COMPLETION#<start> and COMPLETION#<end>#\uffff`.
-- List a family's schedule for a date range: `Query PK = FAMILY#<familyId>, SK between SCHEDULE#<start> and SCHEDULE#<end>`.
+- List a family's schedule for a date range: `Query PK = FAMILY#<familyId>, SK between SCHEDULE#<start> and SCHEDULE#<end>`. Paged to the end. Moving an entry to another day is one `TransactWriteItems` — Put the new `SCHEDULE#<newDate>#<id>` row with `attribute_not_exists(PK)`, Delete the old one with `attribute_exists(PK)` — so it can never end up on both days; a cancelled transaction (another screen moved it first) is a 409. A same-day edit is a Put conditioned on `attribute_exists(PK)`, so it can't resurrect a deleted entry.
 - Find a task by id across the table (e.g. Alexa deep link): `Query GSI1PK = TASK#<taskId>`.
 - Upsert a synced Google Calendar event idempotently by external id: `Query GSI1PK = EXTID#<googleEventId>`.
-- Re-sync a family's calendar: `Query PK = FAMILY#<familyId>, SK begins_with CALEVENT#` once per sync, to find what's already held. The date is part of the sort key, so an event moved to another day writes a *new* row — the old one has to be deleted or the family sees it on both days for good. Idempotency by external id alone isn't enough here.
+- Re-sync a family's calendar: `Query PK = FAMILY#<familyId>, SK begins_with CALEVENT#` once per sync, to find what's already held. The date is part of the sort key, so an event moved to another day writes a *new* row — the old one has to be deleted or the family sees it on both days for good. Idempotency by external id alone isn't enough here. Every stored row for an event id whose key isn't the current one is deleted — not just the latest — so a row left by an earlier failed delete doesn't linger. Stored rows on strictly future days that Google no longer returns (cancelled or deleted there) are deleted too; if Google's answer hit the sync's `maxResults`, only rows before the last returned event's date are pruned, since later ones may simply be past the cut. Today's rows are never pruned, because Google omits events that already ended today.
 - Look up a family's stored OAuth tokens for a provider (`google`): `GetItem PK = FAMILY#<familyId>, SK = TOKEN#<provider>`.
+- List every family connected to a provider (the calendar sync's starting point): `Query GSI1 GSI1PK = PROVIDER#<provider>`, paged to the end. Token rows therefore carry `GSI1PK = PROVIDER#<provider>`, `GSI1SK = FAMILY#<familyId>`.
 - List all of a family's stated preferences: `Query PK = FAMILY#<familyId>, SK begins_with STATEDPREF#`.
 - List one member's stated preferences: `Query PK = FAMILY#<familyId>, SK begins_with STATEDPREF#<memberId>#`.
 - Look up a learned substitute for an item by its (lowercased, trimmed) description: `GetItem PK = FAMILY#<familyId>, SK = SUBSTITUTION#<normalizedDescription>`.

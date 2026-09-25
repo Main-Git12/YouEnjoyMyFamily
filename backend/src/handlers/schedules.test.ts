@@ -1,7 +1,14 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { mockClient } from "aws-sdk-client-mock";
-import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  DynamoDBDocumentClient,
+  GetCommand,
+  PutCommand,
+  QueryCommand,
+  DeleteCommand,
+  TransactWriteCommand,
+} from "@aws-sdk/lib-dynamodb";
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
 import { handler } from "./schedules";
 import { mockFamilyAuth } from "../lib/authTestSupport";
@@ -234,8 +241,7 @@ test("PUT that moves an entry to another day does not leave it on the old one", 
       updatedAt: "2025-01-01T00:00:00.000Z",
     },
   });
-  ddbMock.on(PutCommand).resolves({});
-  ddbMock.on(DeleteCommand).resolves({});
+  ddbMock.on(TransactWriteCommand).resolves({});
   const headers = mockFamilyAuth(ddbMock, "fam_1");
 
   const result = await handler(
@@ -249,10 +255,89 @@ test("PUT that moves an entry to another day does not leave it on the old one", 
   );
 
   assert.equal(result.statusCode, 200);
-  const written = ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item;
-  assert.equal(written?.SK, "SCHEDULE#2025-01-16#s1");
-  const deleted = ddbMock.commandCalls(DeleteCommand)[0]?.args[0].input.Key;
-  assert.equal(deleted?.SK, "SCHEDULE#2025-01-15#s1");
+  // One transaction, not a put then a delete: if the delete failed on its
+  // own, the entry would sit on both days.
+  assert.equal(ddbMock.commandCalls(PutCommand).length, 0);
+  assert.equal(ddbMock.commandCalls(DeleteCommand).length, 0);
+  const [put, del] = ddbMock.commandCalls(TransactWriteCommand)[0]?.args[0].input.TransactItems ?? [];
+  assert.equal(put?.Put?.Item?.SK, "SCHEDULE#2025-01-16#s1");
+  assert.equal(put?.Put?.ConditionExpression, "attribute_not_exists(PK)");
+  assert.equal(del?.Delete?.Key?.SK, "SCHEDULE#2025-01-15#s1");
+  assert.equal(del?.Delete?.ConditionExpression, "attribute_exists(PK)");
+});
+
+const soccerOnTheFifteenth = {
+  PK: "FAMILY#fam_1",
+  SK: "SCHEDULE#2025-01-15#s1",
+  entityType: "SCHEDULE",
+  familyId: "fam_1",
+  scheduleId: "s1",
+  date: "2025-01-15",
+  startTime: null,
+  endTime: null,
+  title: "Soccer practice",
+  memberIds: [],
+  createdAt: "2025-01-01T00:00:00.000Z",
+  updatedAt: "2025-01-01T00:00:00.000Z",
+};
+
+test("two screens moving the same entry to different days can't both win", async () => {
+  ddbMock.on(GetCommand).resolves({ Item: soccerOnTheFifteenth });
+  // The other screen's move already took the old row away.
+  ddbMock.on(TransactWriteCommand).rejects(
+    Object.assign(new Error("Transaction cancelled"), { name: "TransactionCanceledException" })
+  );
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", scheduleId: "s1" },
+      headers,
+      queryStringParameters: { date: "2025-01-15" },
+      body: JSON.stringify({ date: "2025-01-17" }),
+    })
+  );
+
+  assert.equal(result.statusCode, 409);
+});
+
+test("editing an entry deleted a moment ago returns 404 rather than bringing it back", async () => {
+  ddbMock.on(GetCommand).resolves({ Item: soccerOnTheFifteenth });
+  ddbMock.on(PutCommand).rejects(
+    Object.assign(new Error("The conditional request failed"), { name: "ConditionalCheckFailedException" })
+  );
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", scheduleId: "s1" },
+      headers,
+      queryStringParameters: { date: "2025-01-15" },
+      body: JSON.stringify({ title: "Soccer (moved indoors)" }),
+    })
+  );
+
+  assert.equal(result.statusCode, 404);
+  assert.equal(ddbMock.commandCalls(PutCommand)[0]?.args[0].input.ConditionExpression, "attribute_exists(PK)");
+});
+
+test("GET follows LastEvaluatedKey, so a long history doesn't hide later entries", async () => {
+  ddbMock
+    .on(QueryCommand)
+    .resolvesOnce({ Items: [{ scheduleId: "s1" }], LastEvaluatedKey: { PK: "FAMILY#fam_1", SK: "SCHEDULE#2025-01-15#s1" } })
+    .resolvesOnce({ Items: [{ scheduleId: "s2" }] });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({ method: "GET", pathParameters: { familyId: "fam_1" }, headers, queryStringParameters: {} })
+  );
+
+  assert.deepEqual(
+    JSON.parse(result.body ?? "[]").map((entry: { scheduleId: string }) => entry.scheduleId),
+    ["s1", "s2"]
+  );
 });
 
 test("PUT for an entry that isn't there returns 404 rather than inventing one", async () => {
