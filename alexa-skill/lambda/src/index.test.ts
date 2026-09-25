@@ -225,25 +225,26 @@ test("familyMinutesIntoDay falls back to UTC rather than taking the response dow
   process.env.YOUENJOYMYFAMILY_TIME_ZONE = "UTC";
 });
 
-test("gemsByChild sums each child's own completions and ignores unassigned ones", () => {
-  const totals = gemsByChild([
-    { taskId: "t1", memberId: "Parker", gemsAwarded: 10 },
-    { taskId: "t2", memberId: "Parker", gemsAwarded: 20 },
-    { taskId: "t3", memberId: "Isla", gemsAwarded: 5 },
-    { taskId: "t4", memberId: null, gemsAwarded: 100 },
-  ]);
+/** A GET /gem-balances body. */
+function gemBalances(
+  balances: { memberId: string; earned: number; spent?: number }[],
+  unassigned = 0
+): { balances: { memberId: string; earned: number; spent: number; balance: number }[]; family: { earned: number; spent: number; balance: number } } {
+  const rows = balances.map((b) => ({ memberId: b.memberId, earned: b.earned, spent: b.spent ?? 0, balance: b.earned - (b.spent ?? 0) }));
+  const earned = rows.reduce((sum, row) => sum + row.earned, unassigned);
+  const spent = rows.reduce((sum, row) => sum + row.spent, 0);
+  return { balances: rows, family: { earned, spent, balance: earned - spent } };
+}
+
+test("gemsByChild reads each child's own current balance from the gem-balances report", () => {
+  const totals = gemsByChild(gemBalances([{ memberId: "Parker", earned: 30 }, { memberId: "Isla", earned: 5 }], 100));
   assert.deepEqual(totals, { Parker: 30, Isla: 5 });
 });
 
-test("gemsByChild counts every day's completions, not just today's chores", () => {
-  // The same chore done on three days is three payouts — the whole reason
-  // gem totals come from completion records rather than the chore list.
-  const totals = gemsByChild([
-    { taskId: "t1", memberId: "Parker", gemsAwarded: 10 },
-    { taskId: "t1", memberId: "Parker", gemsAwarded: 10 },
-    { taskId: "t1", memberId: "Parker", gemsAwarded: 10 },
-  ]);
-  assert.deepEqual(totals, { Parker: 30 });
+test("gemsByChild takes claimed prizes off, rather than counting lifetime earnings", () => {
+  // Earned 60, spent 50 on a prize: 10 left to save with, not 60.
+  const totals = gemsByChild(gemBalances([{ memberId: "Parker", earned: 60, spent: 50 }]));
+  assert.deepEqual(totals, { Parker: 10 });
 });
 
 test("describePrizeProgress counts down, and stops at earned rather than going negative", () => {
@@ -262,10 +263,12 @@ test("GetPrizeProgressIntentHandler reads one child's progress when asked about 
           { status: 200 }
         )
       : new Response(
-          JSON.stringify([
-            { taskId: "t1", memberId: "Parker", gemsAwarded: 30 },
-            { taskId: "t2", memberId: "Isla", gemsAwarded: 25 },
-          ]),
+          JSON.stringify(
+            gemBalances([
+              { memberId: "Parker", earned: 30 },
+              { memberId: "Isla", earned: 25 },
+            ])
+          ),
           { status: 200 }
         )
   );
@@ -282,7 +285,7 @@ test("GetPrizeProgressIntentHandler reads the whole board when nobody is named",
   mock.method(globalThis, "fetch", async (input: string) =>
     input.includes("reward-goals")
       ? new Response(JSON.stringify([{ memberId: "Isla", title: "roller skates", gemCost: 25 }]), { status: 200 })
-      : new Response(JSON.stringify([{ taskId: "t2", memberId: "Isla", gemsAwarded: 25 }]), { status: 200 })
+      : new Response(JSON.stringify(gemBalances([{ memberId: "Isla", earned: 25 }])), { status: 200 })
   );
 
   const handlerInput = makeHandlerInput(intentRequest("GetPrizeProgressIntent"));
@@ -291,11 +294,33 @@ test("GetPrizeProgressIntentHandler reads the whole board when nobody is named",
   assert.match(speechOf(response), /Isla has earned roller skates/);
 });
 
+test("GetPrizeProgressIntentHandler counts what's left after a claim, not lifetime gems", async () => {
+  // Parker earned 60, just claimed a 50-gem prize, and set a new 50-gem one.
+  // Lifetime earnings would announce the new prize as already earned.
+  const urls: string[] = [];
+  mock.method(globalThis, "fetch", async (input: string) => {
+    urls.push(input);
+    return input.includes("reward-goals")
+      ? new Response(JSON.stringify([{ memberId: "Parker", title: "a kite", gemCost: 50 }]), { status: 200 })
+      : input.includes("gem-balances")
+        ? new Response(JSON.stringify(gemBalances([{ memberId: "Parker", earned: 60, spent: 50 }])), { status: 200 })
+        : new Response(JSON.stringify([{ taskId: "t1", memberId: "Parker", gemsAwarded: 60 }]), { status: 200 });
+  });
+
+  const handlerInput = makeHandlerInput(intentRequest("GetPrizeProgressIntent", { memberName: "Parker" }));
+  const response = (await GetPrizeProgressIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  const speech = speechOf(response);
+  assert.doesNotMatch(speech, /has earned/);
+  assert.match(speech, /Parker has 10 gems and needs 40 more for a kite/);
+  assert.ok(urls.some((url) => url.includes("/gem-balances")));
+});
+
 test("GetPrizeProgressIntentHandler says where to set one when a child has no prize yet", async () => {
   mock.method(globalThis, "fetch", async (input: string) =>
     input.includes("reward-goals")
       ? new Response(JSON.stringify([]), { status: 200 })
-      : new Response(JSON.stringify([]), { status: 200 })
+      : new Response(JSON.stringify(gemBalances([])), { status: 200 })
   );
 
   const handlerInput = makeHandlerInput(intentRequest("GetPrizeProgressIntent", { memberName: "Parker" }));
@@ -406,7 +431,7 @@ test("every CHORE_CELEBRATION_LINES variant keeps the member name and the litera
 
 test("GetGemCastleIntentHandler reports the current stage, its residents, and progress toward the next one", async () => {
   mock.method(globalThis, "fetch", async () =>
-    new Response(JSON.stringify([{ taskId: "t1", memberId: "Parker", gemsAwarded: 50 }]), { status: 200 })
+    new Response(JSON.stringify(gemBalances([{ memberId: "Parker", earned: 50 }])), { status: 200 })
   );
 
   const handlerInput = makeHandlerInput(intentRequest("GetGemCastleIntent"), { supportsApl: true });
@@ -421,7 +446,7 @@ test("GetGemCastleIntentHandler reports the current stage, its residents, and pr
 
 test("GetGemCastleIntentHandler reports the completed kingdom at the top stage with singular phrasing intact", async () => {
   mock.method(globalThis, "fetch", async () =>
-    new Response(JSON.stringify([{ taskId: "t1", memberId: "Parker", gemsAwarded: 300 }]), { status: 200 })
+    new Response(JSON.stringify(gemBalances([{ memberId: "Parker", earned: 300 }])), { status: 200 })
   );
 
   const handlerInput = makeHandlerInput(intentRequest("GetGemCastleIntent"));
@@ -432,8 +457,22 @@ test("GetGemCastleIntentHandler reports the completed kingdom at the top stage w
   assert.match(speechOf(response), /kingdom is complete/i);
 });
 
+test("GetGemCastleIntentHandler builds the castle from the family's balance after claims, like the kitchen screen", async () => {
+  // 80 earned, 50 spent on a prize: the screen's castle shows 30, so Alexa must too.
+  mock.method(globalThis, "fetch", async (input: string) =>
+    input.includes("gem-balances")
+      ? new Response(JSON.stringify(gemBalances([{ memberId: "Parker", earned: 80, spent: 50 }])), { status: 200 })
+      : new Response(JSON.stringify([{ taskId: "t1", memberId: "Parker", gemsAwarded: 80 }]), { status: 200 })
+  );
+
+  const handlerInput = makeHandlerInput(intentRequest("GetGemCastleIntent"));
+  const response = (await GetGemCastleIntentHandler.handle(handlerInput)) as FakeResponse;
+
+  assert.match(speechOf(response), /with 30 gems/);
+});
+
 test("GetGemCastleIntentHandler reports nobody home yet at the watchtower stage", async () => {
-  mock.method(globalThis, "fetch", async () => new Response(JSON.stringify([]), { status: 200 }));
+  mock.method(globalThis, "fetch", async () => new Response(JSON.stringify(gemBalances([])), { status: 200 }));
 
   const handlerInput = makeHandlerInput(intentRequest("GetGemCastleIntent"));
   const response = (await GetGemCastleIntentHandler.handle(handlerInput)) as FakeResponse;

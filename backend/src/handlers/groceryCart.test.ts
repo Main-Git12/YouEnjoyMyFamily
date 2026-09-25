@@ -1,9 +1,17 @@
-import { test, beforeEach } from "node:test";
+import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { mockClient } from "aws-sdk-client-mock";
-import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  DynamoDBDocumentClient,
+  GetCommand,
+  PutCommand,
+  QueryCommand,
+  DeleteCommand,
+  UpdateCommand,
+} from "@aws-sdk/lib-dynamodb";
+import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
-import { handler, routeGroceryCart, type InstacartClient } from "./groceryCart";
+import { handler, routeGroceryCart, createRealInstacartClient, type InstacartClient } from "./groceryCart";
 import type { CartItem, LearnedSubstitutionItem } from "../types";
 import { mockFamilyAuth } from "../lib/authTestSupport";
 
@@ -271,7 +279,7 @@ test("checkout stamps what it handed over, so the shop actually ends", async () 
   ddbMock.on(QueryCommand).resolves({
     Items: [cartItem({ itemId: "i1", description: "Tortillas" }), cartItem({ itemId: "i2", description: "Rare cheese", status: "unavailable" })],
   });
-  ddbMock.on(PutCommand).resolves({});
+  ddbMock.on(UpdateCommand).resolves({});
   const headers = mockFamilyAuth(ddbMock, "fam_1");
 
   const result = await routeGroceryCart(
@@ -285,11 +293,11 @@ test("checkout stamps what it handed over, so the shop actually ends", async () 
   );
 
   assert.equal(result.statusCode, 200);
-  const written = ddbMock.commandCalls(PutCommand).map((call) => call.args[0].input.Item);
-  assert.equal(written.length, 1);
-  assert.equal(written[0]?.itemId, "i1");
-  assert.equal(written[0]?.status, "ordered");
-  assert.ok(written[0]?.orderedAt);
+  const stamps = ddbMock.commandCalls(UpdateCommand).map((call) => call.args[0].input);
+  assert.equal(stamps.length, 1);
+  assert.deepEqual(stamps[0]?.Key, { PK: "FAMILY#fam_1", SK: "CARTITEM#i1" });
+  assert.equal(stamps[0]?.ExpressionAttributeValues?.[":ordered"], "ordered");
+  assert.ok(stamps[0]?.ExpressionAttributeValues?.[":orderedAt"]);
 });
 
 test("checkout doesn't send last week's shop to Instacart all over again", async () => {
@@ -342,6 +350,7 @@ test("checkout leaves the list alone when Instacart fails, so it can be retried"
 
   assert.equal(result.statusCode, 500);
   assert.equal(ddbMock.commandCalls(PutCommand).length, 0);
+  assert.equal(ddbMock.commandCalls(UpdateCommand).length, 0);
 });
 
 test("checkout rejects when everything outstanding has already been ordered", async () => {
@@ -377,4 +386,154 @@ test("putting an ordered item back on the list clears the order stamp", async ()
 
   assert.equal(result.statusCode, 200);
   assert.equal(JSON.parse(result.body ?? "{}").item.orderedAt, null);
+});
+
+const checkoutEvent = (headers: Record<string, string>) =>
+  makeEvent({
+    method: "POST",
+    path: "/families/fam_1/grocery-cart/checkout",
+    pathParameters: { familyId: "fam_1" },
+    headers,
+  });
+
+test("GET returns cart items from every page, not just the first 1MB", async () => {
+  // ULIDs sort oldest first, so the newest items are the ones past page one.
+  ddbMock
+    .on(QueryCommand)
+    .resolvesOnce({ Items: [cartItem({ itemId: "old", status: "ordered" })], LastEvaluatedKey: { PK: "FAMILY#fam_1", SK: "CARTITEM#old" } })
+    .resolvesOnce({ Items: [cartItem({ itemId: "new", description: "Bread" })] });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(makeEvent({ method: "GET", pathParameters: { familyId: "fam_1" }, headers }));
+
+  assert.equal(result.statusCode, 200);
+  const body = JSON.parse(result.body ?? "[]") as CartItem[];
+  assert.deepEqual(
+    body.map((item) => item.itemId),
+    ["old", "new"]
+  );
+  const queries = ddbMock.commandCalls(QueryCommand);
+  assert.equal(queries.length, 2);
+  assert.deepEqual(queries[1]?.args[0].input.ExclusiveStartKey, { PK: "FAMILY#fam_1", SK: "CARTITEM#old" });
+});
+
+test("checkout sends outstanding items that live past the first page", async () => {
+  ddbMock
+    .on(QueryCommand)
+    .resolvesOnce({ Items: [cartItem({ itemId: "old", status: "ordered" })], LastEvaluatedKey: { PK: "FAMILY#fam_1", SK: "CARTITEM#old" } })
+    .resolvesOnce({ Items: [cartItem({ itemId: "new", description: "Bread" })] });
+  ddbMock.on(UpdateCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const sent: unknown[] = [];
+  const result = await routeGroceryCart(checkoutEvent(headers), {
+    async createShoppingListLink(_title, lineItems) {
+      sent.push(...lineItems);
+      return "https://instacart.example/list/abc";
+    },
+  });
+
+  assert.equal(result.statusCode, 200);
+  assert.deepEqual(sent, [{ name: "Bread", quantity: 1 }]);
+});
+
+test("checkout still hands back the Instacart link when stamping an item fails", async () => {
+  ddbMock.on(QueryCommand).resolves({
+    Items: [cartItem({ itemId: "i1", description: "Tortillas" }), cartItem({ itemId: "i2", description: "Milk" })],
+  });
+  // Every write fails: the link is the only record of what went to Instacart,
+  // so losing it to a 500 would strand the family mid-shop.
+  ddbMock.on(UpdateCommand).rejects(new Error("ProvisionedThroughputExceededException"));
+  ddbMock.on(PutCommand).rejects(new Error("ProvisionedThroughputExceededException"));
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    const result = await routeGroceryCart(checkoutEvent(headers), {
+      createShoppingListLink: async () => "https://instacart.example/list/abc",
+    });
+
+    assert.equal(result.statusCode, 200);
+    assert.deepEqual(JSON.parse(result.body ?? "{}"), { productsLinkUrl: "https://instacart.example/list/abc" });
+  } finally {
+    console.error = originalError;
+  }
+});
+
+test("checkout stamps conditionally, so an item deleted or changed mid-checkout isn't resurrected or overwritten", async () => {
+  ddbMock.on(QueryCommand).resolves({
+    Items: [
+      cartItem({ itemId: "i1", description: "Tortillas" }),
+      cartItem({ itemId: "i2", description: "Spaghetti", status: "substituted", substituteDescription: "Penne" }),
+    ],
+  });
+  ddbMock.on(PutCommand).resolves({});
+  ddbMock.on(UpdateCommand).resolves({});
+  // i1 was deleted while Instacart was building the list.
+  ddbMock
+    .on(UpdateCommand, { Key: { PK: "FAMILY#fam_1", SK: "CARTITEM#i1" } })
+    .rejects(new ConditionalCheckFailedException({ message: "The conditional request failed", $metadata: {} }));
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await routeGroceryCart(checkoutEvent(headers), {
+    createShoppingListLink: async () => "https://instacart.example/list/abc",
+  });
+
+  assert.equal(result.statusCode, 200);
+  // No whole-item Put of the pre-Instacart copy.
+  assert.equal(ddbMock.commandCalls(PutCommand).length, 0);
+  const stamps = ddbMock.commandCalls(UpdateCommand).map((call) => call.args[0].input);
+  assert.deepEqual(
+    stamps.map((input) => input.Key),
+    [
+      { PK: "FAMILY#fam_1", SK: "CARTITEM#i1" },
+      { PK: "FAMILY#fam_1", SK: "CARTITEM#i2" },
+    ]
+  );
+  for (const input of stamps) {
+    assert.match(input.ConditionExpression ?? "", /attribute_exists\(PK\)/);
+    assert.match(input.ConditionExpression ?? "", /#status = :expected/);
+  }
+  // Only stamped if the status is still what checkout read and sent.
+  assert.deepEqual(
+    stamps.map((input) => input.ExpressionAttributeValues?.[":expected"]),
+    ["pending", "substituted"]
+  );
+});
+
+const originalFetch = globalThis.fetch;
+const originalApiKey = process.env.INSTACART_API_KEY;
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  if (originalApiKey === undefined) delete process.env.INSTACART_API_KEY;
+  else process.env.INSTACART_API_KEY = originalApiKey;
+});
+
+test("the real Instacart client gives up on a hung request instead of riding out the Lambda timeout", async () => {
+  process.env.INSTACART_API_KEY = "test-key";
+  // A fetch that never answers, and only settles if the caller aborts it.
+  globalThis.fetch = ((_url: string | URL | Request, init?: RequestInit) =>
+    new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason ?? new Error("aborted")));
+    })) as typeof fetch;
+
+  let guard: NodeJS.Timeout | undefined;
+  const hung = new Promise<"hung">((resolve) => {
+    guard = setTimeout(() => resolve("hung"), 1000);
+  });
+  try {
+    const outcome = await Promise.race([
+      createRealInstacartClient(20)
+        .createShoppingListLink("list", [{ name: "Milk", quantity: 1 }])
+        .then(
+          () => "resolved" as const,
+          () => "rejected" as const
+        ),
+      hung,
+    ]);
+    assert.equal(outcome, "rejected");
+  } finally {
+    clearTimeout(guard);
+  }
 });

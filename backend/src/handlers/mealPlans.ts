@@ -72,10 +72,10 @@ export interface GenerateGroceryListResult {
 /**
  * Turns the ingredients a family already explicitly typed into their meal
  * plan into grocery cart items — never an AI-invented meal or ingredient.
- * Idempotent: re-running for the same range never duplicates an ingredient
- * already generated from a meal plan before (tracked via each cart item's
- * mealPlanSourceKey), which is what makes the weekly scheduled sync in
- * mealPlanGrocerySync.ts safe to re-run.
+ * Idempotent: re-running for the same (or an overlapping) range never
+ * duplicates an ingredient already on the list or already bought for the
+ * same planned date, which is what makes the weekly scheduled sync in
+ * mealPlanGrocerySync.ts safe to re-run alongside the family's own taps.
  */
 export async function generateGroceryListFromMealPlan(
   familyId: string,
@@ -84,46 +84,63 @@ export async function generateGroceryListFromMealPlan(
 ): Promise<GenerateGroceryListResult> {
   const entries = await listMealPlan(familyId, start, end);
 
-  const aggregated = new Map<string, { description: string; quantity: number }>();
+  // One date per time the ingredient is planned — "rice" at Monday lunch and
+  // Monday dinner is two portions, both needed for Monday.
+  const needs = new Map<string, { description: string; dates: string[] }>();
   for (const entry of entries) {
     for (const ingredient of entry.ingredients) {
       const key = normalizeIngredient(ingredient);
-      const current = aggregated.get(key);
-      aggregated.set(key, {
+      const current = needs.get(key);
+      needs.set(key, {
         description: current?.description ?? ingredient.trim(),
-        quantity: (current?.quantity ?? 0) + 1,
+        dates: [...(current?.dates ?? []), entry.date],
       });
     }
   }
 
-  if (aggregated.size === 0) return { added: 0, skipped: 0 };
+  if (needs.size === 0) return { added: 0, skipped: 0 };
 
-  // Anything already on the list — whether a previous generation put it
-  // there (mealPlanSourceKey) or someone typed it in themselves (its
-  // description) — counts as covered. Matching on the description too is
-  // what stops a hand-added "Milk" and a meal plan's "milk" becoming two
-  // separate lines on the same shopping trip.
+  // Anything still on the list — pending or substituted, whether a previous
+  // generation put it there (mealPlanSourceKey) or someone typed it in
+  // themselves (its description) — covers the ingredient outright. Matching
+  // on the description too is what stops a hand-added "Milk" and a meal
+  // plan's "milk" becoming two separate lines on the same shopping trip.
   //
-  // Items already sent to Instacart are last week's shop, not this week's
-  // list: counting them would mean the family buys tortillas once and then
-  // never sees them on a list again.
-  const existingItems = outstandingCartItems(await listCartItems(familyId));
-  const alreadyOnTheList = new Set(
-    existingItems.flatMap((item) => [
+  // A line that has been ordered, or marked unavailable, is kept as history
+  // and covers only the plan dates it was generated for (mealPlanDates).
+  // That way tortillas bought for this Friday aren't bought again when
+  // someone regenerates midweek, an unavailable "Saffron" doesn't sprout a
+  // second line beside it, yet next week's tacos still get their tortillas.
+  const cart = await listCartItems(familyId);
+  const coveredOutright = new Set(
+    outstandingCartItems(cart).flatMap((item) => [
       ...(item.mealPlanSourceKey ? [item.mealPlanSourceKey] : []),
       normalizeIngredient(item.description),
     ])
   );
+  const coveredDates = new Map<string, Set<string>>();
+  for (const item of cart) {
+    if (item.status !== "ordered" && item.status !== "unavailable") continue;
+    if (!item.mealPlanSourceKey || !item.mealPlanDates) continue;
+    const dates = coveredDates.get(item.mealPlanSourceKey) ?? new Set<string>();
+    for (const date of item.mealPlanDates) dates.add(date);
+    coveredDates.set(item.mealPlanSourceKey, dates);
+  }
 
   let added = 0;
   let skipped = 0;
-  for (const [key, { description, quantity }] of aggregated) {
-    if (alreadyOnTheList.has(key)) {
+  for (const [key, { description, dates }] of needs) {
+    const alreadyBought = coveredDates.get(key);
+    const stillNeeded = coveredOutright.has(key) ? [] : dates.filter((date) => !alreadyBought?.has(date));
+    if (stillNeeded.length === 0) {
       skipped++;
       continue;
     }
-    await addMealPlanCartItem(familyId, description, quantity, key);
-    added++;
+    const coveringDates = [...new Set(stillNeeded)].sort();
+    // null: a concurrent generation already wrote this exact line.
+    const item = await addMealPlanCartItem(familyId, description, stillNeeded.length, key, coveringDates);
+    if (item) added++;
+    else skipped++;
   }
 
   return { added, skipped };

@@ -38,10 +38,10 @@ interface TaskItem {
   gemsAwarded: number;
 }
 
-interface TaskCompletionEntry {
-  taskId: string;
-  memberId?: string | null;
-  gemsAwarded: number;
+/** GET /families/{id}/gem-balances — what each child (and the family) has right now, after claims. */
+interface GemBalanceReport {
+  balances: { memberId: string; earned: number; spent: number; balance: number }[];
+  family: { earned: number; spent: number; balance: number };
 }
 
 interface RewardGoalItem {
@@ -173,16 +173,15 @@ export function describeChore(task: TaskItem): string {
 }
 
 /**
- * Each child's running total, summed from the completion records — every
- * chore they have ever finished, not just today's list. Chores recur, so
- * today's rows say nothing about what was earned last week.
+ * What each child has to spend right now — earned minus already claimed,
+ * as the backend's gem-balances route reports it. Summing lifetime
+ * completions here instead would ignore claims, and announce a child had
+ * "earned" their next prize the moment after they'd spent the gems on the
+ * last one.
  */
-export function gemsByChild(completions: TaskCompletionEntry[]): Record<string, number> {
+export function gemsByChild(report: GemBalanceReport): Record<string, number> {
   const totals: Record<string, number> = {};
-  for (const completion of completions) {
-    if (!completion.memberId || !completion.gemsAwarded) continue;
-    totals[completion.memberId] = (totals[completion.memberId] ?? 0) + completion.gemsAwarded;
-  }
+  for (const entry of report.balances) totals[entry.memberId] = entry.balance;
   return totals;
 }
 
@@ -497,8 +496,10 @@ export const GetGemCastleIntentHandler: Alexa.RequestHandler = {
   },
   async handle(handlerInput): Promise<Response> {
     try {
-      const completions = await fetchJson<TaskCompletionEntry[]>(`/families/${FAMILY_ID}/task-completions`);
-      const totalGems = completions.reduce((sum, completion) => sum + completion.gemsAwarded, 0);
+      // The family's current balance, the same number the kitchen screen's
+      // castle is built from — not lifetime earnings, which ignore claims.
+      const report = await fetchJson<GemBalanceReport>(`/families/${FAMILY_ID}/gem-balances`);
+      const totalGems = report.family.balance;
       const { stage, nextStage, gemsToNextStage } = getCastleProgress(totalGems);
       const residents = getResidentsPhrase(stage.id);
       const residentsClause = residents ? ` ${residents}.` : "";
@@ -667,11 +668,11 @@ export const GetPrizeProgressIntentHandler: Alexa.RequestHandler = {
     const askedAbout = Alexa.getSlotValue(handlerInput.requestEnvelope, "memberName");
 
     try {
-      const [completions, goals] = await Promise.all([
-        fetchJson<TaskCompletionEntry[]>(`/families/${FAMILY_ID}/task-completions`),
+      const [report, goals] = await Promise.all([
+        fetchJson<GemBalanceReport>(`/families/${FAMILY_ID}/gem-balances`),
         fetchJson<RewardGoalItem[]>(`/families/${FAMILY_ID}/reward-goals`),
       ]);
-      const earned = gemsByChild(completions);
+      const earned = gemsByChild(report);
 
       const wanted = askedAbout
         ? goals.filter((goal) => goal.memberId.toLowerCase() === askedAbout.toLowerCase())

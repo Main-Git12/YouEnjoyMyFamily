@@ -61,6 +61,13 @@ export const TaskInput = z.object({
 });
 export type TaskInput = z.infer<typeof TaskInput>;
 
+/**
+ * A real calendar date, YYYY-MM-DD — "2026-02-31" is refused, not read as
+ * March 3rd. For the `?date=` a chore request is about, which arrives in
+ * the query string rather than through a body schema.
+ */
+export const IsoDate = z.string().date();
+
 export const TaskPatch = TaskInput.partial().extend({
   status: z.enum(["pending", "in_progress", "done"]).optional(),
   // Which day a status change belongs to. Ticking off "wipe the table" is
@@ -166,6 +173,25 @@ export interface RewardClaimItem {
   title: string;
   gemCost: number;
   claimedAt: string;
+}
+
+/**
+ * A per-child version counter, and nothing else. Balances are still derived
+ * from completions minus claims; this row exists only so that the two
+ * operations that take gems *away* — claiming a prize and un-ticking a chore
+ * — can't both pass their "is there enough?" check against the same
+ * balance and together drive it below zero. Each reads `version` before
+ * reading the balance and bumps it, conditioned on it being unchanged, in
+ * the same transaction as its own write; the loser of a race is cancelled.
+ */
+export interface GemLedgerItem {
+  PK: string;
+  SK: string;
+  entityType: "GEM_LEDGER";
+  familyId: string;
+  memberId: string;
+  version: number;
+  updatedAt: string;
 }
 
 export const ScheduleInput = z.object({
@@ -287,6 +313,15 @@ export interface CartItem {
   // "manual" item's mealPlanSourceKey is always null.
   source: "manual" | "meal_plan";
   mealPlanSourceKey: string | null;
+  /**
+   * The meal-plan dates (YYYY-MM-DD) a "meal_plan" item was generated to
+   * cover, sorted, one entry per date. Once the item has been ordered (or
+   * marked unavailable) it still counts as covering those dates, so a later
+   * generation over an overlapping range only adds what's needed for dates
+   * nobody has shopped for yet. Absent on manual items and on items written
+   * before this field existed — those cover no particular date.
+   */
+  mealPlanDates?: string[];
   addedAt: string;
   updatedAt: string;
 }

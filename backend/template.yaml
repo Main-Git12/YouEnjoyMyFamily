@@ -347,6 +347,10 @@ Resources:
     Properties:
       Handler: src/handlers/groceryCart.handler
       CodeUri: .
+      # Checkout waits on Instacart (capped at INSTACART_TIMEOUT_MS, 8s) and
+      # then stamps every item it handed over; the global 10s left almost no
+      # room for the stamps after a slow Instacart reply.
+      Timeout: 20
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref YouEnjoyMyFamilyTable

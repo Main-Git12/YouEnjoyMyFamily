@@ -1,10 +1,12 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
-import { PutCommand, QueryCommand, DeleteCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
+import { UpdateCommand, DeleteCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 import { ulid } from "ulid";
 import { docClient, TABLE_NAME } from "../lib/dynamoClient";
 import { ok, created, badRequest, notFound, conflict, serverError } from "../lib/response";
 import { parseBody, ValidationError } from "../lib/validation";
 import { authenticateFamily } from "../lib/auth";
+import { queryAll } from "../lib/queryAll";
+import { listRewardClaims, readLedgerVersion, bumpLedgerVersion } from "../lib/gemLedger";
 import { RewardGoalInput, type RewardGoalItem, type RewardClaimItem } from "../types";
 import { listCompletions } from "./tasks";
 
@@ -16,24 +18,48 @@ const rewardGoalKey = (familyId: string, memberId: string) => ({
   SK: `REWARDGOAL#${memberId}`,
 });
 
-async function listRewardGoals(familyId: string): Promise<RewardGoalItem[]> {
-  const result = await docClient.send(
-    new QueryCommand({
-      TableName: TABLE_NAME,
-      KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)",
-      ExpressionAttributeValues: { ":pk": `FAMILY#${familyId}`, ":prefix": "REWARDGOAL#" },
-    })
-  );
-  return (result.Items ?? []) as RewardGoalItem[];
+async function listRewardGoals(familyId: string, consistent = false): Promise<RewardGoalItem[]> {
+  return queryAll<RewardGoalItem>({
+    TableName: TABLE_NAME,
+    KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)",
+    ExpressionAttributeValues: { ":pk": `FAMILY#${familyId}`, ":prefix": "REWARDGOAL#" },
+    ConsistentRead: consistent,
+  });
 }
 
+/**
+ * Sets the child's prize. `updatedAt` is stamped fresh on every save — the
+ * claim transaction relies on that to tell "the prize I checked" from "a new
+ * prize at the same price" — while `createdAt` keeps the day the goal was
+ * first set rather than being overwritten by each edit.
+ */
 async function upsertRewardGoal(
   familyId: string,
   memberId: string,
   input: RewardGoalInput
 ): Promise<RewardGoalItem> {
   const now = new Date().toISOString();
-  const item: RewardGoalItem = {
+  const result = await docClient.send(
+    new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: rewardGoalKey(familyId, memberId),
+      UpdateExpression:
+        "SET entityType = :entityType, familyId = :familyId, memberId = :memberId, #title = :title, " +
+        "gemCost = :gemCost, #note = :note, updatedAt = :now, createdAt = if_not_exists(createdAt, :now)",
+      ExpressionAttributeNames: { "#title": "title", "#note": "note" },
+      ExpressionAttributeValues: {
+        ":entityType": "REWARD_GOAL",
+        ":familyId": familyId,
+        ":memberId": memberId,
+        ":title": input.title,
+        ":gemCost": input.gemCost,
+        ":note": input.note ?? null,
+        ":now": now,
+      },
+      ReturnValues: "ALL_NEW",
+    })
+  );
+  return {
     ...rewardGoalKey(familyId, memberId),
     entityType: "REWARD_GOAL",
     familyId,
@@ -41,28 +67,15 @@ async function upsertRewardGoal(
     title: input.title,
     gemCost: input.gemCost,
     note: input.note ?? null,
-    createdAt: now,
+    createdAt: (result.Attributes as RewardGoalItem | undefined)?.createdAt ?? now,
     updatedAt: now,
   };
-  await docClient.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));
-  return item;
 }
 
 const rewardClaimKey = (familyId: string, claimId: string) => ({
   PK: `FAMILY#${familyId}`,
   SK: `REWARDCLAIM#${claimId}`,
 });
-
-export async function listRewardClaims(familyId: string): Promise<RewardClaimItem[]> {
-  const result = await docClient.send(
-    new QueryCommand({
-      TableName: TABLE_NAME,
-      KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)",
-      ExpressionAttributeValues: { ":pk": `FAMILY#${familyId}`, ":prefix": "REWARDCLAIM#" },
-    })
-  );
-  return (result.Items ?? []) as RewardClaimItem[];
-}
 
 export interface GemBalance {
   memberId: string;
@@ -108,10 +121,10 @@ export interface GemBalanceReport {
   family: { earned: number; spent: number; balance: number };
 }
 
-async function listGemBalances(familyId: string): Promise<GemBalanceReport> {
+async function listGemBalances(familyId: string, consistent = false): Promise<GemBalanceReport> {
   const [completions, claims] = await Promise.all([
-    listCompletions(familyId, "0000-00-00", "9999-12-31"),
-    listRewardClaims(familyId),
+    listCompletions(familyId, "0000-00-00", "9999-12-31", consistent),
+    listRewardClaims(familyId, consistent),
   ]);
   const earned = completions.reduce((sum, completion) => sum + completion.gemsAwarded, 0);
   const spent = claims.reduce((sum, claim) => sum + claim.gemCost, 0);
@@ -136,11 +149,15 @@ async function claimRewardGoal(
   familyId: string,
   memberId: string
 ): Promise<ClaimResult | "not_found" | "not_enough" | "conflict"> {
-  const goals = await listRewardGoals(familyId);
+  // Version first, then balance, all strongly consistent: the version bump
+  // in the transaction below is what cancels this claim if a chore was
+  // un-ticked (or another claim landed) after we read the balance.
+  const version = await readLedgerVersion(familyId, memberId);
+  const goals = await listRewardGoals(familyId, true);
   const goal = goals.find((candidate) => candidate.memberId === memberId);
   if (!goal) return "not_found";
 
-  const { balances } = await listGemBalances(familyId);
+  const { balances } = await listGemBalances(familyId, true);
   const current = balances.find((candidate) => candidate.memberId === memberId);
   const available = current?.balance ?? 0;
   if (available < goal.gemCost) return "not_enough";
@@ -156,11 +173,13 @@ async function claimRewardGoal(
     gemCost: goal.gemCost,
     claimedAt: new Date().toISOString(),
   };
-  // One transaction, conditioned on the goal still being there at the price
-  // we just checked: a double-tap, two screens at once, or a client retry
-  // after a timeout would otherwise each pass the balance check above and
-  // each record a claim, charging the child twice. Only one of them can
-  // delete the goal; the other's transaction is cancelled.
+  // One transaction, conditioned on the goal still being the very save we
+  // just checked (its updatedAt, not just its price — a prize re-set at the
+  // same cost mid-race would pass a price check and be claimed and charged
+  // a second time) and on the child's ledger version being unchanged. A
+  // double-tap, two screens at once, a client retry after a timeout, or an
+  // un-tick racing the claim would otherwise each pass the balance check
+  // above; only one of them can win, the other's transaction is cancelled.
   try {
     await docClient.send(
       new TransactWriteCommand({
@@ -169,11 +188,12 @@ async function claimRewardGoal(
             Delete: {
               TableName: TABLE_NAME,
               Key: rewardGoalKey(familyId, memberId),
-              ConditionExpression: "attribute_exists(PK) AND gemCost = :cost",
-              ExpressionAttributeValues: { ":cost": goal.gemCost },
+              ConditionExpression: "attribute_exists(PK) AND updatedAt = :updatedAt",
+              ExpressionAttributeValues: { ":updatedAt": goal.updatedAt },
             },
           },
           { Put: { TableName: TABLE_NAME, Item: claim, ConditionExpression: "attribute_not_exists(PK)" } },
+          bumpLedgerVersion(familyId, memberId, version),
         ],
       })
     );

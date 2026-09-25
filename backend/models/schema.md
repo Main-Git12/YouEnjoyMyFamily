@@ -21,6 +21,7 @@ items returned from a `Query` without a second read.
 | Meal plan entry     | `FAMILY#<familyId>`   | `MEALPLAN#<isoDate>#<slot>` | —                       | —                          |
 | Reward goal         | `FAMILY#<familyId>`   | `REWARDGOAL#<memberId>`     | —                       | —                          |
 | Reward claim        | `FAMILY#<familyId>`   | `REWARDCLAIM#<claimId>`     | —                       | —                          |
+| Gem ledger version  | `FAMILY#<familyId>`   | `GEMLEDGER#<memberId>`      | —                       | —                          |
 | OAuth token set     | `FAMILY#<familyId>`   | `TOKEN#<provider>`          | —                       | —                          |
 | Routine (definition)| `FAMILY#<familyId>`   | `ROUTINE#<routineId>`       | —                       | —                          |
 | Routine run         | `FAMILY#<familyId>`   | `RUN#<isoDate>#<routineId>` | —                       | —                          |
@@ -67,9 +68,20 @@ ingredient's normalized text — the same idempotent-upsert spirit as
 `Synced calendar evt`'s `GSI1PK`, just checked by a Query + in-memory Set
 instead of a GSI, since a family's cart is small. "Already on the list"
 means matching *either* an existing `mealPlanSourceKey` (a previous
-generation) *or* an existing item's normalized `description` — the latter
-is what stops a hand-added "Milk" and a meal plan's "milk" turning into two
-lines on the same trip. Clearing an item off the cart (`DELETE`) therefore
+generation) *or* an existing item's normalized `description` on a line
+that's still outstanding (`pending`/`substituted`) — the latter is what
+stops a hand-added "Milk" and a meal plan's "milk" turning into two lines on
+the same trip. Each generated line also records `mealPlanDates`, the plan
+dates it was generated for; once it's `ordered` or `unavailable` it keeps
+covering exactly those dates, so a midweek regeneration over a range that
+overlaps an already-shopped one only adds ingredients for the dates nobody
+has bought for yet (and doesn't put a second "Saffron" beside the
+unavailable one), while next week's dates are still uncovered. Generated
+lines get a deterministic `itemId` — `mp-` plus a SHA-256 of the
+ingredient's normalized text and its sorted `mealPlanDates` (hashed because
+ingredient text is free-typed and may contain `#`) — written with
+`attribute_not_exists(PK)`, so two generations racing over the same plan
+write each line once. Manual items keep ULID ids. Clearing an item off the cart (`DELETE`) therefore
 lets the next generation re-add it, which is what makes the weekly job
 right across weeks rather than only the first time. A weekly EventBridge job
 (`mealPlanGrocerySync.ts`, see `template.yaml`) calls it for every family
@@ -139,11 +151,16 @@ privileged.
 - List all of a family's stated preferences: `Query PK = FAMILY#<familyId>, SK begins_with STATEDPREF#`.
 - List one member's stated preferences: `Query PK = FAMILY#<familyId>, SK begins_with STATEDPREF#<memberId>#`.
 - Look up a learned substitute for an item by its (lowercased, trimmed) description: `GetItem PK = FAMILY#<familyId>, SK = SUBSTITUTION#<normalizedDescription>`.
+- List a family's whole cart: `Query PK = FAMILY#<familyId>, begins_with(SK, "CARTITEM#")`, paged to the end with `queryAll` (`src/lib/queryAll.ts`). `ordered`/`unavailable` rows are kept as history and ULIDs sort oldest first, so reading only the first 1MB page would eventually drop exactly the newest, outstanding items.
+- Stamp an item as handed over at checkout: `UpdateItem PK = FAMILY#<familyId>, SK = CARTITEM#<itemId>` setting only `status`/`orderedAt`/`updatedAt`, conditioned on `attribute_exists(PK) AND status = <status checkout read>` — an item deleted or changed while Instacart was building the list is left alone (the conditional failure is ignored), and a failed stamp never withholds the Instacart link from the response.
 - Remove a grocery cart item outright by id (not just marking it unavailable): `DeleteItem PK = FAMILY#<familyId>, SK = CARTITEM#<itemId>`.
-- Find what a checkout should actually send, and what a fresh generation should treat as already covered: the cart items whose `status` is neither `unavailable` nor `ordered` (`outstandingCartItems` in `groceryCart.ts`). An `ordered` item is a past shop, not a standing line — without that distinction the weekly generation sees every ingredient already on the list and quietly adds nothing from the second week onward.
+- Find what a checkout should actually send, and what a fresh generation should treat as covering an ingredient outright: the cart items whose `status` is neither `unavailable` nor `ordered` (`outstandingCartItems` in `groceryCart.ts`). An `ordered` item is a past shop, not a standing line — without that distinction the weekly generation sees every ingredient already on the list and quietly adds nothing from the second week onward. An `ordered` or `unavailable` meal-plan line instead covers only its own `mealPlanDates`.
+- Add a meal-plan-generated line: `PutItem PK = FAMILY#<familyId>, SK = CARTITEM#mp-<sha256(normalizedIngredient + "\n" + sortedDates)[0..32]>` conditioned on `attribute_not_exists(PK)`; a conditional failure means a concurrent generation already wrote it, and counts as skipped.
 - List every child's reward goal: `Query PK = FAMILY#<familyId>, SK begins_with REWARDGOAL#`.
-- Set or clear one child's goal: `PutItem`/`DeleteItem PK = FAMILY#<familyId>, SK = REWARDGOAL#<memberId>` — the key holds one live goal per child, so setting a new prize replaces the old one rather than accumulating a history.
+- Set or clear one child's goal: `UpdateItem`/`DeleteItem PK = FAMILY#<familyId>, SK = REWARDGOAL#<memberId>` — the key holds one live goal per child, so setting a new prize replaces the old one rather than accumulating a history. The update keeps `createdAt` (`if_not_exists`) and stamps a fresh `updatedAt` on every save; claiming conditions the goal's delete on that exact `updatedAt`, so a prize re-set at the same price mid-claim is never the one claimed.
 - List what's been claimed: `Query PK = FAMILY#<familyId>, SK begins_with REWARDCLAIM#`. A child's balance is everything they've earned (completions) minus everything they've claimed — derived on read, never stored, so it can't drift out of step with the records behind it. Without the claim rows a total could only ever go up, and "Earned it!" would stay on the board for good.
+- Every "all of X" read above (chore definitions, completions over an all-time range, goals, claims) pages on `LastEvaluatedKey` via `queryAll` (`src/lib/queryAll.ts`). A single Query stops at 1MB — about a year of a busy family's completions — and reading only that page silently freezes earned gems while claims keep subtracting.
+- Guard a spend: `GetItem PK = FAMILY#<familyId>, SK = GEMLEDGER#<memberId>` (strongly consistent) for the child's `version` (absent = 0), *then* read the balance strongly consistent, then in the same `TransactWriteItems` as the spend bump `version` conditioned on it being unchanged (`attribute_not_exists(PK)` when it was 0). Both operations that take gems away — claiming a prize and un-ticking a chore — do this, so two of them can't both pass the "is there enough?" check against the same balance. Ticking a chore off only adds gems and doesn't touch it. The row holds nothing but the counter; balances are still derived from completions and claims.
 - List a family's meal plan for a date range: `Query PK = FAMILY#<familyId>, SK between MEALPLAN#<start> and MEALPLAN#<end>`.
 - List a family's routines: `Query PK = FAMILY#<familyId>, SK begins_with ROUTINE#`. The run rows deliberately use a `RUN#` prefix so they don't match this.
 - List what a routine's mornings actually looked like, to learn its step durations: `Query PK = FAMILY#<familyId>, SK between RUN#<start> and RUN#<end>#\uffff`, then keep the rows whose `routineId` matches. One family runs few enough routines that filtering in memory beats a second index.
@@ -179,10 +196,21 @@ This is why there is no nightly "reset the chores" job:
   need.
 
 The one denormalized field is `completedOn` on the definition, set only for
-one-off (`recurrence: "none"`) chores in the same operation as the
-completion row. It's what lets "does this chore apply today?" be answered
-without a second query: an unfinished one-off keeps appearing every day
-until someone does it, then shows only on the day it was done.
+one-off (`recurrence: "none"`) chores in the same `TransactWriteItems` as the
+completion row (the completion `Put` conditioned on `attribute_not_exists`,
+the definition `Update` on the chore still existing with `completedOn` unset
+or already that date — so a one-off pays once, not once per date). It's
+what lets "does this chore apply today?" be answered without a second
+query: an unfinished one-off keeps appearing every day until someone does
+it, then shows only on the day it was done.
+
+Definition edits are `UpdateItem`s of just the changed fields, conditioned on
+`attribute_exists(PK)` — never a whole-item put from an earlier read, which
+would reset `completedOn` under a concurrent tick, undo a concurrent edit, or
+bring back a chore deleted a moment ago. Un-ticking deletes the completion
+(and clears a one-off's `completedOn`) in one transaction, and is refused
+with a 409 if the child's balance would go below zero — those gems were
+already spent on a prize (see "Guard a spend" above).
 
 ## Item shape examples
 
@@ -263,6 +291,7 @@ until someone does it, then shows only on the day it was done.
   "addedBy": "member_456",
   "source": "manual", // "manual" | "meal_plan" — "meal_plan" items came from generateGroceryListFromMealPlan
   "mealPlanSourceKey": null, // the ingredient's normalized text, set only on a "meal_plan" item — makes regeneration idempotent
+  // "mealPlanDates": ["2025-01-15", "2025-01-17"], // "meal_plan" items only: the plan dates this line covers — still counted as covered after it's ordered/unavailable
   "addedAt": "2025-01-10T12:00:00Z",
   "updatedAt": "2025-01-10T12:00:00Z"
 }
@@ -278,6 +307,17 @@ until someone does it, then shows only on the day it was done.
   "title": "LEGO Bricks Set",
   "gemCost": 50,
   "claimedAt": "2025-01-20T18:30:00Z"
+}
+
+// Gem ledger version — a per-child counter guarding spends, nothing more
+{
+  "PK": "FAMILY#fam_123",
+  "SK": "GEMLEDGER#Parker",
+  "entityType": "GEM_LEDGER",
+  "familyId": "fam_123",
+  "memberId": "Parker",
+  "version": 3, // bumped by every claim and every un-tick that removes a child's gems
+  "updatedAt": "2025-01-20T18:30:00Z"
 }
 
 // Meal plan entry — a meal a family member explicitly planned for one day+slot

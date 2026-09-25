@@ -2,6 +2,7 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { mockClient } from "aws-sdk-client-mock";
 import { DynamoDBDocumentClient, QueryCommand, PutCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
 import { handler, routeMealPlans, generateGroceryListFromMealPlan } from "./mealPlans";
 import type { MealPlanEntryItem, CartItem } from "../types";
@@ -181,6 +182,7 @@ test("generate-grocery-list route adds new cart items from planned ingredients",
   const spaghettiItem = cartPuts.find((item) => item.description === "Spaghetti");
   assert.equal(spaghettiItem?.source, "meal_plan");
   assert.equal(spaghettiItem?.mealPlanSourceKey, "spaghetti");
+  assert.deepEqual(spaghettiItem?.mealPlanDates, ["2025-01-15"]);
 });
 
 test("generateGroceryListFromMealPlan is idempotent — never duplicates an ingredient already generated", async () => {
@@ -289,4 +291,134 @@ test("generation puts an ingredient back on the list once last week's shop has g
   const result = await generateGroceryListFromMealPlan("fam_1", "2025-01-15", "2025-01-21");
 
   assert.deepEqual(result, { added: 1, skipped: 0 });
+});
+
+/** Routes the meal-plan Query and the cart Query to separate fixtures. */
+function mockPlanAndCart(plan: MealPlanEntryItem[], cart: CartItem[]) {
+  ddbMock.on(QueryCommand).callsFake((input: { ExpressionAttributeValues?: Record<string, string> }) =>
+    input.ExpressionAttributeValues?.[":prefix"] === "CARTITEM#" ? { Items: cart } : { Items: plan }
+  );
+}
+
+const generatedCartPuts = () =>
+  ddbMock
+    .commandCalls(PutCommand)
+    .map((call) => call.args[0].input.Item as CartItem)
+    .filter((item) => item.entityType === "CART_ITEM");
+
+test("regenerating midweek doesn't re-add ingredients already ordered for the same planned dates", async () => {
+  // Sunday's job built Friday's taco list and the family checked out. On
+  // Wednesday a parent plans Thursday pasta and taps Generate over a window
+  // that still includes Friday.
+  const fridayTacos = mealPlanEntry({
+    SK: "MEALPLAN#2025-01-17#dinner",
+    date: "2025-01-17",
+    mealName: "Tacos",
+    ingredients: ["Tortillas", "Ground beef", "Rice"],
+  });
+  const thursdayPasta = mealPlanEntry({
+    SK: "MEALPLAN#2025-01-16#dinner",
+    date: "2025-01-16",
+    mealName: "Pasta",
+    ingredients: ["Penne"],
+  });
+  // Tacos again the Friday after — that week hasn't been shopped for.
+  const nextFridayTacos = mealPlanEntry({
+    SK: "MEALPLAN#2025-01-24#dinner",
+    date: "2025-01-24",
+    mealName: "Tacos",
+    ingredients: ["Tortillas"],
+  });
+  const ordered = (itemId: string, description: string) =>
+    cartItem({
+      itemId,
+      SK: `CARTITEM#${itemId}`,
+      description,
+      status: "ordered",
+      orderedAt: "2025-01-12T15:00:00Z",
+      source: "meal_plan",
+      mealPlanSourceKey: description.toLowerCase(),
+      mealPlanDates: ["2025-01-17"],
+    });
+  mockPlanAndCart(
+    [thursdayPasta, fridayTacos, nextFridayTacos],
+    [ordered("o1", "Tortillas"), ordered("o2", "Ground beef"), ordered("o3", "Rice")]
+  );
+  ddbMock.on(PutCommand).resolves({});
+
+  const result = await generateGroceryListFromMealPlan("fam_1", "2025-01-15", "2025-01-24");
+
+  assert.deepEqual(result, { added: 2, skipped: 2 });
+  const puts = generatedCartPuts();
+  assert.deepEqual(
+    puts.map((item) => [item.description, item.quantity, item.mealPlanDates]),
+    [
+      ["Penne", 1, ["2025-01-16"]],
+      // Only next Friday's portion — this Friday's was already bought.
+      ["Tortillas", 1, ["2025-01-24"]],
+    ]
+  );
+});
+
+test("two generations racing over the same plan write each ingredient once", async () => {
+  // A double-tap on Generate: both requests read the cart before either has
+  // written anything, so both see every ingredient as missing.
+  mockPlanAndCart([mealPlanEntry()], []);
+  const stored = new Map<string, CartItem>();
+  ddbMock.on(PutCommand).callsFake((input: { Item: CartItem; ConditionExpression?: string }) => {
+    if (input.ConditionExpression === "attribute_not_exists(PK)" && stored.has(input.Item.SK)) {
+      throw new ConditionalCheckFailedException({ message: "The conditional request failed", $metadata: {} });
+    }
+    stored.set(input.Item.SK, input.Item);
+    return {};
+  });
+
+  const [first, second] = await Promise.all([
+    generateGroceryListFromMealPlan("fam_1"),
+    generateGroceryListFromMealPlan("fam_1"),
+  ]);
+
+  assert.equal(stored.size, 3);
+  assert.deepEqual(
+    [...stored.values()].map((item) => item.description).sort(),
+    ["Ground beef", "Marinara sauce", "Spaghetti"]
+  );
+  assert.equal((first?.added ?? 0) + (second?.added ?? 0), 3);
+  assert.equal((first?.skipped ?? 0) + (second?.skipped ?? 0), 3);
+  // The id is a hash, so free-typed ingredient text can't leak a '#' into the key.
+  for (const item of stored.values()) assert.match(item.itemId, /^mp-[0-9a-f]{32}$/);
+});
+
+test("regenerating the same week doesn't add a second line beside one marked unavailable", async () => {
+  const paella = mealPlanEntry({ mealName: "Paella", ingredients: ["Saffron", "Rice"] });
+  mockPlanAndCart(
+    [paella],
+    [
+      cartItem({
+        itemId: "u1",
+        SK: "CARTITEM#u1",
+        description: "Saffron",
+        status: "unavailable",
+        source: "meal_plan",
+        mealPlanSourceKey: "saffron",
+        mealPlanDates: ["2025-01-15"],
+      }),
+      cartItem({
+        itemId: "s1",
+        SK: "CARTITEM#s1",
+        description: "Rice",
+        status: "substituted",
+        substituteDescription: "Arborio rice",
+        source: "meal_plan",
+        mealPlanSourceKey: "rice",
+        mealPlanDates: ["2025-01-15"],
+      }),
+    ]
+  );
+  ddbMock.on(PutCommand).resolves({});
+
+  const result = await generateGroceryListFromMealPlan("fam_1", "2025-01-13", "2025-01-19");
+
+  assert.deepEqual(result, { added: 0, skipped: 2 });
+  assert.equal(generatedCartPuts().length, 0);
 });

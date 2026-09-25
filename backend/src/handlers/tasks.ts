@@ -1,13 +1,23 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 import { ulid } from "ulid";
-import { GetCommand, PutCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  GetCommand,
+  PutCommand,
+  DeleteCommand,
+  UpdateCommand,
+  TransactWriteCommand,
+  type TransactWriteCommandInput,
+} from "@aws-sdk/lib-dynamodb";
 import { docClient, TABLE_NAME } from "../lib/dynamoClient";
-import { ok, created, badRequest, notFound, serverError } from "../lib/response";
+import { ok, created, badRequest, notFound, conflict, serverError } from "../lib/response";
 import { parseBody, ValidationError } from "../lib/validation";
 import { authenticateFamily } from "../lib/auth";
+import { queryAll } from "../lib/queryAll";
+import { listRewardClaims, readLedgerVersion, bumpLedgerVersion } from "../lib/gemLedger";
 import {
   TaskInput,
   TaskPatch,
+  IsoDate,
   DEFAULT_GEM_VALUE,
   type TaskItem,
   type TaskForDay,
@@ -19,6 +29,20 @@ const completionKey = (familyId: string, isoDate: string, taskId: string) => ({
   PK: `FAMILY#${familyId}`,
   SK: `COMPLETION#${isoDate}#${taskId}`,
 });
+
+type TransactItem = NonNullable<TransactWriteCommandInput["TransactItems"]>[number];
+
+/** The request can't be honoured as things stand — surfaced as a 409. */
+class TaskConflict extends Error {}
+/** The chore was deleted out from under the request — surfaced as a 404. */
+class TaskGone extends Error {}
+
+// Matched by name, not instanceof: a bundled SDK can load the error class
+// twice, and instanceof then silently fails.
+const isTransactionCanceled = (err: unknown): boolean =>
+  err instanceof Error && err.name === "TransactionCanceledException";
+const isConditionFailed = (err: unknown): boolean =>
+  err instanceof Error && err.name === "ConditionalCheckFailedException";
 
 // A completed chore pays out its own gemValue — "sleep in my own bed" is
 // worth more than "fill my water bottle".
@@ -58,29 +82,34 @@ export function appliesOn(task: TaskItem, isoDate: string): boolean {
 }
 
 async function listTaskDefinitions(familyId: string): Promise<TaskItem[]> {
-  const result = await docClient.send(
-    new QueryCommand({
-      TableName: TABLE_NAME,
-      KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)",
-      ExpressionAttributeValues: { ":pk": `FAMILY#${familyId}`, ":prefix": "TASK#" },
-    })
-  );
-  return (result.Items ?? []) as TaskItem[];
+  return queryAll<TaskItem>({
+    TableName: TABLE_NAME,
+    KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)",
+    ExpressionAttributeValues: { ":pk": `FAMILY#${familyId}`, ":prefix": "TASK#" },
+  });
 }
 
-export async function listCompletions(familyId: string, startDate: string, endDate: string): Promise<TaskCompletionItem[]> {
-  const result = await docClient.send(
-    new QueryCommand({
-      TableName: TABLE_NAME,
-      KeyConditionExpression: "PK = :pk AND SK BETWEEN :from AND :to",
-      ExpressionAttributeValues: {
-        ":pk": `FAMILY#${familyId}`,
-        ":from": `COMPLETION#${startDate}`,
-        ":to": `COMPLETION#${endDate}#￿`,
-      },
-    })
-  );
-  return (result.Items ?? []) as TaskCompletionItem[];
+/**
+ * Every completion in a date range — paged to the end, because an all-time
+ * range is exactly what gem balances ask for, and a single page stops at
+ * about a year of a busy family's chores.
+ */
+export async function listCompletions(
+  familyId: string,
+  startDate: string,
+  endDate: string,
+  consistent = false
+): Promise<TaskCompletionItem[]> {
+  return queryAll<TaskCompletionItem>({
+    TableName: TABLE_NAME,
+    KeyConditionExpression: "PK = :pk AND SK BETWEEN :from AND :to",
+    ExpressionAttributeValues: {
+      ":pk": `FAMILY#${familyId}`,
+      ":from": `COMPLETION#${startDate}`,
+      ":to": `COMPLETION#${endDate}#￿`,
+    },
+    ConsistentRead: consistent,
+  });
 }
 
 /**
@@ -150,12 +179,27 @@ async function readTask(familyId: string, taskId: string): Promise<TaskItem | nu
   return (existing.Item as TaskItem | undefined) ?? null;
 }
 
-/** Records a chore as done on a day, and pays out its gems. Doing it twice pays once. */
-async function completeTaskOnDay(familyId: string, task: TaskItem, isoDate: string): Promise<TaskForDay> {
+async function readCompletion(familyId: string, isoDate: string, taskId: string): Promise<TaskCompletionItem | undefined> {
   const existing = await docClient.send(
-    new GetCommand({ TableName: TABLE_NAME, Key: completionKey(familyId, isoDate, task.taskId) })
+    new GetCommand({ TableName: TABLE_NAME, Key: completionKey(familyId, isoDate, taskId), ConsistentRead: true })
   );
-  if (existing.Item) return toTaskForDay(task, isoDate, existing.Item as TaskCompletionItem);
+  return existing.Item as TaskCompletionItem | undefined;
+}
+
+/**
+ * Records a chore as done on a day, and pays out its gems. Doing it twice
+ * pays once — and a one-off pays once, full stop, not once per date.
+ */
+async function completeTaskOnDay(familyId: string, task: TaskItem, isoDate: string): Promise<TaskForDay> {
+  // A screen loaded before midnight still shows yesterday's finished
+  // one-off as pending; tapping it after midnight sends today's date. The
+  // completion key is per date, so without this it would pay a second time.
+  if (task.recurrence === "none" && task.completedOn && task.completedOn !== isoDate) {
+    throw new TaskConflict(`That chore was already done on ${task.completedOn}`);
+  }
+
+  const existing = await readCompletion(familyId, isoDate, task.taskId);
+  if (existing) return toTaskForDay(task, isoDate, existing);
 
   const now = new Date().toISOString();
   const completion: TaskCompletionItem = {
@@ -169,43 +213,172 @@ async function completeTaskOnDay(familyId: string, task: TaskItem, isoDate: stri
     gemsAwarded: task.gemValue,
     completedAt: now,
   };
-  await docClient.send(new PutCommand({ TableName: TABLE_NAME, Item: completion }));
+
+  // The completion row and the one-off's completedOn go in one transaction:
+  // written separately, a failure between them left the chore showing as
+  // pending with its gems already paid, ready to pay again. Only the
+  // fields that change are written, so a parent's concurrent edit survives,
+  // and a chore deleted meanwhile stays deleted.
+  const taskWrite: TransactItem =
+    task.recurrence === "none"
+      ? {
+          Update: {
+            TableName: TABLE_NAME,
+            Key: taskKey(familyId, task.taskId),
+            UpdateExpression: "SET completedOn = :date, updatedAt = :now",
+            ConditionExpression:
+              "attribute_exists(PK) AND (attribute_not_exists(completedOn) OR attribute_type(completedOn, :nullType) OR completedOn = :date)",
+            ExpressionAttributeValues: { ":date": isoDate, ":now": now, ":nullType": "NULL" },
+          },
+        }
+      : {
+          ConditionCheck: {
+            TableName: TABLE_NAME,
+            Key: taskKey(familyId, task.taskId),
+            ConditionExpression: "attribute_exists(PK)",
+          },
+        };
+
+  try {
+    await docClient.send(
+      new TransactWriteCommand({
+        TransactItems: [
+          { Put: { TableName: TABLE_NAME, Item: completion, ConditionExpression: "attribute_not_exists(PK)" } },
+          taskWrite,
+        ],
+      })
+    );
+  } catch (err) {
+    if (!isTransactionCanceled(err)) throw err;
+    // Lost a race. A double-tap on the same day is still "done, paid once";
+    // anything else is a change we shouldn't paper over.
+    const [current, winner] = await Promise.all([
+      readTask(familyId, task.taskId),
+      readCompletion(familyId, isoDate, task.taskId),
+    ]);
+    if (winner) return toTaskForDay(current ?? task, isoDate, winner);
+    if (!current) throw new TaskGone();
+    throw new TaskConflict("That chore was just changed on another screen");
+  }
 
   if (task.recurrence === "none") {
-    const finished: TaskItem = { ...task, completedOn: isoDate, updatedAt: now };
-    await docClient.send(new PutCommand({ TableName: TABLE_NAME, Item: finished }));
-    return toTaskForDay(finished, isoDate, completion);
+    return toTaskForDay({ ...task, completedOn: isoDate, updatedAt: now }, isoDate, completion);
   }
   return toTaskForDay(task, isoDate, completion);
 }
 
-/** Un-ticks a chore for a day — the gems go back with it. */
-async function reopenTaskOnDay(familyId: string, task: TaskItem, isoDate: string): Promise<TaskForDay> {
-  await docClient.send(new DeleteCommand({ TableName: TABLE_NAME, Key: completionKey(familyId, isoDate, task.taskId) }));
+/** What one child has right now: everything earned minus everything claimed. Read strongly consistent. */
+async function memberBalance(familyId: string, memberId: string): Promise<number> {
+  const [completions, claims] = await Promise.all([
+    listCompletions(familyId, "0000-00-00", "9999-12-31", true),
+    listRewardClaims(familyId, true),
+  ]);
+  const earned = completions
+    .filter((completion) => completion.memberId === memberId)
+    .reduce((sum, completion) => sum + completion.gemsAwarded, 0);
+  const spent = claims.filter((claim) => claim.memberId === memberId).reduce((sum, claim) => sum + claim.gemCost, 0);
+  return earned - spent;
+}
 
-  if (task.recurrence === "none" && task.completedOn === isoDate) {
-    const reopened: TaskItem = { ...task, completedOn: null, updatedAt: new Date().toISOString() };
-    await docClient.send(new PutCommand({ TableName: TABLE_NAME, Item: reopened }));
-    return toTaskForDay(reopened, isoDate, undefined);
+/**
+ * Un-ticks a chore for a day — the gems go back with it. Refused if those
+ * gems have already been spent: a prize claimed with them can't be
+ * un-claimed, and the balance must not go below zero.
+ */
+async function reopenTaskOnDay(familyId: string, task: TaskItem, isoDate: string): Promise<TaskForDay> {
+  const done = await readCompletion(familyId, isoDate, task.taskId);
+  const reopensOneOff = task.recurrence === "none" && task.completedOn === isoDate;
+  if (!done && !reopensOneOff) return toTaskForDay(task, isoDate, undefined);
+
+  const now = new Date().toISOString();
+  const writes: TransactItem[] = [];
+  if (done) {
+    writes.push({
+      Delete: {
+        TableName: TABLE_NAME,
+        Key: completionKey(familyId, isoDate, task.taskId),
+        ConditionExpression: "attribute_exists(PK)",
+      },
+    });
+    if (done.memberId && done.gemsAwarded > 0) {
+      // Version first, then balance: the version bump below is what makes a
+      // prize claimed between this check and the delete cancel one of them.
+      const version = await readLedgerVersion(familyId, done.memberId);
+      const balance = await memberBalance(familyId, done.memberId);
+      if (balance - done.gemsAwarded < 0) {
+        throw new TaskConflict("Those gems have already been spent on a prize, so this chore can't be un-ticked");
+      }
+      writes.push(bumpLedgerVersion(familyId, done.memberId, version));
+    }
   }
+  if (reopensOneOff) {
+    writes.push({
+      Update: {
+        TableName: TABLE_NAME,
+        Key: taskKey(familyId, task.taskId),
+        UpdateExpression: "SET completedOn = :null, updatedAt = :now",
+        ConditionExpression: "attribute_exists(PK) AND completedOn = :date",
+        ExpressionAttributeValues: { ":null": null, ":now": now, ":date": isoDate },
+      },
+    });
+  }
+
+  try {
+    await docClient.send(new TransactWriteCommand({ TransactItems: writes }));
+  } catch (err) {
+    if (isTransactionCanceled(err)) throw new TaskConflict("That chore was just changed on another screen");
+    throw err;
+  }
+
+  if (reopensOneOff) return toTaskForDay({ ...task, completedOn: null, updatedAt: now }, isoDate, undefined);
   return toTaskForDay(task, isoDate, undefined);
 }
 
-/** Edits the chore itself — its title, value, who it's for, how often it comes back. */
+/**
+ * Edits the chore itself — its title, value, who it's for, how often it
+ * comes back. Writes only the fields being changed, never the whole item
+ * from an earlier read: a whole-item put would reset completedOn under a
+ * child who just ticked the chore off (so it pays again), undo a
+ * concurrent edit, or bring back a chore deleted a moment ago.
+ */
 async function updateDefinition(familyId: string, task: TaskItem, patch: TaskPatch, isoDate: string): Promise<TaskForDay> {
-  // Merged field by field rather than spread: `assignedTo: null` means
-  // "nobody in particular", which a `??` merge would read as "leave it".
-  const updated: TaskItem = {
-    ...task,
-    title: patch.title ?? task.title,
-    assignedTo: patch.assignedTo !== undefined ? patch.assignedTo : task.assignedTo,
-    dueDate: patch.dueDate !== undefined ? patch.dueDate : task.dueDate,
-    gemValue: patch.gemValue ?? task.gemValue,
-    dueWindow: patch.dueWindow ?? task.dueWindow,
-    recurrence: patch.recurrence ?? task.recurrence,
-    updatedAt: new Date().toISOString(),
+  const names: Record<string, string> = { "#updatedAt": "updatedAt" };
+  const values: Record<string, unknown> = { ":updatedAt": new Date().toISOString() };
+  const sets = ["#updatedAt = :updatedAt"];
+  const assign = (field: keyof TaskItem, value: unknown) => {
+    names[`#${field}`] = field;
+    values[`:${field}`] = value;
+    sets.push(`#${field} = :${field}`);
   };
-  await docClient.send(new PutCommand({ TableName: TABLE_NAME, Item: updated }));
+  // Checked against undefined rather than merged with `??`: `assignedTo:
+  // null` means "nobody in particular", which a `??` merge would read as
+  // "leave it".
+  if (patch.title !== undefined) assign("title", patch.title);
+  if (patch.assignedTo !== undefined) assign("assignedTo", patch.assignedTo);
+  if (patch.dueDate !== undefined) assign("dueDate", patch.dueDate);
+  if (patch.gemValue !== undefined) assign("gemValue", patch.gemValue);
+  if (patch.dueWindow !== undefined) assign("dueWindow", patch.dueWindow);
+  if (patch.recurrence !== undefined) assign("recurrence", patch.recurrence);
+
+  let updated: TaskItem;
+  try {
+    const result = await docClient.send(
+      new UpdateCommand({
+        TableName: TABLE_NAME,
+        Key: taskKey(familyId, task.taskId),
+        UpdateExpression: `SET ${sets.join(", ")}`,
+        ConditionExpression: "attribute_exists(PK)",
+        ExpressionAttributeNames: names,
+        ExpressionAttributeValues: values,
+        ReturnValues: "ALL_NEW",
+      })
+    );
+    if (!result.Attributes) throw new TaskGone();
+    updated = result.Attributes as TaskItem;
+  } catch (err) {
+    if (isConditionFailed(err)) throw new TaskGone();
+    throw err;
+  }
 
   const existing = await docClient.send(
     new GetCommand({ TableName: TABLE_NAME, Key: completionKey(familyId, isoDate, task.taskId) })
@@ -220,10 +393,31 @@ async function deleteTask(familyId: string, taskId: string): Promise<void> {
 /**
  * The day a request is about. Always the caller's own local date — a kitchen
  * screen in Ohio asking at 9pm means *its* today, not UTC's tomorrow. Falls
- * back to the UTC date only when a caller says nothing at all.
+ * back to the UTC date only when a caller says nothing at all. A date that
+ * isn't a real one ("2026-02-31") is refused rather than guessed at.
  */
 function requestedDate(value: string | undefined): string {
-  return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : new Date().toISOString().slice(0, 10);
+  if (!value) return new Date().toISOString().slice(0, 10);
+  const parsed = IsoDate.safeParse(value);
+  if (!parsed.success) throw new ValidationError("date must be a real calendar date (YYYY-MM-DD)");
+  return parsed.data;
+}
+
+function shiftDate(isoDate: string, days: number): string {
+  const [year, month, day] = isoDate.split("-");
+  return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day) + days)).toISOString().slice(0, 10);
+}
+
+/**
+ * Why a chore can't be ticked off on this date, if it can't. The screen
+ * always sends its own today; anything else is a stale or hand-built
+ * request. A day either side of the UTC dates is allowed, because the
+ * caller's local date can sit a day off UTC in either direction.
+ */
+function tickDateProblem(task: TaskItem, isoDate: string): string | null {
+  if (isoDate < shiftDate(task.createdAt.slice(0, 10), -1)) return "That chore didn't exist yet on that day";
+  if (isoDate > shiftDate(new Date().toISOString().slice(0, 10), 1)) return "That day hasn't happened yet";
+  return null;
 }
 
 export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> => {
@@ -258,7 +452,11 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
         if (!task) return notFound("Task not found");
 
         const isoDate = requestedDate(patch.date ?? query.date);
-        if (patch.status === "done") return ok(await completeTaskOnDay(familyId, task, isoDate));
+        if (patch.status === "done") {
+          const problem = tickDateProblem(task, isoDate);
+          if (problem) return badRequest(problem);
+          return ok(await completeTaskOnDay(familyId, task, isoDate));
+        }
         if (patch.status === "pending") return ok(await reopenTaskOnDay(familyId, task, isoDate));
         return ok(await updateDefinition(familyId, task, patch, isoDate));
       }
@@ -271,6 +469,8 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
     }
   } catch (err) {
     if (err instanceof ValidationError) return badRequest(err.message);
+    if (err instanceof TaskConflict) return conflict(err.message);
+    if (err instanceof TaskGone) return notFound("Task not found");
     return serverError(err);
   }
 };

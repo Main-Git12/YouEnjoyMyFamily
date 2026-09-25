@@ -1,7 +1,9 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
+import { createHash } from "node:crypto";
 import { ulid } from "ulid";
-import { GetCommand, PutCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, UpdateCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import { docClient, TABLE_NAME } from "../lib/dynamoClient";
+import { queryAll } from "../lib/queryAll";
 import { ok, created, badRequest, notFound, serverError } from "../lib/response";
 import { parseBody, ValidationError } from "../lib/validation";
 import { authenticateFamily } from "../lib/auth";
@@ -16,6 +18,15 @@ import { CartItemInput, CartItemPatch, type CartItem, type LearnedSubstitutionIt
 // at checkout time.
 const INSTACART_API_BASE_URL = process.env.INSTACART_API_BASE_URL ?? "https://connect.instacart.com";
 
+/**
+ * How long checkout waits on Instacart before giving up. Kept well inside the
+ * GroceryCartFunction timeout (template.yaml) so that a slow reply still
+ * leaves time to stamp items and hand the link back — rather than the Lambda
+ * dying mid-stamp, the family never seeing the link, and a retry sending only
+ * whatever hadn't been stamped yet.
+ */
+export const INSTACART_TIMEOUT_MS = 8000;
+
 export interface InstacartLineItem {
   name: string;
   quantity: number;
@@ -26,7 +37,7 @@ export interface InstacartClient {
   createShoppingListLink(title: string, lineItems: InstacartLineItem[]): Promise<string>;
 }
 
-export function createRealInstacartClient(): InstacartClient {
+export function createRealInstacartClient(timeoutMs: number = INSTACART_TIMEOUT_MS): InstacartClient {
   return {
     async createShoppingListLink(title, lineItems) {
       const apiKey = process.env.INSTACART_API_KEY;
@@ -35,6 +46,7 @@ export function createRealInstacartClient(): InstacartClient {
       const response = await fetch(`${INSTACART_API_BASE_URL}/idp/v1/products/products_link`, {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(timeoutMs),
         body: JSON.stringify({
           title,
           line_items: lineItems.map((item) => ({ name: item.name, quantity: item.quantity })),
@@ -48,6 +60,9 @@ export function createRealInstacartClient(): InstacartClient {
   };
 }
 
+const isConditionalCheckFailure = (err: unknown): boolean =>
+  err instanceof Error && err.name === "ConditionalCheckFailedException";
+
 const cartItemKey = (familyId: string, itemId: string) => ({ PK: `FAMILY#${familyId}`, SK: `CARTITEM#${itemId}` });
 
 const normalize = (description: string) => description.trim().toLowerCase();
@@ -57,15 +72,18 @@ const substitutionKey = (familyId: string, originalDescription: string) => ({
   SK: `SUBSTITUTION#${normalize(originalDescription)}`,
 });
 
+/**
+ * Every cart item, across all pages. Ordered/unavailable rows are kept (they
+ * are the family's shopping history) and ULID keys sort oldest first, so a
+ * single 1MB page would eventually be all old orders and leave out exactly
+ * the newest, still-outstanding items.
+ */
 export async function listCartItems(familyId: string): Promise<CartItem[]> {
-  const result = await docClient.send(
-    new QueryCommand({
-      TableName: TABLE_NAME,
-      KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)",
-      ExpressionAttributeValues: { ":pk": `FAMILY#${familyId}`, ":prefix": "CARTITEM#" },
-    })
-  );
-  return (result.Items ?? []) as CartItem[];
+  return queryAll<CartItem>({
+    TableName: TABLE_NAME,
+    KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)",
+    ExpressionAttributeValues: { ":pk": `FAMILY#${familyId}`, ":prefix": "CARTITEM#" },
+  });
 }
 
 async function addCartItem(familyId: string, input: CartItemInput): Promise<CartItem> {
@@ -93,18 +111,34 @@ async function addCartItem(familyId: string, input: CartItemInput): Promise<Cart
 }
 
 /**
+ * The deterministic id of a meal-plan-generated line: a hash of the
+ * ingredient's normalized text and the dates it covers. Two generations
+ * racing over the same plan (a double-tap, or a tap landing on the weekly
+ * job) compute the same id, so the conditional put below lets only one of
+ * them write the line. Hashed, not concatenated, because ingredient text is
+ * free-typed and can contain `#` or anything else that would muddle a key.
+ */
+export function mealPlanCartItemId(mealPlanSourceKey: string, mealPlanDates: string[]): string {
+  const digest = createHash("sha256").update(`${mealPlanSourceKey}\n${mealPlanDates.join(",")}`).digest("hex");
+  return `mp-${digest.slice(0, 32)}`;
+}
+
+/**
  * Adds a cart item generated from a family's own meal plan ingredients (see
  * mealPlans.ts's generateGroceryListFromMealPlan) rather than typed in
- * directly. `mealPlanSourceKey` (the ingredient's normalized text) is what
- * makes re-running that generation idempotent — see listCartItems callers.
+ * directly. `mealPlanSourceKey` (the ingredient's normalized text) and
+ * `mealPlanDates` (the plan dates it covers) are what make re-running that
+ * generation idempotent. Returns null when an identical line already exists
+ * — another generation over the same plan got there first.
  */
 export async function addMealPlanCartItem(
   familyId: string,
   description: string,
   quantity: number,
-  mealPlanSourceKey: string
-): Promise<CartItem> {
-  const itemId = ulid();
+  mealPlanSourceKey: string,
+  mealPlanDates: string[]
+): Promise<CartItem | null> {
+  const itemId = mealPlanCartItemId(mealPlanSourceKey, mealPlanDates);
   const now = new Date().toISOString();
   const item: CartItem = {
     ...cartItemKey(familyId, itemId),
@@ -119,11 +153,19 @@ export async function addMealPlanCartItem(
     addedBy: null,
     source: "meal_plan",
     mealPlanSourceKey,
+    mealPlanDates,
     addedAt: now,
     updatedAt: now,
   };
 
-  await docClient.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));
+  try {
+    await docClient.send(
+      new PutCommand({ TableName: TABLE_NAME, Item: item, ConditionExpression: "attribute_not_exists(PK)" })
+    );
+  } catch (err) {
+    if (isConditionalCheckFailure(err)) return null;
+    throw err;
+  }
   return item;
 }
 
@@ -214,15 +256,36 @@ async function checkout(familyId: string, instacart: InstacartClient): Promise<s
   // there to try again. Without this the shop never ends — next week's
   // generation sees every ingredient already on the list and adds nothing,
   // and the cart grows until someone deletes it line by line.
+  //
+  // Each stamp is a conditional Update of just the order fields, not a Put of
+  // the copy read before calling Instacart: an item deleted mid-checkout stays
+  // deleted, an edit made meanwhile isn't overwritten, and one whose status
+  // changed in the meantime is left as the family set it. Stamps run in
+  // parallel and a failed one never costs the family the link — the link is
+  // the only record of what was handed over, so it always comes back.
   const orderedAt = new Date().toISOString();
-  for (const item of shoppable) {
-    await docClient.send(
-      new PutCommand({
-        TableName: TABLE_NAME,
-        Item: { ...item, status: "ordered", orderedAt, updatedAt: orderedAt } satisfies CartItem,
-      })
-    );
-  }
+  const outcomes = await Promise.allSettled(
+    shoppable.map((item) =>
+      docClient.send(
+        new UpdateCommand({
+          TableName: TABLE_NAME,
+          Key: cartItemKey(familyId, item.itemId),
+          UpdateExpression: "SET #status = :ordered, orderedAt = :orderedAt, updatedAt = :orderedAt",
+          ConditionExpression: "attribute_exists(PK) AND #status = :expected",
+          ExpressionAttributeNames: { "#status": "status" },
+          ExpressionAttributeValues: { ":ordered": "ordered", ":orderedAt": orderedAt, ":expected": item.status },
+        })
+      )
+    )
+  );
+  outcomes.forEach((outcome, index) => {
+    if (outcome.status === "fulfilled" || isConditionalCheckFailure(outcome.reason)) return;
+    console.error("checkout: failed to stamp cart item as ordered", {
+      familyId,
+      itemId: shoppable[index]?.itemId,
+      error: outcome.reason,
+    });
+  });
 
   return productsLinkUrl;
 }
