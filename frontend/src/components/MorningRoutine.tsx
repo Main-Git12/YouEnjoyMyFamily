@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Routine, RoutineStep, Task } from "../types";
+import type { Routine, RoutineKind, RoutineStep, Task } from "../types";
 import type { RoutinePlan } from "../lib/routinePlan";
 import { suggestMorningSteps } from "../lib/routinePlan";
 import MemberPicker from "./MemberPicker";
@@ -13,6 +13,8 @@ interface MorningRoutineProps {
   /** The family's own chores, used to seed a first draft rather than an empty form. */
   tasks: Task[];
   members: string[];
+  /** Which routine this card is for — the copy and the defaults follow it. */
+  kind: RoutineKind;
   onSave: (routine: { name: string; anchorTime: string; daysOfWeek: number[]; steps: DraftStep[] }) => Promise<void>;
   onSetActive: (active: boolean) => Promise<void>;
   onStartNow: () => void;
@@ -20,6 +22,38 @@ interface MorningRoutineProps {
 
 const WEEKDAYS = [1, 2, 3, 4, 5];
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/**
+ * Both routines are the same engine pointed at a different deadline —
+ * lights out is as real a fixed time as the bus, and a bedtime that slips
+ * is where a lot of bad mornings actually start. Only the words differ.
+ */
+const COPY: Record<RoutineKind, { name: string; deadline: string; setUp: string; blurb: string; defaultTime: string; seedFromChores: boolean }> = {
+  morning: {
+    name: "School morning",
+    deadline: "Has to be out the door by",
+    setUp: "Set up the school morning",
+    blurb: "Set the time you have to be out of the door, and the app will work backwards from it — showing one step at a time and how many minutes are spare.",
+    defaultTime: "07:50",
+    seedFromChores: true,
+  },
+  bedtime: {
+    name: "Bedtime",
+    deadline: "Lights out at",
+    setUp: "Set up bedtime",
+    blurb: "Set lights-out and the app works backwards from it, one step at a time — the same way it does the morning, and for the same reason.",
+    defaultTime: "20:00",
+    seedFromChores: false,
+  },
+  custom: {
+    name: "Routine",
+    deadline: "Finished by",
+    setUp: "Set up a routine",
+    blurb: "Set the time it has to be finished by, and the app will work backwards from it.",
+    defaultTime: "18:00",
+    seedFromChores: false,
+  },
+};
 
 /**
  * Setting up and checking the morning.
@@ -36,12 +70,14 @@ export default function MorningRoutine({
   plan,
   tasks,
   members,
+  kind,
   onSave,
   onSetActive,
   onStartNow,
 }: MorningRoutineProps) {
+  const copy = COPY[kind];
   const [editing, setEditing] = useState(false);
-  const [anchorTime, setAnchorTime] = useState(routine?.anchorTime ?? "07:50");
+  const [anchorTime, setAnchorTime] = useState(routine?.anchorTime ?? copy.defaultTime);
   const [days, setDays] = useState<number[]>(routine?.daysOfWeek ?? WEEKDAYS);
   const [steps, setSteps] = useState<DraftStep[]>(
     routine?.steps.map(({ title, targetMinutes, memberId }) => ({ title, targetMinutes, memberId })) ?? []
@@ -50,12 +86,14 @@ export default function MorningRoutine({
   const [error, setError] = useState<string | null>(null);
 
   function beginEditing() {
-    setAnchorTime(routine?.anchorTime ?? "07:50");
+    setAnchorTime(routine?.anchorTime ?? copy.defaultTime);
     setDays(routine?.daysOfWeek ?? WEEKDAYS);
     setSteps(
       routine
         ? routine.steps.map(({ title, targetMinutes, memberId }) => ({ title, targetMinutes, memberId }))
-        : suggestMorningSteps(tasks)
+        : copy.seedFromChores
+          ? suggestMorningSteps(tasks)
+          : []
     );
     setError(null);
     setEditing(true);
@@ -76,7 +114,7 @@ export default function MorningRoutine({
     setSaving(true);
     setError(null);
     try {
-      await onSave({ name: "School morning", anchorTime, daysOfWeek: days, steps: cleaned });
+      await onSave({ name: routine?.name ?? copy.name, anchorTime, daysOfWeek: days, steps: cleaned });
       setEditing(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -89,7 +127,7 @@ export default function MorningRoutine({
     return (
       <div className="space-y-4">
         <label className="block">
-          <span className="font-body text-olive-700">Has to be out the door by</span>
+          <span className="font-body text-olive-700">{copy.deadline}</span>
           <input
             type="time"
             value={anchorTime}
@@ -121,7 +159,7 @@ export default function MorningRoutine({
         <div className="space-y-2">
           <p className="font-body text-olive-700">
             The steps, in order
-            {steps.length > 0 && routine === null && (
+            {steps.length > 0 && routine === null && copy.seedFromChores && (
               <span className="text-olive-600 text-sm"> — started from your morning chores, change anything</span>
             )}
           </p>
@@ -199,16 +237,13 @@ export default function MorningRoutine({
   if (!routine) {
     return (
       <div>
-        <p className="font-body text-olive-700">
-          Set the time you have to be out of the door, and the app will work backwards from it — showing one step at a
-          time and how many minutes are spare.
-        </p>
+        <p className="font-body text-olive-700">{copy.blurb}</p>
         <button
           type="button"
           onClick={beginEditing}
           className="mt-3 font-display bg-olive-600 text-white rounded-full px-6 py-3"
         >
-          Set up the school morning
+          {copy.setUp}
         </button>
       </div>
     );
@@ -230,7 +265,7 @@ export default function MorningRoutine({
   return (
     <div className="space-y-3">
       <p className="font-display text-2xl text-olive-800">
-        Out by {routine.anchorTime}
+        {kind === "bedtime" ? "Lights out" : "Out by"} {routine.anchorTime}
         <span className="font-body text-base text-olive-600">
           {" "}
           · {routine.daysOfWeek.map((day) => DAY_LABELS[day]).join(" ")}

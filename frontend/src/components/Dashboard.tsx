@@ -55,6 +55,23 @@ const ROUTINE_HISTORY_DAYS = 28;
 // thing. It is the reason anyone plays along again tomorrow.
 const MORNING_CELEBRATION_MS = 90_000;
 
+/**
+ * Has this routine only just finished?
+ *
+ * `isRoutineDue` goes false the instant the last step is ticked, so
+ * without this the launch screen would vanish under the hand that
+ * finished it — and "out the door, with 12 minutes to spare" is the whole
+ * payoff, and the reason anyone plays along again tomorrow.
+ *
+ * Read off the run's own `finishedAt` rather than held in state, so it
+ * survives a re-render, a background sync, or another screen in the house
+ * writing the same row.
+ */
+function justFinishedRecently(run: RoutineRun | null, now: Date): boolean {
+  if (!run?.finishedAt) return false;
+  return now.getTime() - Date.parse(run.finishedAt) < MORNING_CELEBRATION_MS;
+}
+
 interface DashboardProps {
   /** Raised when the backend rejects this device's key outright. */
   onSignedOut?: () => void;
@@ -90,8 +107,9 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   // doesn't immediately reassert itself over whatever they wanted to look
   // at. Cleared when the routine next finishes or the day rolls over.
   const [launchDismissedFor, setLaunchDismissedFor] = useState<string | null>(null);
-  // Lets "Start now" open the launch screen outside its usual window.
-  const [launchForced, setLaunchForced] = useState(false);
+  // Which routine "Start now" opened, if any — an id rather than a flag,
+  // so tapping it on the morning card can't open bedtime's plan.
+  const [launchForced, setLaunchForced] = useState<string | null>(null);
   // Re-read on a timer so the countdown is live. Held in state rather than
   // read at render because nothing else would re-render the screen between
   // syncs, and a stalled countdown is worse than no countdown.
@@ -142,11 +160,14 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
    */
   const fetchRoutines = useCallback(async () => {
     const routineItems = await api.listRoutines(familyId);
-    const morning = routineItems.find((routine) => routine.kind === "morning") ?? null;
-    if (!morning) return { routineItems, runItems: [] as RoutineRun[] };
+    if (routineItems.length === 0) return { routineItems, runItems: [] as RoutineRun[] };
     const historyStart = toLocalIsoDate(new Date(Date.now() - ROUTINE_HISTORY_DAYS * 24 * 60 * 60 * 1000));
-    const runItems = await api.listRoutineRuns(familyId, morning.routineId, historyStart, today);
-    return { routineItems, runItems };
+    // One call per routine. A household has two or three, so this stays
+    // cheaper than adding an index to fetch them together would be.
+    const perRoutine = await Promise.all(
+      routineItems.map((routine) => api.listRoutineRuns(familyId, routine.routineId, historyStart, today))
+    );
+    return { routineItems, runItems: perRoutine.flat() };
   }, [familyId, today]);
 
   /**
@@ -240,7 +261,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
    * for a feature it doesn't use.
    */
   useEffect(() => {
-    if (!routines.some((routine) => routine.kind === "morning" && routine.active)) return;
+    if (!routines.some((routine) => routine.active)) return;
     const interval = setInterval(() => setClock(new Date()), CLOCK_TICK_MS);
     return () => clearInterval(interval);
   }, [routines]);
@@ -313,26 +334,55 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
    * arithmetic over rows already in hand, and a countdown that has
    * quietly stopped updating is worse than no countdown at all.
    */
-  const morningRoutine = routines.find((routine) => routine.kind === "morning") ?? null;
-  const todayRun = routineRuns.find((run) => run.date === today) ?? null;
-  const morningPlan =
-    morningRoutine && appliesOn(morningRoutine, clock)
-      ? planRoutine({ routine: morningRoutine, history: routineRuns, today: todayRun, isoDate: today, now: clock })
-      : null;
+  /**
+   * Every routine that runs today, each with its own plan.
+   *
+   * Not just the morning one: the same engine drives bedtime, and the
+   * screen should follow whichever is actually happening. Runs are kept in
+   * one list and filtered per routine, so a step ticked in one can't be
+   * read as belonging to the other.
+   */
+  function planFor(routine: Routine) {
+    const history = routineRuns.filter((run) => run.routineId === routine.routineId);
+    const todayRun = history.find((run) => run.date === today) ?? null;
+    return {
+      routine,
+      todayRun,
+      plan: planRoutine({ routine, history, today: todayRun, isoDate: today, now: clock }),
+    };
+  }
+
+  const routinesToday = routines.filter((routine) => appliesOn(routine, clock)).map(planFor);
+
+  // The one to actually put on screen. `isRoutineDue` is a narrow window
+  // around each routine's own anchor, so in practice at most one qualifies;
+  // if two ever overlap, the nearer deadline is the more urgent.
+  const dueRoutine =
+    [...routinesToday]
+      .filter((entry) => isRoutineDue(entry.plan, clock) || justFinishedRecently(entry.todayRun, clock))
+      .sort((a, b) => a.plan.anchorAt.getTime() - b.plan.anchorAt.getTime())[0] ?? null;
+
+  // A forced start is planned even when the routine isn't set to run
+  // today — someone tapping "Start now" on a Saturday means it, and
+  // refusing on the grounds that it's the weekend would just be obtuse.
+  const forcedRoutine = launchForced
+    ? (() => {
+        const routine = routines.find((candidate) => candidate.routineId === launchForced);
+        return routine ? planFor(routine) : null;
+      })()
+    : null;
+  const activeRoutine = forcedRoutine ?? dueRoutine;
+  const routineOfKind = (kind: Routine["kind"]) => routines.find((routine) => routine.kind === kind) ?? null;
+  const planOfKind = (kind: Routine["kind"]) =>
+    routinesToday.find((entry) => entry.routine.kind === kind)?.plan ?? null;
+  const morningRoutine = routineOfKind("morning");
+  const morningPlan = planOfKind("morning");
+  const bedtimeRoutine = routineOfKind("bedtime");
+  const bedtimePlan = planOfKind("bedtime");
   // The launch screen takes over when the morning is actually due — or
   // when someone asked for it. Dismissal is per-day, so waving it away to
   // check the calendar doesn't switch the feature off for good.
-  // Derived from the record rather than held in state, so it survives a
-  // re-render, a background sync, or another screen in the house writing
-  // the same run.
-  const justFinished =
-    todayRun?.finishedAt !== null && todayRun?.finishedAt !== undefined
-      ? clock.getTime() - Date.parse(todayRun.finishedAt) < MORNING_CELEBRATION_MS
-      : false;
-  const showMorningLaunch =
-    morningPlan !== null &&
-    launchDismissedFor !== today &&
-    (launchForced || isRoutineDue(morningPlan, clock) || justFinished);
+  const showRoutineLaunch = activeRoutine !== null && launchDismissedFor !== today;
 
   /**
    * Writes the whole of today's run, every time.
@@ -352,7 +402,13 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
     };
     // Applied locally first: a child taps "Done" and the next step has to
     // appear now, not after a round-trip on kitchen wi-fi.
-    setRoutineRuns((prev) => [...prev.filter((existing) => existing.date !== today), { routineId, ...run }]);
+    setRoutineRuns((prev) => [
+      // Keyed on routine *and* date: with more than one routine a day,
+      // filtering on date alone would drop this morning's run when
+      // bedtime's first step was ticked.
+      ...prev.filter((existing) => !(existing.date === today && existing.routineId === routineId)),
+      { routineId, ...run },
+    ]);
     try {
       await guardedWrite(() => api.saveRoutineRun(familyId, routineId, run));
       setError(null);
@@ -368,44 +424,44 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
    * remember to press.
    */
   function handleFinishStep(step: PlannedStep) {
-    if (!morningRoutine || !morningPlan) return;
-    const existing = todayRun?.steps ?? [];
+    if (!activeRoutine) return;
+    const existing = activeRoutine.todayRun?.steps ?? [];
     const finishedAt = new Date().toISOString();
     const previous = existing[existing.length - 1];
-    const startedAt = previous?.finishedAt ?? todayRun?.startedAt ?? finishedAt;
+    const startedAt = previous?.finishedAt ?? activeRoutine.todayRun?.startedAt ?? finishedAt;
     const already = existing.find((entry) => entry.stepId === step.stepId);
     const steps: RoutineRun["steps"] = already
       ? existing.map((entry) => (entry.stepId === step.stepId ? { ...entry, finishedAt } : entry))
       : [...existing, { stepId: step.stepId, title: step.title, startedAt, finishedAt }];
-    const finished = morningRoutine.steps.every((defined) =>
+    const finished = activeRoutine.routine.steps.every((defined) =>
       steps.some((entry) => entry.stepId === defined.stepId && entry.finishedAt)
     );
-    void saveRun(morningRoutine.routineId, steps, finished);
+    void saveRun(activeRoutine.routine.routineId, steps, finished);
   }
 
   /** A mis-tap on a wall screen at seven in the morning is routine. */
   function handleUndoStep(step: PlannedStep) {
-    if (!morningRoutine) return;
-    const steps = (todayRun?.steps ?? []).filter((entry) => entry.stepId !== step.stepId);
-    void saveRun(morningRoutine.routineId, steps, false);
+    if (!activeRoutine) return;
+    const steps = (activeRoutine.todayRun?.steps ?? []).filter((entry) => entry.stepId !== step.stepId);
+    void saveRun(activeRoutine.routine.routineId, steps, false);
   }
 
-  async function handleSaveRoutine(input: {
-    name: string;
-    anchorTime: string;
-    daysOfWeek: number[];
-    steps: Omit<RoutineStep, "stepId">[];
-  }) {
-    const saved = morningRoutine
-      ? await guardedWrite(() => api.updateRoutine(familyId, morningRoutine.routineId, input))
-      : await guardedWrite(() => api.createRoutine(familyId, { ...input, kind: "morning" }));
+  async function handleSaveRoutine(
+    input: { name: string; anchorTime: string; daysOfWeek: number[]; steps: Omit<RoutineStep, "stepId">[] },
+    kind: Routine["kind"]
+  ) {
+    const existing = routineOfKind(kind);
+    const saved = existing
+      ? await guardedWrite(() => api.updateRoutine(familyId, existing.routineId, input))
+      : await guardedWrite(() => api.createRoutine(familyId, { ...input, kind }));
     setRoutines((prev) => [...prev.filter((routine) => routine.routineId !== saved.routineId), saved]);
   }
 
-  async function handleSetRoutineActive(active: boolean) {
-    if (!morningRoutine) return;
+  async function handleSetRoutineActive(active: boolean, kind: Routine["kind"]) {
+    const existing = routineOfKind(kind);
+    if (!existing) return;
     try {
-      const saved = await guardedWrite(() => api.updateRoutine(familyId, morningRoutine.routineId, { active }));
+      const saved = await guardedWrite(() => api.updateRoutine(familyId, existing.routineId, { active }));
       setRoutines((prev) => prev.map((routine) => (routine.routineId === saved.routineId ? saved : routine)));
       setError(null);
     } catch (err) {
@@ -847,11 +903,30 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
               plan={morningPlan}
               tasks={tasks}
               members={members}
-              onSave={handleSaveRoutine}
-              onSetActive={handleSetRoutineActive}
+              kind="morning"
+              onSave={(input) => handleSaveRoutine(input, "morning")}
+              onSetActive={(active) => handleSetRoutineActive(active, "morning")}
               onStartNow={() => {
+                if (!morningRoutine) return;
                 setLaunchDismissedFor(null);
-                setLaunchForced(true);
+                setLaunchForced(morningRoutine.routineId);
+              }}
+            />
+          </FamilyCard>
+
+          <FamilyCard title="Bedtime">
+            <MorningRoutine
+              routine={bedtimeRoutine}
+              plan={bedtimePlan}
+              tasks={tasks}
+              members={members}
+              kind="bedtime"
+              onSave={(input) => handleSaveRoutine(input, "bedtime")}
+              onSetActive={(active) => handleSetRoutineActive(active, "bedtime")}
+              onStartNow={() => {
+                if (!bedtimeRoutine) return;
+                setLaunchDismissedFor(null);
+                setLaunchForced(bedtimeRoutine.routineId);
               }}
             />
           </FamilyCard>
@@ -921,14 +996,14 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
       {/* Rendered before the other overlays on purpose. At ten to eight
           getting out of the door outranks a chore scenario, and two
           full-screen boxes competing would be worse than either. */}
-      {showMorningLaunch && morningPlan && (
+      {showRoutineLaunch && activeRoutine && (
         <MorningLaunch
-          plan={morningPlan}
-          anchorLabel={morningRoutine?.name ?? "Out the door"}
+          plan={activeRoutine.plan}
+          anchorLabel={activeRoutine.routine.name}
           onFinishStep={handleFinishStep}
           onUndoStep={handleUndoStep}
           onDismiss={() => {
-            setLaunchForced(false);
+            setLaunchForced(null);
             setLaunchDismissedFor(today);
           }}
         />
@@ -963,7 +1038,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
         ) : null;
       })()}
 
-      {threatened && !showMorningLaunch && (
+      {threatened && !showRoutineLaunch && (
         <GemThreatAlert threatened={threatened} onDefend={handleDefendGems} onDismiss={handleDismissThreat} />
       )}
     </main>
