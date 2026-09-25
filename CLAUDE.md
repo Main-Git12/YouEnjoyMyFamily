@@ -42,6 +42,24 @@ first when an entity changes, and let the handlers follow.
   (retiming a chore, planning a meal) opens the question and lets the family
   answer — the app never decides on their behalf. Keep both rules when you
   add an insight; there are tests asserting them.
+- **Plans are built backwards from a deadline, and say where their
+  numbers came from.** `frontend/src/lib/routinePlan.ts` (the morning) and
+  `frontend/src/lib/focusRhythm.ts` (focused work) both follow the same
+  shape, and it is worth keeping. A routine is planned from the moment it
+  has to be *finished* — the bus goes at 07:52 whether or not anyone has
+  shoes on — so the output is one number, slack, which is either positive
+  or negative. Every duration on screen says whether it was measured (and
+  from how many mornings) or is still someone's estimate; a plan you can't
+  check is a plan you can only obey. Durations are learned as the **median**
+  of finished runs, never the mean, because one morning where somebody
+  wandered off for twenty minutes is not evidence about the step. A step
+  begun and never ticked has no duration and never gets one. Today is
+  excluded from its own learning. The insight rule above extends here
+  unchanged: these describe *steps and blocks*, never the person doing
+  them — "Shoes and coat usually takes 4 minutes" and "blocks before 11am
+  are the ones that run to the end", never "Parker is slow" or "you lose
+  focus in the afternoon". There are tests asserting all of this,
+  including ones that scan rendered output for banned phrasings.
 - **No guessing:** before adding a dependency, endpoint, or DynamoDB key
   pattern, check what's already used in the codebase (`schema.md`,
   existing handlers, `package.json`) rather than assuming a shape.
