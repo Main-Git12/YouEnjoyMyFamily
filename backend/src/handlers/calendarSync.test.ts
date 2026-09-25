@@ -2,8 +2,15 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { mockClient } from "aws-sdk-client-mock";
 import { DynamoDBDocumentClient, QueryCommand, PutCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
-import { handler, runCalendarSync, syncFamilyCalendar, type MinimalCalendarClient } from "./calendarSync";
-import type { CalendarTokenRecord } from "../types";
+import {
+  handler,
+  runCalendarSync,
+  syncFamilyCalendar,
+  listFamiliesWithGoogleTokens,
+  SYNC_MAX_RESULTS,
+  type MinimalCalendarClient,
+} from "./calendarSync";
+import type { CalendarTokenRecord, CalendarEventItem } from "../types";
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
 
@@ -192,4 +199,124 @@ test("an event that hasn't moved is rewritten in place, with nothing deleted", a
 
   assert.equal(ddbMock.commandCalls(DeleteCommand).length, 0);
   assert.equal(ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item?.title, "Dentist appointment");
+});
+
+/** A date `days` from today (UTC), YYYY-MM-DD — pruning only touches future days. */
+function daysFromToday(days: number): string {
+  return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+function storedEvent(externalId: string, date: string): CalendarEventItem {
+  return {
+    PK: "FAMILY#fam_1",
+    SK: `CALEVENT#${date}#${externalId}`,
+    GSI1PK: `EXTID#${externalId}`,
+    GSI1SK: "FAMILY#fam_1",
+    entityType: "CALENDAR_EVENT",
+    familyId: "fam_1",
+    externalId,
+    title: externalId,
+    date,
+    startTime: null,
+    endTime: null,
+    syncedAt: "2025-01-01T00:00:00Z",
+  };
+}
+
+const googleReturning = (items: { id: string; date: string }[]) => (): MinimalCalendarClient => ({
+  events: {
+    list: async () => ({
+      data: { items: items.map(({ id, date }) => ({ id, summary: id, start: { date }, end: { date } })) },
+    }),
+  },
+});
+
+const deletedSKs = () =>
+  ddbMock
+    .commandCalls(DeleteCommand)
+    .map((call) => call.args[0].input.Key?.SK)
+    .sort();
+
+test("every leftover row for a moved event is deleted, not just the latest one", async () => {
+  // Tuesday's row survived an earlier failed delete, so the event is held on
+  // Tuesday *and* Wednesday. Google now says Wednesday: Tuesday has to go.
+  ddbMock.on(QueryCommand).resolves({
+    Items: [storedEvent("ev_1", "2025-01-14"), storedEvent("ev_1", "2025-01-15")],
+  });
+  ddbMock.on(PutCommand).resolves({});
+  ddbMock.on(DeleteCommand).resolves({});
+
+  await syncFamilyCalendar(tokenRecord, googleReturning([{ id: "ev_1", date: "2025-01-15" }]));
+
+  assert.deepEqual(deletedSKs(), ["CALEVENT#2025-01-14#ev_1"]);
+});
+
+test("an upcoming event cancelled in Google is removed; today's and past ones are left alone", async () => {
+  const tomorrow = daysFromToday(1);
+  const nextWeek = daysFromToday(7);
+  ddbMock.on(QueryCommand).resolves({
+    Items: [
+      storedEvent("kept", nextWeek),
+      storedEvent("cancelled", tomorrow),
+      // Google leaves out events that already ended today — not a cancellation.
+      storedEvent("ended_this_morning", daysFromToday(0)),
+      storedEvent("last_month", daysFromToday(-30)),
+    ],
+  });
+  ddbMock.on(PutCommand).resolves({});
+  ddbMock.on(DeleteCommand).resolves({});
+
+  await syncFamilyCalendar(tokenRecord, googleReturning([{ id: "kept", date: nextWeek }]));
+
+  assert.deepEqual(deletedSKs(), [`CALEVENT#${tomorrow}#cancelled`]);
+});
+
+test("when Google's answer is cut off, nothing beyond the last day it reached is pruned", async () => {
+  const lastDay = daysFromToday(10);
+  const returned = Array.from({ length: SYNC_MAX_RESULTS }, (_, i) => ({
+    id: `ev_${i}`,
+    date: i === SYNC_MAX_RESULTS - 1 ? lastDay : daysFromToday(2),
+  }));
+  ddbMock.on(QueryCommand).resolves({
+    Items: [
+      storedEvent("gone_before_cut", daysFromToday(5)),
+      storedEvent("maybe_beyond_cut", daysFromToday(20)),
+      storedEvent("maybe_on_last_day", lastDay),
+    ],
+  });
+  ddbMock.on(PutCommand).resolves({});
+  ddbMock.on(DeleteCommand).resolves({});
+
+  await syncFamilyCalendar(tokenRecord, googleReturning(returned));
+
+  assert.deepEqual(deletedSKs(), [`CALEVENT#${daysFromToday(5)}#gone_before_cut`]);
+});
+
+test("stored events are read to the last page, so a long history doesn't hide upcoming rows", async () => {
+  const tomorrow = daysFromToday(1);
+  ddbMock
+    .on(QueryCommand)
+    .resolvesOnce({ Items: [storedEvent("old", "2025-01-01")], LastEvaluatedKey: { PK: "FAMILY#fam_1", SK: "x" } })
+    .resolvesOnce({ Items: [storedEvent("ev_1", daysFromToday(3))] });
+  ddbMock.on(PutCommand).resolves({});
+  ddbMock.on(DeleteCommand).resolves({});
+
+  // ev_1 moved to tomorrow; its old row is only on the second page.
+  await syncFamilyCalendar(tokenRecord, googleReturning([{ id: "ev_1", date: tomorrow }]));
+
+  assert.deepEqual(deletedSKs(), [`CALEVENT#${daysFromToday(3)}#ev_1`]);
+});
+
+test("every connected family is found, across pages of the GSI", async () => {
+  ddbMock
+    .on(QueryCommand)
+    .resolvesOnce({ Items: [tokenRecord], LastEvaluatedKey: { GSI1PK: "PROVIDER#google", GSI1SK: "FAMILY#fam_1" } })
+    .resolvesOnce({ Items: [{ ...tokenRecord, familyId: "fam_2", PK: "FAMILY#fam_2" }] });
+
+  const families = await listFamiliesWithGoogleTokens();
+
+  assert.deepEqual(
+    families.map((family) => family.familyId),
+    ["fam_1", "fam_2"]
+  );
 });
