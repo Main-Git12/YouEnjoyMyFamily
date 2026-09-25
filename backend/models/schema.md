@@ -22,6 +22,8 @@ items returned from a `Query` without a second read.
 | Reward goal         | `FAMILY#<familyId>`   | `REWARDGOAL#<memberId>`     | —                       | —                          |
 | Reward claim        | `FAMILY#<familyId>`   | `REWARDCLAIM#<claimId>`     | —                       | —                          |
 | OAuth token set     | `FAMILY#<familyId>`   | `TOKEN#<provider>`          | —                       | —                          |
+| Routine (definition)| `FAMILY#<familyId>`   | `ROUTINE#<routineId>`       | —                       | —                          |
+| Routine run         | `FAMILY#<familyId>`   | `RUN#<isoDate>#<routineId>` | —                       | —                          |
 
 `Family` (`METADATA`) is the tenant record every other item's `PK` depends
 on, and the only thing that makes a `familyId` real rather than an
@@ -76,6 +78,36 @@ plan, never an AI-invented meal or ingredient. A manually-added cart item
 (`POST /grocery-cart/items`) always has `source: "manual"` and
 `mealPlanSourceKey: null`.
 
+`Routine` and `Routine run` are the getting-out-of-the-door pair. A
+`Routine` is a definition — an ordered list of steps, each with the number
+of minutes the family thinks it takes, plus the clock time the whole thing
+has to be *finished* by (`anchorTime`) and the weekdays it applies to. The
+anchor is the point: a school bus leaves at 07:52 whether or not anyone
+has shoes on, so the plan is computed backwards from it rather than
+forwards from whenever the morning happens to start. That is what turns
+"hurry up" into a number.
+
+A `Routine run` is what actually happened on one date: per step, when it
+was started and when it was ticked. `finishedAt` stays `null` for a step
+that was begun and never finished, which is a real outcome and must never
+be filled in with a guess — a step nobody completed has no duration, and
+counting one would quietly flatter every plan built afterwards.
+
+Note the sort-key prefixes. Definitions are `ROUTINE#` and runs are `RUN#`,
+*not* `ROUTINERUN#`, because `begins_with(SK, "ROUTINE#")` also matches
+every key beginning `ROUTINERUN#` — listing a family's three routines would
+have returned all of them plus every morning since the app was installed.
+
+Nothing about a routine is inferred. The steps, their order, the expected
+minutes and the deadline are all typed in by a parent. The only thing the
+app derives is how long each step has actually been taking, as the median
+of that step's finished runs (median, not mean: one morning where someone
+wandered off for twenty minutes should not move tomorrow's plan). Steps are
+matched to their own history by normalized `title` rather than `stepId`,
+because `stepId` is reissued whenever the step list is edited, and a family
+renaming "Shoes" to "Shoes and coat" has arguably described a different
+step anyway.
+
 ## Access patterns
 
 - Get a family + all members: `Query PK = FAMILY#<familyId>`, filter/prefix on `SK`.
@@ -95,6 +127,9 @@ plan, never an AI-invented meal or ingredient. A manually-added cart item
 - Set or clear one child's goal: `PutItem`/`DeleteItem PK = FAMILY#<familyId>, SK = REWARDGOAL#<memberId>` — the key holds one live goal per child, so setting a new prize replaces the old one rather than accumulating a history.
 - List what's been claimed: `Query PK = FAMILY#<familyId>, SK begins_with REWARDCLAIM#`. A child's balance is everything they've earned (completions) minus everything they've claimed — derived on read, never stored, so it can't drift out of step with the records behind it. Without the claim rows a total could only ever go up, and "Earned it!" would stay on the board for good.
 - List a family's meal plan for a date range: `Query PK = FAMILY#<familyId>, SK between MEALPLAN#<start> and MEALPLAN#<end>`.
+- List a family's routines: `Query PK = FAMILY#<familyId>, SK begins_with ROUTINE#`. The run rows deliberately use a `RUN#` prefix so they don't match this.
+- List what a routine's mornings actually looked like, to learn its step durations: `Query PK = FAMILY#<familyId>, SK between RUN#<start> and RUN#<end>#\uffff`, then keep the rows whose `routineId` matches. One family runs few enough routines that filtering in memory beats a second index.
+- Record or update today's run: `PutItem PK = FAMILY#<familyId>, SK = RUN#<isoDate>#<routineId>` — one row per routine per day, replaced wholesale as the morning progresses, so a retry after a dropped response rewrites the same row instead of double-recording a step.
 - Look up or replace one day+slot's planned meal: `GetItem`/`PutItem PK = FAMILY#<familyId>, SK = MEALPLAN#<isoDate>#<slot>`.
 - List every family (weekly meal-plan grocery sync only): `Scan filter entityType = FAMILY`, paging on `LastEvaluatedKey` — the one access pattern here with no natural partition to query across; a Scan is the pragmatic choice for a job that runs once a week over what's expected to be a small number of families. The paging is not optional: the 1MB cap counts rows *scanned*, not matched, so a filtered Scan can return an empty page while families sit further down the table.
 
@@ -237,6 +272,45 @@ until someone does it, then shows only on the day it was done.
   "ingredients": ["Spaghetti", "Ground beef", "Marinara sauce"],
   "createdAt": "2025-01-10T12:00:00Z",
   "updatedAt": "2025-01-10T12:00:00Z"
+}
+
+// Routine — the definition. Planned backwards from anchorTime.
+{
+  "PK": "FAMILY#fam_123",
+  "SK": "ROUTINE#01J...ULID",
+  "entityType": "ROUTINE",
+  "familyId": "fam_123",
+  "routineId": "01J...ULID",
+  "name": "School morning",
+  "kind": "morning", // morning | bedtime | custom
+  "anchorTime": "07:52", // the bus. Everything is planned backwards from here.
+  "daysOfWeek": [1, 2, 3, 4, 5], // 0 = Sunday, matching Date.prototype.getDay
+  "steps": [
+    { "stepId": "01J...A", "title": "Get dressed", "targetMinutes": 10, "memberId": "Parker" },
+    { "stepId": "01J...B", "title": "Breakfast", "targetMinutes": 15, "memberId": null }
+  ],
+  "active": true,
+  "createdAt": "2025-01-10T12:00:00Z",
+  "updatedAt": "2025-01-10T12:00:00Z"
+}
+
+// Routine run — what one morning actually looked like. The only thing the
+// learned step durations are computed from.
+{
+  "PK": "FAMILY#fam_123",
+  "SK": "RUN#2025-01-15#01J...ULID",
+  "entityType": "ROUTINE_RUN",
+  "familyId": "fam_123",
+  "routineId": "01J...ULID",
+  "date": "2025-01-15",
+  "startedAt": "2025-01-15T11:02:00Z",
+  "finishedAt": null,
+  "steps": [
+    { "stepId": "01J...A", "title": "Get dressed", "startedAt": "2025-01-15T11:02:00Z", "finishedAt": "2025-01-15T11:13:00Z" },
+    // begun and never ticked — no duration, and none may be invented for it
+    { "stepId": "01J...B", "title": "Breakfast", "startedAt": "2025-01-15T11:13:00Z", "finishedAt": null }
+  ],
+  "updatedAt": "2025-01-15T11:13:00Z"
 }
 
 // Learned substitution — written only when a family member confirms a pick

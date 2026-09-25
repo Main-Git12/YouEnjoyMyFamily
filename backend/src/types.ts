@@ -377,3 +377,129 @@ export interface MealPlanEntryItem {
   createdAt: string;
   updatedAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Routines — a sequence of steps run against a deadline
+// ---------------------------------------------------------------------------
+
+/**
+ * What a routine is anchored to. Every routine here is defined by the
+ * moment it has to be *finished*, not the moment it starts — the bus
+ * leaves at 07:52 whether or not anyone is dressed. Planning backwards
+ * from that time is the whole point: it turns "hurry up" into a number
+ * that is either positive or negative, and a number is something a
+ * six-year-old can argue with and a parent doesn't have to keep saying.
+ */
+export const ROUTINE_KINDS = ["morning", "bedtime", "custom"] as const;
+export type RoutineKind = (typeof ROUTINE_KINDS)[number];
+
+/** `HH:MM`, 24-hour. The one clock format stored anywhere in this API. */
+export const ClockTime = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Time must be HH:MM");
+
+export const RoutineStepInput = z.object({
+  title: z.string().min(1).max(120),
+  /**
+   * How long the family thinks this takes. Only ever a seed: once there
+   * are finished runs to look at, the plan uses the median of what the
+   * step has *actually* taken. Someone has to put a first number in, and
+   * a parent's guess is a better starting point than a default.
+   */
+  targetMinutes: z.number().int().min(1).max(120),
+  /** Whose step it is. Null means whoever's nearest. */
+  memberId: MemberName.nullable().optional(),
+});
+export type RoutineStepInput = z.infer<typeof RoutineStepInput>;
+
+export const RoutineInput = z.object({
+  name: z.string().min(1).max(120),
+  kind: z.enum(ROUTINE_KINDS),
+  /** The deadline the whole routine is planned backwards from. */
+  anchorTime: ClockTime,
+  /** 0 = Sunday, matching `Date.prototype.getDay`. */
+  daysOfWeek: z.array(z.number().int().min(0).max(6)).min(1).max(7),
+  steps: z.array(RoutineStepInput).min(1).max(20),
+  active: z.boolean().optional(),
+});
+export type RoutineInput = z.infer<typeof RoutineInput>;
+
+export const RoutinePatch = RoutineInput.partial();
+export type RoutinePatch = z.infer<typeof RoutinePatch>;
+
+/**
+ * A step as stored. `stepId` is stable only within the current definition —
+ * replacing the step list issues new ids. Anything that needs to compare a
+ * step against its own history (how long it usually takes) keys on the
+ * normalized `title` instead, because that is what the family actually
+ * means by "the same step", and it survives reordering and re-adding.
+ */
+export interface RoutineStep {
+  stepId: string;
+  title: string;
+  targetMinutes: number;
+  memberId: string | null;
+}
+
+export interface RoutineItem {
+  PK: string;
+  SK: string;
+  entityType: "ROUTINE";
+  familyId: string;
+  routineId: string;
+  name: string;
+  kind: RoutineKind;
+  anchorTime: string;
+  daysOfWeek: number[];
+  steps: RoutineStep[];
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * One step of one morning: when it was started and when it was finished.
+ * `finishedAt` stays null for a step that was begun and never ticked —
+ * which is a real outcome and must not be counted as a duration.
+ */
+export interface RoutineRunStep {
+  stepId: string;
+  /** Copied so a run reads on its own, the same way a completion row does. */
+  title: string;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+export const RoutineRunStepInput = z.object({
+  stepId: z.string().min(1).max(64),
+  title: z.string().min(1).max(120),
+  startedAt: z.string().datetime(),
+  finishedAt: z.string().datetime().nullable(),
+});
+
+/**
+ * What actually happened on one date — the substrate everything the app
+ * "learns" about a routine is computed from. Written as one row per day
+ * per routine and replaced wholesale, because a morning is short, the
+ * whole of it fits in one item, and a single writer (the screen in the
+ * kitchen) is doing the writing.
+ */
+export const RoutineRunInput = z.object({
+  /** The caller's own local date. The server never infers one. */
+  date: z.string().date(),
+  startedAt: z.string().datetime().nullable().optional(),
+  finishedAt: z.string().datetime().nullable().optional(),
+  steps: z.array(RoutineRunStepInput).max(20),
+});
+export type RoutineRunInput = z.infer<typeof RoutineRunInput>;
+
+export interface RoutineRunItem {
+  PK: string;
+  SK: string;
+  entityType: "ROUTINE_RUN";
+  familyId: string;
+  routineId: string;
+  date: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  steps: RoutineRunStep[];
+  updatedAt: string;
+}

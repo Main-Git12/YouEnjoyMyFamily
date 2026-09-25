@@ -117,3 +117,50 @@ export interface StatedPreference {
   category: StatedPreferenceCategory;
   statement: string;
 }
+
+/**
+ * A routine — an ordered set of steps planned backwards from the moment it
+ * has to be finished. See backend/models/schema.md; the anchor is the point.
+ */
+export type RoutineKind = "morning" | "bedtime" | "custom";
+
+export interface RoutineStep {
+  stepId: string;
+  title: string;
+  /** What the family reckons it takes. Only ever a seed — see lib/routinePlan.ts. */
+  targetMinutes: number;
+  memberId: string | null;
+}
+
+export interface Routine {
+  routineId: string;
+  name: string;
+  kind: RoutineKind;
+  /** `HH:MM`, 24-hour, local. The deadline everything is planned back from. */
+  anchorTime: string;
+  /** 0 = Sunday, matching `Date.prototype.getDay`. */
+  daysOfWeek: number[];
+  steps: RoutineStep[];
+  active: boolean;
+}
+
+/**
+ * One step of one morning. `finishedAt` stays null for a step that was
+ * begun and never ticked — a real outcome, and never to be filled in with
+ * a guess, because a step nobody finished has no duration.
+ */
+export interface RoutineRunStep {
+  stepId: string;
+  title: string;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+/** What actually happened on one date — everything learned is computed from these. */
+export interface RoutineRun {
+  routineId: string;
+  date: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  steps: RoutineRunStep[];
+}

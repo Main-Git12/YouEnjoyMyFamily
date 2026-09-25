@@ -142,6 +142,59 @@ Resources:
             Path: /families/{familyId}/task-completions
             Method: GET
 
+  RoutinesFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/routines.ts]
+    Properties:
+      Handler: src/handlers/routines.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref YouEnjoyMyFamilyTable
+      Events:
+        List:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/routines
+            Method: GET
+        Create:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/routines
+            Method: POST
+        Update:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/routines/{routineId}
+            Method: PUT
+        Delete:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/routines/{routineId}
+            Method: DELETE
+        ListRuns:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/routines/{routineId}/runs
+            Method: GET
+        SaveRun:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/routines/{routineId}/runs
+            Method: PUT
+
   SchedulesFunction:
     Type: AWS::Serverless::Function
     Metadata:
