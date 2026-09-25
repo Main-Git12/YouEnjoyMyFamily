@@ -205,6 +205,19 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   // the next tick reconciles.
   const writeSeq = useRef(0);
 
+  /**
+   * When the routine on screen actually began, as `<routineId>:<date>`.
+   *
+   * Without this the first step of every morning was recorded as taking no
+   * time at all: on the first tick there is no previous step to start from
+   * and no run row yet, so the start fell back to the moment it finished.
+   * Two mornings of that and the plan believed getting dressed was free,
+   * and told a family they had fourteen minutes spare while they were
+   * twelve minutes late — the exact failure the whole feature exists to
+   * prevent.
+   */
+  const routineOpenedAt = useRef<{ key: string; at: string } | null>(null);
+
   async function guardedWrite<T>(write: () => Promise<T>): Promise<T> {
     writeSeq.current += 1;
     try {
@@ -402,6 +415,16 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   // check the calendar doesn't switch the feature off for good.
   const showRoutineLaunch = activeRoutine !== null && launchDismissedFor !== today;
 
+  // Stamped during render rather than in an effect, because the very first
+  // tick can land before an effect has run — and that tick is precisely
+  // the one that was being recorded as instantaneous.
+  if (showRoutineLaunch && activeRoutine) {
+    const key = `${activeRoutine.routine.routineId}:${today}`;
+    if (routineOpenedAt.current?.key !== key) {
+      routineOpenedAt.current = { key, at: activeRoutine.todayRun?.startedAt ?? new Date().toISOString() };
+    }
+  }
+
   /**
    * Writes the whole of today's run, every time.
    *
@@ -446,7 +469,14 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
     const existing = activeRoutine.todayRun?.steps ?? [];
     const finishedAt = new Date().toISOString();
     const previous = existing[existing.length - 1];
-    const startedAt = previous?.finishedAt ?? activeRoutine.todayRun?.startedAt ?? finishedAt;
+    // A step starts when the one before it finished; the first one starts
+    // when the routine did. Falling through to `finishedAt` would record
+    // it as instantaneous, so it is the last resort and not the usual path.
+    const openedAt =
+      routineOpenedAt.current?.key === `${activeRoutine.routine.routineId}:${today}`
+        ? routineOpenedAt.current.at
+        : undefined;
+    const startedAt = previous?.finishedAt ?? activeRoutine.todayRun?.startedAt ?? openedAt ?? finishedAt;
     const already = existing.find((entry) => entry.stepId === step.stepId);
     const steps: RoutineRun["steps"] = already
       ? existing.map((entry) => (entry.stepId === step.stepId ? { ...entry, finishedAt } : entry))

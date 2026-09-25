@@ -919,6 +919,37 @@ describe("Dashboard", () => {
       expect(run?.finishedAt).toBeNull();
     });
 
+    it("records a real start for the first step, not a zero-length one", async () => {
+      // The screen opens at 07:15; the first step is ticked at 07:24. That
+      // step took nine minutes. Recording start == finish here is what
+      // taught the plan that getting dressed was free.
+      vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date(2026, 8, 23, 7, 15) });
+      stubQuietDay();
+      vi.mocked(api.listRoutines).mockResolvedValue([MORNING_ROUTINE]);
+      vi.mocked(api.saveRoutineRun).mockResolvedValue({
+        routineId: "r1",
+        date: "2026-09-23",
+        startedAt: null,
+        finishedAt: null,
+        steps: [],
+      });
+
+      render(<Dashboard />);
+      await waitFor(() => expect(screen.getByRole("dialog", { name: /The bus at/ })).toBeInTheDocument());
+
+      // Nine minutes pass with the screen open before anyone ticks anything.
+      vi.setSystemTime(new Date(2026, 8, 23, 7, 24));
+      fireEvent.click(within(screen.getByRole("dialog", { name: /The bus at/ })).getByRole("button", { name: "Done" }));
+
+      await waitFor(() => expect(api.saveRoutineRun).toHaveBeenCalled());
+      const run = vi.mocked(api.saveRoutineRun).mock.calls[0]?.[2];
+      const first = run?.steps[0];
+      expect(first).toBeDefined();
+      expect(first?.startedAt).not.toBe(first?.finishedAt);
+      const minutes = (Date.parse(first?.finishedAt ?? "") - Date.parse(first?.startedAt ?? "")) / 60_000;
+      expect(minutes).toBeCloseTo(9, 1);
+    });
+
     it("moves on to the next step once one is ticked", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date(2026, 8, 23, 7, 15) });
       stubQuietDay();

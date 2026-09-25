@@ -40,6 +40,20 @@ export function normalizeStepTitle(title: string): string {
  */
 const MAX_CREDIBLE_STEP_MINUTES = 90;
 
+/**
+ * And shorter than this isn't a measurement either — it's a step that was
+ * already done before anyone looked, or a mis-tap. Nobody gets dressed in
+ * twenty seconds.
+ *
+ * This is the more dangerous end of the two, because it errs the way that
+ * makes a family late rather than early. A handful of near-zero samples
+ * drags the median down, the plan starts believing the step is free, and
+ * the screen cheerfully reports spare minutes that do not exist. The
+ * floor is deliberately low — half a minute, so "shoes on" at forty
+ * seconds still counts — but it is not zero.
+ */
+const MIN_CREDIBLE_STEP_MINUTES = 0.5;
+
 /** How long a step has actually been taking, and how many times it's been timed. */
 export interface LearnedDuration {
   medianMinutes: number;
@@ -76,8 +90,8 @@ export function learnedDurations(runs: RoutineRun[]): Map<string, LearnedDuratio
       if (Number.isNaN(startedAt) || Number.isNaN(finishedAt)) continue;
       const minutes = (finishedAt - startedAt) / 60_000;
       // A negative duration means a clock changed under us, not a step done
-      // before it started.
-      if (minutes < 0 || minutes > MAX_CREDIBLE_STEP_MINUTES) continue;
+      // before it started. The other two bounds are above.
+      if (minutes < MIN_CREDIBLE_STEP_MINUTES || minutes > MAX_CREDIBLE_STEP_MINUTES) continue;
       const key = normalizeStepTitle(step.title);
       const existing = samples.get(key);
       if (existing) existing.push(minutes);

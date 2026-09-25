@@ -74,6 +74,30 @@ describe("learnedDurations", () => {
     expect(learnedDurations(runs).has("get dressed")).toBe(false);
   });
 
+  it("does not learn a duration from a step that was ticked the instant it started", () => {
+    // The first tick of a morning used to record startedAt === finishedAt,
+    // because there was no previous step and no run row yet. Two of those
+    // and the plan believes getting dressed takes a minute — and then
+    // tells a family they have fourteen minutes spare while they are
+    // twelve minutes late. Worse than having no plan at all.
+    const sameMoment = anchorMomentOn("2026-09-21", "07:20").toISOString();
+    const runs = [
+      run("2026-09-21", [["s1", "Get dressed", sameMoment, sameMoment]]),
+      run("2026-09-22", [["s1", "Get dressed", sameMoment, sameMoment]]),
+    ];
+    expect(learnedDurations(runs).has("get dressed")).toBe(false);
+  });
+
+  it("still learns from a step that was genuinely quick", () => {
+    // Half a minute is the floor, not a minute — "put your shoes on" can
+    // honestly take forty seconds.
+    const runs = [
+      timed("2026-09-21", "s1", "Shoes", "07:40", 0.7),
+      timed("2026-09-22", "s1", "Shoes", "07:40", 0.7),
+    ];
+    expect(learnedDurations(runs).get("shoes")?.samples).toBe(2);
+  });
+
   it("discards a duration too long to be a measurement of the step", () => {
     const runs = [
       timed("2026-09-21", "s1", "Get dressed", "07:10", 9),
@@ -93,8 +117,20 @@ describe("learnedDurations", () => {
     expect(learnedDurations(runs).get("breakfast")).toEqual({ medianMinutes: 15, samples: 2 });
   });
 
-  it("never returns a zero-minute expectation", () => {
+  it("never returns a zero-minute expectation — it declines to answer instead", () => {
+    // This used to clamp a zero to one minute, which is what let the
+    // first-tick bug through: a one-minute "Get dressed" still wrecks the
+    // plan. A step with no credible measurement has none, and the family's
+    // own estimate is used until there is one.
     const runs = [timed("2026-09-21", "s1", "Teeth", "07:40", 0), timed("2026-09-22", "s1", "Teeth", "07:40", 0)];
+    expect(learnedDurations(runs).get("teeth")).toBeUndefined();
+  });
+
+  it("rounds a real short duration up rather than down to nothing", () => {
+    const runs = [
+      timed("2026-09-21", "s1", "Teeth", "07:40", 0.6),
+      timed("2026-09-22", "s1", "Teeth", "07:40", 0.6),
+    ];
     expect(learnedDurations(runs).get("teeth")?.medianMinutes).toBe(1);
   });
 });
