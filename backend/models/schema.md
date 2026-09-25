@@ -24,6 +24,7 @@ items returned from a `Query` without a second read.
 | OAuth token set     | `FAMILY#<familyId>`   | `TOKEN#<provider>`          | —                       | —                          |
 | Routine (definition)| `FAMILY#<familyId>`   | `ROUTINE#<routineId>`       | —                       | —                          |
 | Routine run         | `FAMILY#<familyId>`   | `RUN#<isoDate>#<routineId>` | —                       | —                          |
+| Focus block         | `FAMILY#<familyId>`   | `FOCUS#<isoDate>#<blockId>` | —                       | —                          |
 
 `Family` (`METADATA`) is the tenant record every other item's `PK` depends
 on, and the only thing that makes a `familyId` real rather than an
@@ -108,6 +109,23 @@ because `stepId` is reissued whenever the step list is edited, and a family
 renaming "Shoes" to "Shoes and coat" has arguably described a different
 step anyway.
 
+`Focus block` is a block of focused work and, inseparably, its timesheet
+line. They are one row on purpose: the expensive part of billable work is
+not the timer, it is reconstructing at six in the evening what the morning
+was spent on, and capturing the line as the block ends — while it is still
+obvious — is the part that actually saves the hour.
+
+`actualMinutes` is computed on write from the two timestamps rather than
+trusted from the caller, because a paused timer or a sleeping tab would
+otherwise report a length the clock never saw. `outcome` (`completed` |
+`cut_short` | `abandoned`) is the whole basis of what the feature learns:
+a block that ran to the bell is evidence its length works, and one dropped
+after four minutes is evidence it doesn't. Collapsing the two into "did
+some work" would throw that away. `matter` is free text — this app has no
+business prescribing another organisation's matter taxonomy, and a short
+code is the sensible thing to type where the full client name is
+privileged.
+
 ## Access patterns
 
 - Get a family + all members: `Query PK = FAMILY#<familyId>`, filter/prefix on `SK`.
@@ -130,6 +148,8 @@ step anyway.
 - List a family's routines: `Query PK = FAMILY#<familyId>, SK begins_with ROUTINE#`. The run rows deliberately use a `RUN#` prefix so they don't match this.
 - List what a routine's mornings actually looked like, to learn its step durations: `Query PK = FAMILY#<familyId>, SK between RUN#<start> and RUN#<end>#\uffff`, then keep the rows whose `routineId` matches. One family runs few enough routines that filtering in memory beats a second index.
 - Record or update today's run: `PutItem PK = FAMILY#<familyId>, SK = RUN#<isoDate>#<routineId>` — one row per routine per day, replaced wholesale as the morning progresses, so a retry after a dropped response rewrites the same row instead of double-recording a step.
+- Read a day's timesheet, or a month of blocks to learn which length holds: `Query PK = FAMILY#<familyId>, SK between FOCUS#<start> and FOCUS#<end>#\uffff`. The same rows, read two ways.
+- Remove one timesheet line: `DeleteItem PK = FAMILY#<familyId>, SK = FOCUS#<isoDate>#<blockId>` — the date is in the sort key, so the caller says which day's line it means.
 - Look up or replace one day+slot's planned meal: `GetItem`/`PutItem PK = FAMILY#<familyId>, SK = MEALPLAN#<isoDate>#<slot>`.
 - List every family (weekly meal-plan grocery sync only): `Scan filter entityType = FAMILY`, paging on `LastEvaluatedKey` — the one access pattern here with no natural partition to query across; a Scan is the pragmatic choice for a job that runs once a week over what's expected to be a small number of families. The paging is not optional: the 1MB cap counts rows *scanned*, not matched, so a filtered Scan can return an empty page while families sit further down the table.
 

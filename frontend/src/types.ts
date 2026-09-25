@@ -164,3 +164,25 @@ export interface RoutineRun {
   finishedAt: string | null;
   steps: RoutineRunStep[];
 }
+
+/** How a block of focused work ended — see backend/models/schema.md. */
+export type FocusOutcome = "completed" | "cut_short" | "abandoned";
+
+/**
+ * A block of focused work, and inseparably its timesheet line. One record,
+ * because the expensive part of billable work isn't the timer — it's
+ * reconstructing at six in the evening what the morning went on.
+ */
+export interface FocusBlock {
+  blockId: string;
+  memberId: string;
+  date: string;
+  startedAt: string;
+  endedAt: string;
+  plannedMinutes: number;
+  /** What it actually ran for. Everything is learned from this, not the plan. */
+  actualMinutes: number;
+  outcome: FocusOutcome;
+  matter: string | null;
+  note: string | null;
+}

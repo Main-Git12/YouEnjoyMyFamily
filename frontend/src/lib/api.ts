@@ -1,4 +1,4 @@
-import type { Task, TaskCompletion, ScheduleEntry, CartItem, StatedPreference, MealPlanEntry, MealSlot, RewardGoal, GemBalance, GemBalanceReport, Routine, RoutineRun, RoutineStep } from "../types";
+import type { Task, TaskCompletion, ScheduleEntry, CartItem, StatedPreference, MealPlanEntry, MealSlot, RewardGoal, GemBalance, GemBalanceReport, Routine, RoutineRun, RoutineStep, FocusBlock } from "../types";
 
 import { getFamilyApiKey } from "./familyKey";
 
@@ -202,4 +202,8 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(run),
     }),
+  listFocusBlocks: (familyId: string, start: string, end: string) =>
+    request<FocusBlock[]>(`/families/${familyId}/focus-blocks?start=${start}&end=${end}`),
+  recordFocusBlock: (familyId: string, block: Omit<FocusBlock, "blockId" | "actualMinutes">) =>
+    request<FocusBlock>(`/families/${familyId}/focus-blocks`, { method: "POST", body: JSON.stringify(block) }),
 };

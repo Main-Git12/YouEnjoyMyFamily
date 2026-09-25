@@ -45,6 +45,8 @@ vi.mock("../lib/api", () => ({
     createRoutine: vi.fn(),
     updateRoutine: vi.fn(),
     saveRoutineRun: vi.fn(),
+    listFocusBlocks: vi.fn(),
+    recordFocusBlock: vi.fn(),
   },
 }));
 
@@ -59,6 +61,7 @@ describe("Dashboard", () => {
     vi.mocked(api.listGemBalances).mockResolvedValue({ balances: [], family: { earned: 0, spent: 0, balance: 0 } });
     vi.mocked(api.listRoutines).mockResolvedValue([]);
     vi.mocked(api.listRoutineRuns).mockResolvedValue([]);
+    vi.mocked(api.listFocusBlocks).mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -645,6 +648,7 @@ describe("Dashboard", () => {
     vi.mocked(api.listGemBalances).mockResolvedValue({ balances: [], family: { earned: 0, spent: 0, balance: 0 } });
     vi.mocked(api.listRoutines).mockResolvedValue([]);
     vi.mocked(api.listRoutineRuns).mockResolvedValue([]);
+    vi.mocked(api.listFocusBlocks).mockResolvedValue([]);
 
     // A slow write, still in flight.
     let settle: (task: Task) => void = () => {};
@@ -675,6 +679,7 @@ describe("Dashboard", () => {
     vi.mocked(api.listGemBalances).mockResolvedValue({ balances: [], family: { earned: 0, spent: 0, balance: 0 } });
     vi.mocked(api.listRoutines).mockResolvedValue([]);
     vi.mocked(api.listRoutineRuns).mockResolvedValue([]);
+    vi.mocked(api.listFocusBlocks).mockResolvedValue([]);
     vi.mocked(api.completeTask).mockRejectedValue(new Error("Can't reach the family account — check the wi-fi."));
 
     render(<Dashboard />);

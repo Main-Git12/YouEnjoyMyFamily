@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../lib/api";
-import type { Task, TaskCompletion, ScheduleEntry, StatedPreference, StatedPreferenceCategory, MealPlanEntry, MealSlot, CartItem, RewardGoal, GemBalance, DueWindow, Routine, RoutineRun, RoutineStep } from "../types";
+import type { Task, TaskCompletion, ScheduleEntry, StatedPreference, StatedPreferenceCategory, MealPlanEntry, MealSlot, CartItem, RewardGoal, GemBalance, DueWindow, Routine, RoutineRun, RoutineStep, FocusBlock } from "../types";
 import { chooseThreatenedChore, type ThreatenedChore } from "../lib/gemThreats";
 import FamilyCard from "./FamilyCard";
 import TaskList from "./TaskList";
@@ -25,6 +25,9 @@ import GroceryCart from "./GroceryCart";
 import MorningRoutine from "./MorningRoutine";
 import MorningLaunch from "./MorningLaunch";
 import { planRoutine, appliesOn, isRoutineDue, type PlannedStep } from "../lib/routinePlan";
+import FocusDay from "./FocusDay";
+import FocusSession from "./FocusSession";
+import { suggestBlockLength } from "../lib/focusRhythm";
 
 // Which family this screen belongs to, set once per device (see
 // LinkDevice). Read at render rather than module load so a screen linked
@@ -93,6 +96,8 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   // read at render because nothing else would re-render the screen between
   // syncs, and a stalled countdown is worse than no countdown.
   const [clock, setClock] = useState(() => new Date());
+  const [focusBlocks, setFocusBlocks] = useState<FocusBlock[]>([]);
+  const [focusOpen, setFocusOpen] = useState(false);
 
   // Recomputed every render rather than memoized, so an always-on kitchen
   // display rolls over to the new day at midnight on its own.
@@ -142,6 +147,16 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
     const historyStart = toLocalIsoDate(new Date(Date.now() - ROUTINE_HISTORY_DAYS * 24 * 60 * 60 * 1000));
     const runItems = await api.listRoutineRuns(familyId, morning.routineId, historyStart, today);
     return { routineItems, runItems };
+  }, [familyId, today]);
+
+  /**
+   * Blocks of focused work. The same four weeks as the routine history:
+   * enough for "which block length actually holds" to mean something,
+   * recent enough to still describe how this month is going.
+   */
+  const fetchFocusBlocks = useCallback(async () => {
+    const start = toLocalIsoDate(new Date(Date.now() - ROUTINE_HISTORY_DAYS * 24 * 60 * 60 * 1000));
+    return api.listFocusBlocks(familyId, start, today);
   }, [familyId, today]);
 
   // Bumped at the start *and* the end of every local write. A sync that
@@ -207,10 +222,15 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
         setRoutineRuns(runItems);
       })
       .catch(() => undefined);
+    void fetchFocusBlocks()
+      .then((blocks) => {
+        if (!superseded) setFocusBlocks(blocks);
+      })
+      .catch(() => undefined);
     return () => {
       superseded = true;
     };
-  }, [fetchRoutines]);
+  }, [fetchRoutines, fetchFocusBlocks]);
 
   /**
    * The countdown's own clock.
@@ -391,6 +411,39 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
     } catch (err) {
       reportError(err);
     }
+  }
+
+  const focusSuggestion = suggestBlockLength(focusBlocks);
+
+  /**
+   * Whose focus blocks these are — taken from the most recent one, so it
+   * settles on a name after the first block and stays there.
+   *
+   * Deliberately *not* defaulted to the first name in `members`: those are
+   * gathered from chores and prizes, and filing an adult's working day
+   * against a child because theirs happened to sort first would be worse
+   * than a generic label. So the fallback is generic.
+   */
+  const focusMember =
+    [...focusBlocks].sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0]?.memberId ?? "Me";
+
+  /**
+   * A block is only ever written once it has ended, so there is exactly
+   * one write per block and nothing to reconcile mid-timer.
+   */
+  async function handleRecordFocusBlock(block: {
+    startedAt: string;
+    endedAt: string;
+    plannedMinutes: number;
+    outcome: FocusBlock["outcome"];
+    matter: string | null;
+    note: string | null;
+  }) {
+    const saved = await guardedWrite(() =>
+      api.recordFocusBlock(familyId, { ...block, memberId: focusMember, date: today })
+    );
+    setFocusBlocks((prev) => [...prev, saved]);
+    setError(null);
   }
 
   /**
@@ -803,6 +856,15 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
             />
           </FamilyCard>
 
+          <FamilyCard title="Focused work">
+            <FocusDay
+              blocks={focusBlocks}
+              today={today}
+              suggestion={focusSuggestion}
+              onStart={() => setFocusOpen(true)}
+            />
+          </FamilyCard>
+
           <FamilyCard title="What we've noticed">
             <Insights insights={insights} onAct={handleInsightAction} />
           </FamilyCard>
@@ -869,6 +931,16 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
             setLaunchForced(false);
             setLaunchDismissedFor(today);
           }}
+        />
+      )}
+
+      {focusOpen && (
+        <FocusSession
+          memberId={focusMember}
+          suggestion={focusSuggestion}
+          history={focusBlocks}
+          onRecord={handleRecordFocusBlock}
+          onClose={() => setFocusOpen(false)}
         />
       )}
 

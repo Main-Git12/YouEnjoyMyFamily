@@ -503,3 +503,63 @@ export interface RoutineRunItem {
   steps: RoutineRunStep[];
   updatedAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Focus blocks — structured work, and the timesheet line that comes with it
+// ---------------------------------------------------------------------------
+
+/**
+ * How a block of work ended. The distinction is the whole basis of what
+ * this learns: a block that ran to the bell is evidence that its length
+ * works, and one abandoned after four minutes is evidence that it doesn't.
+ * Collapsing them into "did some work" would throw that away.
+ */
+export const FOCUS_OUTCOMES = ["completed", "cut_short", "abandoned"] as const;
+export type FocusOutcome = (typeof FOCUS_OUTCOMES)[number];
+
+/**
+ * A block of focused work and, inseparably, its timesheet line.
+ *
+ * They are one record on purpose. The expensive part of billable work is
+ * not the timer — it is reconstructing at six in the evening what the
+ * morning was spent on. Capturing the line at the moment the block ends,
+ * while it is still obvious, is the part that actually saves the hour.
+ */
+export const FocusBlockInput = z.object({
+  memberId: MemberName,
+  /** The caller's own local date — the server never infers one. */
+  date: z.string().date(),
+  startedAt: z.string().datetime(),
+  endedAt: z.string().datetime(),
+  plannedMinutes: z.number().int().min(1).max(240),
+  outcome: z.enum(FOCUS_OUTCOMES),
+  /**
+   * Whatever she files time against — a matter number, a short code, a
+   * case name. Free text, because this app has no business prescribing
+   * another organisation's matter taxonomy, and a short code is the
+   * sensible thing to type where the full client name is privileged.
+   */
+  matter: z.string().trim().max(120).nullable().optional(),
+  /** What was done, in her words. Becomes the narrative on the line. */
+  note: z.string().trim().max(500).nullable().optional(),
+});
+export type FocusBlockInput = z.infer<typeof FocusBlockInput>;
+
+export interface FocusBlockItem {
+  PK: string;
+  SK: string;
+  entityType: "FOCUS_BLOCK";
+  familyId: string;
+  blockId: string;
+  memberId: string;
+  date: string;
+  startedAt: string;
+  endedAt: string;
+  plannedMinutes: number;
+  /** What it actually ran for. The learning is built from this, not the plan. */
+  actualMinutes: number;
+  outcome: FocusOutcome;
+  matter: string | null;
+  note: string | null;
+  createdAt: string;
+}
