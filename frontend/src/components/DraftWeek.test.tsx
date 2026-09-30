@@ -4,8 +4,20 @@ import DraftWeek from "./DraftWeek";
 import type { DraftedMeal } from "../lib/routines";
 
 const draft: DraftedMeal[] = [
-  { date: "2026-09-29", mealName: "Tacos", because: "Tacos has been dinner on 3 Tuesdays." },
-  { date: "2026-09-30", mealName: "Chilli", because: "Not had since 2026-09-10." },
+  {
+    date: "2026-09-29",
+    mealName: "Tacos",
+    because: "Tacos has been dinner on 3 Tuesdays.",
+    ingredients: ["Tortillas", "Beef"],
+    ingredientsFrom: "2026-09-22",
+  },
+  {
+    date: "2026-09-30",
+    mealName: "Chilli",
+    because: "Not had since 2026-09-10.",
+    ingredients: [],
+    ingredientsFrom: null,
+  },
 ];
 
 describe("DraftWeek", () => {
@@ -55,5 +67,22 @@ describe("DraftWeek", () => {
     fireEvent.click(screen.getByLabelText("Drop Chilli"));
 
     expect(screen.getByRole("button", { name: /nothing selected/i })).toBeDisabled();
+  });
+
+  it("shows the shopping each dinner brings, and which day it was copied from", () => {
+    render(<DraftWeek draft={draft} onAccept={vi.fn()} />);
+
+    expect(screen.getByText(/Shopping: Tortillas, Beef — as written on/)).toBeInTheDocument();
+    // A meal with nothing written down says so, rather than looking complete.
+    expect(screen.getByText("No ingredients written down for this one yet.")).toBeInTheDocument();
+  });
+
+  it("recovers from a failed save instead of leaving the button stuck", async () => {
+    const onAccept = vi.fn().mockRejectedValue(new Error("offline"));
+    render(<DraftWeek draft={draft} onAccept={onAccept} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /pencil in 2 dinners/i }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /pencil in 2 dinners/i })).toBeEnabled());
   });
 });

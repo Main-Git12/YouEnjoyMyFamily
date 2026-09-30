@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { mealRhythms, groceryCadences, dayLoads, busiestDay, draftWeek, weekdayName } from "./routines";
+import {
+  mealRhythms,
+  groceryCadences,
+  dayLoads,
+  busiestDay,
+  draftWeek,
+  weekdayName,
+  lastIngredientsFor,
+  nextDateOnWeekday,
+} from "./routines";
 import type { MealPlanEntry, CartItem, ScheduleEntry, Task, TaskCompletion } from "../types";
 
 const dinner = (date: string, mealName: string): MealPlanEntry => ({ date, slot: "dinner", mealName, ingredients: [] });
@@ -233,5 +242,67 @@ describe("drafting a week from the family's own rotation", () => {
     const draft = draftWeek(history, ["2026-09-28"]);
 
     expect(draft[0]?.mealName).toBe("Tacos");
+  });
+});
+
+describe("drafted dinners bring their shopping with them", () => {
+  const cooked = (date: string, mealName: string, ingredients: string[]): MealPlanEntry => ({
+    date,
+    slot: "dinner",
+    mealName,
+    ingredients,
+  });
+
+  it("copies the ingredients from the last time the meal was planned, and says when", () => {
+    const history = [
+      cooked("2026-09-08", "Tacos", ["Tortillas", "Beef"]),
+      cooked("2026-09-15", "Tacos", ["Tortillas", "Beef", "Cheddar"]),
+      cooked("2026-09-22", "Tacos", ["Tortillas", "Chicken"]),
+    ];
+
+    const tuesday = draftWeek(history, ["2026-09-29"])[0];
+
+    // Pencilling it in with no ingredients would leave the shopping list
+    // empty for exactly the dinners the app just proposed.
+    expect(tuesday?.ingredients).toEqual(["Tortillas", "Chicken"]);
+    expect(tuesday?.ingredientsFrom).toBe("2026-09-22");
+  });
+
+  it("skips a later entry typed without ingredients rather than losing the list", () => {
+    const history = [
+      cooked("2026-09-15", "Tacos", ["Tortillas", "Beef"]),
+      cooked("2026-09-22", "tacos ", []),
+    ];
+
+    expect(lastIngredientsFor(history, "Tacos")).toEqual({ ingredients: ["Tortillas", "Beef"], from: "2026-09-15" });
+  });
+
+  it("never invents a shopping list for a meal nobody wrote one down for", () => {
+    const history = [cooked("2026-09-15", "Tacos", []), cooked("2026-09-22", "Tacos", [])];
+
+    const tuesday = draftWeek(history, ["2026-09-29"])[0];
+
+    expect(tuesday?.ingredients).toEqual([]);
+    expect(tuesday?.ingredientsFrom).toBeNull();
+  });
+
+  it("hands back a copy, so editing the draft can't rewrite the family's history", () => {
+    const history = [cooked("2026-09-22", "Tacos", ["Tortillas"])];
+
+    lastIngredientsFor(history, "Tacos")?.ingredients.push("Salsa");
+
+    expect(history[0]?.ingredients).toEqual(["Tortillas"]);
+  });
+});
+
+describe("the next date on a weekday", () => {
+  // 2026-09-29 is a Tuesday.
+  it("is today when today is that weekday", () => {
+    expect(nextDateOnWeekday("2026-09-29", 2)).toBe("2026-09-29");
+  });
+
+  it("looks forward, never back, across a month end", () => {
+    expect(nextDateOnWeekday("2026-09-29", 1)).toBe("2026-10-05");
+    expect(nextDateOnWeekday("2026-09-29", 5)).toBe("2026-10-02");
   });
 });

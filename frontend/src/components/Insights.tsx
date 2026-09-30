@@ -1,8 +1,10 @@
+import { useState } from "react";
 import type { Insight } from "../lib/insights";
 
 interface InsightsProps {
   insights: Insight[];
-  onAct: (insight: Insight) => Promise<void>;
+  /** May return a sentence saying what happened, shown under the insight — above all when it chose not to act. */
+  onAct: (insight: Insight) => Promise<string | void>;
 }
 
 const KIND_MARK: Record<Insight["kind"], string> = {
@@ -22,6 +24,13 @@ const KIND_MARK: Record<Insight["kind"], string> = {
  * say where it came from has no business on a kitchen wall.
  */
 export default function Insights({ insights, onAct }: InsightsProps) {
+  const [outcomes, setOutcomes] = useState<Record<string, string>>({});
+
+  async function act(insight: Insight) {
+    const outcome = await onAct(insight);
+    if (outcome) setOutcomes((prev) => ({ ...prev, [insight.id]: outcome }));
+  }
+
   if (!insights.length) {
     return (
       <p className="text-olive-700 italic">
@@ -44,11 +53,16 @@ export default function Insights({ insights, onAct }: InsightsProps) {
               {insight.action && (
                 <button
                   type="button"
-                  onClick={() => void onAct(insight)}
+                  onClick={() => void act(insight)}
                   className="mt-2 text-olive-700 underline underline-offset-2 py-1"
                 >
                   {insight.action.label}
                 </button>
+              )}
+              {outcomes[insight.id] && (
+                <p role="status" className="text-sm text-clay-700 mt-1">
+                  {outcomes[insight.id]}
+                </p>
               )}
             </div>
           </div>

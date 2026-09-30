@@ -18,7 +18,7 @@ import { buildInsights, INSIGHT_WINDOW_DAYS, type Insight } from "../lib/insight
 import Insights from "./Insights";
 import RetimeChore from "./RetimeChore";
 import DraftWeek from "./DraftWeek";
-import { draftWeek, type DraftedMeal } from "../lib/routines";
+import { draftWeek, lastIngredientsFor, nextDateOnWeekday, weekdayName, type DraftedMeal } from "../lib/routines";
 import { getFamilyId } from "../lib/familyKey";
 import GroceryCart from "./GroceryCart";
 import Kitchen from "./Kitchen";
@@ -561,7 +561,9 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
     // family, and a half-applied week is easier to understand than a
     // scatter of races.
     for (const meal of meals) {
-      await handleSaveMealPlanEntry(meal.date, "dinner", { mealName: meal.mealName, ingredients: [] });
+      // With the ingredients the family wrote down last time, so the
+      // shopping list fills in for these dinners like any other.
+      await handleSaveMealPlanEntry(meal.date, "dinner", { mealName: meal.mealName, ingredients: meal.ingredients });
     }
   }
 
@@ -569,18 +571,37 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
    * Acting on an observation. Each one only ever *proposes* — the family
    * taps, and the change is theirs. Nothing here happens on its own.
    */
-  async function handleInsightAction(insight: Insight) {
+  async function handleInsightAction(insight: Insight): Promise<string | void> {
     if (!insight.action) return;
     if (insight.action.kind === "add_to_list") {
       await handleAddCartItem(insight.action.payload, 1);
       return;
     }
     if (insight.action.kind === "plan_meal") {
-      // Offered for the first free dinner slot in the week on screen, so
-      // "plan it again" means something concrete rather than opening a form.
-      const free = weekDays.find((day) => !mealPlan.some((entry) => entry.date === day && entry.slot === "dinner"));
-      if (free) await handleSaveMealPlanEntry(free, "dinner", { mealName: insight.action.payload, ingredients: [] });
-      return;
+      // The button says "on the next Tuesday", so it goes on the next
+      // Tuesday — not whichever day of the week happened to be free.
+      const mealName = insight.action.payload;
+      const weekday = insight.action.weekday;
+      if (weekday === undefined) return;
+      const date = nextDateOnWeekday(today, weekday);
+      const dayName = weekdayName(date);
+      try {
+        // Asked of the server rather than read off this screen: another
+        // screen may have planned that dinner since this one loaded, and
+        // saving is an overwrite. A dinner someone chose always wins.
+        const planned = (await api.listMealPlan(familyId, date, date)).find(
+          (entry) => entry.date === date && entry.slot === "dinner"
+        );
+        if (planned) return `${dayName}'s dinner is already ${planned.mealName}, so nothing was changed.`;
+        const known = lastIngredientsFor(mealPlan, mealName);
+        await handleSaveMealPlanEntry(date, "dinner", { mealName, ingredients: known?.ingredients ?? [] });
+        return known
+          ? `${mealName} is on for ${dayName}, with the shopping from ${known.from}.`
+          : `${mealName} is on for ${dayName}. No ingredients were written down for it last time.`;
+      } catch (err) {
+        reportError(err);
+        return;
+      }
     }
     if (insight.action.kind === "reschedule_chore") {
       // Deliberately does not pick a new time itself. Which part of the day

@@ -353,6 +353,87 @@ describe("Dashboard", () => {
     expect(screen.getByText("Tortillas")).toBeInTheDocument();
   });
 
+  describe("the meal planner's proposals", () => {
+    /** Tacos on the same weekday for the last three weeks, `dayOffset` days after today's weekday. */
+    function tacosRhythm(dayOffset: number) {
+      return [-1, -2, -3].map((week) => ({
+        date: weekFromOffset(week)[dayOffset] as string,
+        slot: "dinner" as const,
+        mealName: "Tacos",
+        ingredients: week === -1 ? ["Tortillas", "Chicken"] : ["Tortillas", "Beef"],
+      }));
+    }
+
+    function stubQuietDay() {
+      vi.mocked(api.listTasks).mockResolvedValue([]);
+      vi.mocked(api.listSchedules).mockResolvedValue([]);
+      vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+      vi.mocked(api.upsertMealPlanEntry).mockImplementation(async (_family, date, slot, entry) => ({
+        date,
+        slot,
+        mealName: entry.mealName,
+        ingredients: entry.ingredients ?? [],
+      }));
+    }
+
+    it("pencils in drafted dinners with the ingredients the family wrote last time", async () => {
+      stubQuietDay();
+      const history = tacosRhythm(0);
+      vi.mocked(api.listMealPlan).mockResolvedValue(history);
+
+      render(<Dashboard />);
+      await waitFor(() => expect(screen.getByRole("heading", { name: "Today's chores" })).toBeInTheDocument());
+      await openKitchenTab("This week");
+      fireEvent.click(await screen.findByRole("button", { name: /pencil in \d+ dinners?/i }));
+
+      // Saved with no ingredients, a drafted dinner would never reach the
+      // shopping list — the one thing planning the week is for.
+      await waitFor(() =>
+        expect(api.upsertMealPlanEntry).toHaveBeenCalledWith("fam_demo", weekFromOffset(0)[0], "dinner", {
+          mealName: "Tacos",
+          ingredients: ["Tortillas", "Chicken"],
+        })
+      );
+    });
+
+    it("puts a meal on the weekday its button names, not the first free one", async () => {
+      stubQuietDay();
+      // Tacos is a thing two days from now. Today is free too, and used to
+      // be where the button put it regardless of what it said.
+      const target = weekFromOffset(0)[2] as string;
+      vi.mocked(api.listMealPlan).mockResolvedValue(tacosRhythm(2));
+
+      render(<Dashboard />);
+      await openPanel("What we've noticed");
+      fireEvent.click(await screen.findByRole("button", { name: /Put Tacos on the next/ }));
+
+      await waitFor(() =>
+        expect(api.upsertMealPlanEntry).toHaveBeenCalledWith("fam_demo", target, "dinner", {
+          mealName: "Tacos",
+          ingredients: ["Tortillas", "Chicken"],
+        })
+      );
+      expect(api.upsertMealPlanEntry).toHaveBeenCalledTimes(1);
+      expect(await screen.findByRole("status")).toHaveTextContent(/Tacos is on for .+, with the shopping from/);
+    });
+
+    it("won't overwrite a dinner someone already chose for that day, and says so", async () => {
+      stubQuietDay();
+      const target = weekFromOffset(0)[2] as string;
+      vi.mocked(api.listMealPlan).mockResolvedValue([
+        ...tacosRhythm(2),
+        { date: target, slot: "dinner", mealName: "Leftovers", ingredients: [] },
+      ]);
+
+      render(<Dashboard />);
+      await openPanel("What we've noticed");
+      fireEvent.click(await screen.findByRole("button", { name: /Put Tacos on the next/ }));
+
+      expect(await screen.findByRole("status")).toHaveTextContent(/already Leftovers, so nothing was changed/);
+      expect(api.upsertMealPlanEntry).not.toHaveBeenCalled();
+    });
+  });
+
   it("adds a manual grocery item to the cart", async () => {
     vi.mocked(api.listTasks).mockResolvedValue([]);
     vi.mocked(api.listSchedules).mockResolvedValue([]);

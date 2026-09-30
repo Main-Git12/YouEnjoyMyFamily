@@ -229,6 +229,42 @@ export interface DraftedMeal {
   mealName: string;
   /** Why this one landed on this day. */
   because: string;
+  /**
+   * The ingredients the family typed the last time they had this meal —
+   * copied, never invented — so pencilling it in still fills the shopping
+   * list. Empty when they've never written any down for it.
+   */
+  ingredients: string[];
+  /** The date those ingredients were copied from, so the list can be checked. Null when there are none. */
+  ingredientsFrom: string | null;
+}
+
+/**
+ * The ingredients this family wrote down the most recent time they planned
+ * a meal of this name (matched ignoring case and spacing), and when. Only
+ * entries that actually list ingredients count: a later "Tacos" typed in a
+ * hurry with none shouldn't wipe out the list from the week before.
+ */
+export function lastIngredientsFor(
+  history: MealPlanEntry[],
+  mealName: string
+): { ingredients: string[]; from: string } | null {
+  const wanted = mealName.trim().toLowerCase();
+  let best: MealPlanEntry | null = null;
+  for (const entry of history) {
+    if (entry.mealName.trim().toLowerCase() !== wanted || entry.ingredients.length === 0) continue;
+    if (!best || entry.date > best.date) best = entry;
+  }
+  return best ? { ingredients: [...best.ingredients], from: best.date } : null;
+}
+
+/** The first date on or after `from` that falls on `weekday` (0 = Sunday). */
+export function nextDateOnWeekday(from: string, weekday: number): string {
+  const [year, month, day] = from.split("-");
+  const start = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  const ahead = (weekday - start.getUTCDay() + 7) % 7;
+  start.setUTCDate(start.getUTCDate() + ahead);
+  return start.toISOString().slice(0, 10);
 }
 
 /** Nobody wants the same dinner twice in four days. */
@@ -281,6 +317,8 @@ export function draftWeek(history: MealPlanEntry[], days: string[]): DraftedMeal
         date,
         mealName: forThisDay.mealName,
         because: `${forThisDay.mealName} has been dinner on ${forThisDay.timesOnThisDay} ${forThisDay.weekdayLabel}s.`,
+        ingredients: [],
+        ingredientsFrom: null,
       };
     } else {
       const longestAgo = [...lastSeen.entries()]
@@ -291,11 +329,16 @@ export function draftWeek(history: MealPlanEntry[], days: string[]): DraftedMeal
           date,
           mealName: longestAgo[0],
           because: `Not had since ${longestAgo[1]}.`,
+          ingredients: [],
+          ingredientsFrom: null,
         };
       }
     }
 
     if (!chosen) continue;
+    const known = lastIngredientsFor(dinners, chosen.mealName);
+    chosen.ingredients = known?.ingredients ?? [];
+    chosen.ingredientsFrom = known?.from ?? null;
     usedOn.set(chosen.mealName, date);
     lastSeen.set(chosen.mealName, date);
     drafted.push(chosen);

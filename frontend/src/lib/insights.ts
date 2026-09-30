@@ -36,7 +36,13 @@ export interface Insight {
   /** The records this came from, in plain words. */
   because: string;
   /** A concrete thing the family can do about it, if there is one. */
-  action?: { label: string; kind: "reschedule_chore" | "plan_meal" | "add_to_list"; payload: string };
+  action?: {
+    label: string;
+    kind: "reschedule_chore" | "plan_meal" | "add_to_list";
+    payload: string;
+    /** For plan_meal: the weekday (0 = Sunday) the label promises, so the meal lands on that day and no other. */
+    weekday?: number;
+  };
 }
 
 /** Records this many days back are what the app reasons over. */
@@ -175,7 +181,12 @@ function mealInsights({ mealPlan }: InsightSources): Insight[] {
       kind: "meal_rhythm" as const,
       title: `${rhythm.mealName} has become a ${rhythm.weekdayLabel} thing.`,
       because: `Planned for dinner on ${rhythm.timesOnThisDay} of the last few ${rhythm.weekdayLabel}s.`,
-      action: { label: `Put ${rhythm.mealName} on the next ${rhythm.weekdayLabel}`, kind: "plan_meal" as const, payload: rhythm.mealName },
+      action: {
+        label: `Put ${rhythm.mealName} on the next ${rhythm.weekdayLabel}`,
+        kind: "plan_meal" as const,
+        payload: rhythm.mealName,
+        weekday: rhythm.weekday,
+      },
     }));
 }
 

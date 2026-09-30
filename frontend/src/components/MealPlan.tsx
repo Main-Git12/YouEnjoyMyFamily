@@ -44,6 +44,10 @@ export default function MealPlan({
   const [mealName, setMealName] = useState("");
   const [ingredientsText, setIngredientsText] = useState("");
   const [generateResult, setGenerateResult] = useState<string | null>(null);
+  // A kitchen screen gets tapped twice when it doesn't react at once. The
+  // backend won't duplicate lines any more, but a second tap still costs a
+  // round trip and replaces the first answer with a confusing "0 added".
+  const [generating, setGenerating] = useState(false);
 
   const entryFor = (date: string, slot: MealSlot) =>
     entries.find((entry) => entry.date === date && entry.slot === slot);
@@ -82,12 +86,16 @@ export default function MealPlan({
   }
 
   async function handleGenerate() {
+    if (generating) return;
+    setGenerating(true);
     let result;
     try {
       result = await onGenerateGroceryList();
     } catch {
       setGenerateResult("Couldn't build the grocery list just now — try again in a moment.");
       return;
+    } finally {
+      setGenerating(false);
     }
     setGenerateResult(
       result.added === 0 && result.skipped === 0
@@ -198,8 +206,17 @@ export default function MealPlan({
         </form>
       )}
 
-      <button type="button" onClick={handleGenerate} className="rounded-lg bg-olive-600 text-white px-4 py-2 hover:bg-olive-700">
-        {weekOffset === 0 ? "Generate grocery list for this week" : "Generate grocery list for this view"}
+      <button
+        type="button"
+        onClick={handleGenerate}
+        disabled={generating}
+        className="rounded-lg bg-olive-600 text-white px-4 py-2 hover:bg-olive-700 disabled:bg-olive-300"
+      >
+        {generating
+          ? "Building the list…"
+          : weekOffset === 0
+            ? "Generate grocery list for this week"
+            : "Generate grocery list for this view"}
       </button>
       {generateResult && <p className="text-sm text-clay-700 mt-2">{generateResult}</p>}
     </div>

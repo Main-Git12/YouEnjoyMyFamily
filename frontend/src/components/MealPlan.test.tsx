@@ -117,6 +117,24 @@ describe("MealPlan", () => {
     expect(screen.getByLabelText("Ingredients, comma separated")).toHaveValue("Lamb mince, Potatoes, Carrots");
   });
 
+  it("ignores a second tap on the grocery button while the first is still working", async () => {
+    let finish: (value: { added: number; skipped: number }) => void = () => {};
+    const onGenerateGroceryList = vi.fn(
+      () => new Promise<{ added: number; skipped: number }>((resolve) => (finish = resolve))
+    );
+    render(<MealPlan {...mealPlanProps({ onGenerateGroceryList })} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /generate grocery list/i }));
+    const busy = screen.getByRole("button", { name: /building the list/i });
+    expect(busy).toBeDisabled();
+    fireEvent.click(busy);
+    expect(onGenerateGroceryList).toHaveBeenCalledTimes(1);
+
+    finish({ added: 2, skipped: 0 });
+    await waitFor(() => expect(screen.getByText(/Added 2 ingredients/)).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /generate grocery list/i })).toBeEnabled();
+  });
+
   it("says so when building the grocery list fails, rather than doing nothing visible", async () => {
     const onGenerateGroceryList = vi.fn().mockRejectedValue(new Error("Failed to fetch"));
     render(<MealPlan {...mealPlanProps({ onGenerateGroceryList })} />);

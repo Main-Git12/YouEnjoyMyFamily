@@ -16,8 +16,13 @@ interface DraftWeekProps {
  * one you can't.
  *
  * Nothing is saved until someone says so, and any single line can be
- * dropped before accepting the rest.
+ * dropped before accepting the rest. Each line brings the ingredients the
+ * family wrote down the last time they had it, and says which day they
+ * came from, so accepting the week fills the shopping list too.
  */
+const shortDate = (isoDate: string): string =>
+  new Date(`${isoDate}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+
 export default function DraftWeek({ draft, onAccept }: DraftWeekProps) {
   const [dropped, setDropped] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -29,6 +34,10 @@ export default function DraftWeek({ draft, onAccept }: DraftWeekProps) {
     setSaving(true);
     try {
       await onAccept(keeping);
+    } catch {
+      // The dashboard has already said what went wrong. Whatever did save
+      // drops out of the draft on its own (that day now has a dinner), so
+      // pressing again only retries the rest.
     } finally {
       setSaving(false);
     }
@@ -57,6 +66,11 @@ export default function DraftWeek({ draft, onAccept }: DraftWeekProps) {
                   {meal.mealName}
                 </span>
                 <span className="block text-sm text-olive-600">{meal.because}</span>
+                <span className="block text-sm text-olive-600">
+                  {meal.ingredients.length > 0 && meal.ingredientsFrom
+                    ? `Shopping: ${meal.ingredients.join(", ")} — as written on ${shortDate(meal.ingredientsFrom)}.`
+                    : "No ingredients written down for this one yet."}
+                </span>
               </span>
               <button
                 type="button"
