@@ -1,4 +1,5 @@
 import type { MealPlanEntry, ScheduleEntry, Task, TaskCompletion, CartItem } from "../types";
+import { toLocalIsoDate } from "./dates";
 
 /**
  * The rhythms a household falls into, read back out of its own records.
@@ -30,6 +31,20 @@ export const weekdayName = (isoDate: string): string => DAY_NAMES[weekdayOf(isoD
 const daysBetween = (from: string, to: string): number =>
   Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000);
 
+/**
+ * The middle value, never the mean — the same rule the morning routine
+ * learns its step durations by (see routinePlan.ts). One fortnight away
+ * from home is not evidence that the milk lasts three weeks, and a mean
+ * lets that one gap rewrite the whole cadence.
+ */
+function median(values: number[]): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) return sorted[middle] as number;
+  return ((sorted[middle - 1] as number) + (sorted[middle] as number)) / 2;
+}
+
 // ---------------------------------------------------------------------------
 // Meal rhythms
 
@@ -46,15 +61,22 @@ export interface MealRhythm {
 const RHYTHM_MINIMUM = 2;
 
 /**
- * "Tacos is a Tuesday thing." Found by grouping planned dinners by weekday,
- * not by guessing — if the family has planned tacos on three of the last
- * four Tuesdays, that's simply what the records say.
+ * "Tacos is a Tuesday thing." Found by grouping dinners by weekday, not by
+ * guessing — if the family has eaten tacos on three of the last four
+ * Tuesdays, that's simply what the records say.
+ *
+ * Only dinners before `today` count. A plan is not an observation: if the
+ * family sat down and filled in tacos for the next three Tuesdays, telling
+ * them back that tacos "has become a Tuesday thing" is the app repeating
+ * their own typing to them as though it had noticed something. Today is out
+ * too — tonight's dinner hasn't happened yet either.
  */
-export function mealRhythms(entries: MealPlanEntry[]): MealRhythm[] {
+export function mealRhythms(entries: MealPlanEntry[], today: string): MealRhythm[] {
   const byDayAndMeal = new Map<string, { weekday: number; mealName: string; dates: Set<string> }>();
 
   for (const entry of entries) {
     if (entry.slot !== "dinner") continue;
+    if (entry.date >= today) continue;
     const name = entry.mealName.trim();
     if (!name) continue;
     const weekday = weekdayOf(entry.date);
@@ -99,7 +121,11 @@ export function groceryCadences(items: CartItem[], today: string): GroceryCadenc
     if (item.status !== "ordered" || !item.orderedAt) continue;
     const key = item.description.trim().toLowerCase();
     const bucket = byDescription.get(key) ?? { description: item.description.trim(), dates: [] };
-    bucket.dates.push(item.orderedAt.slice(0, 10));
+    // The family's own calendar date, not the UTC one. orderedAt is a UTC
+    // timestamp, so a Sunday-evening shop in Ohio is stamped Monday: slicing
+    // the string turns one weekly rhythm into alternating 6- and 8-day gaps,
+    // and puts the last shop a day off from `today`, which is local.
+    bucket.dates.push(toLocalIsoDate(new Date(item.orderedAt)));
     byDescription.set(key, bucket);
   }
 
@@ -112,7 +138,9 @@ export function groceryCadences(items: CartItem[], today: string): GroceryCadenc
     for (let i = 1; i < ordered.length; i += 1) {
       gaps.push(daysBetween(ordered[i - 1] as string, ordered[i] as string));
     }
-    const everyDays = Math.round(gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length);
+    const typicalGap = median(gaps);
+    if (typicalGap === null) continue;
+    const everyDays = Math.round(typicalGap);
     if (everyDays <= 0) continue;
 
     const daysSinceLast = daysBetween(ordered[ordered.length - 1] as string, today);
@@ -153,6 +181,13 @@ export function dayLoads(
   const recurring = tasks.filter((task) => task.recurrence !== "none");
   if (recurring.length === 0) return [];
 
+  // The denominator's membership list. The numerator is filtered through it
+  // below, because a completion can outlive the chore it belongs to (a chore
+  // deleted last week, or a one-off, which `expected` never counts) and a
+  // rate whose top half counts things its bottom half doesn't is not a rate.
+  // Left unchecked it produced completion rates over 100%.
+  const countedTaskIds = new Set(recurring.map((task) => task.taskId));
+
   const eventsByDate = new Map<string, number>();
   for (const entry of schedule) {
     if (entry.date < windowStart || entry.date > today) continue;
@@ -161,6 +196,7 @@ export function dayLoads(
   const doneByDate = new Map<string, Set<string>>();
   for (const completion of completions) {
     if (completion.date < windowStart || completion.date > today) continue;
+    if (!countedTaskIds.has(completion.taskId)) continue;
     const set = doneByDate.get(completion.date) ?? new Set<string>();
     set.add(completion.taskId);
     doneByDate.set(completion.date, set);
@@ -174,12 +210,18 @@ export function dayLoads(
     const date = cursor.toISOString().slice(0, 10);
     const weekday = cursor.getUTCDay();
     const weekend = [0, 6].includes(weekday);
-    const expected = recurring.filter(
-      (task) =>
+    const expected = recurring.filter((task) => {
+      // A chore cannot have been missed on a day before it existed. Without
+      // this, adding a chore on Friday makes every Wednesday for the last
+      // month look like a Wednesday it was skipped on, and the app invents
+      // a history the records do not contain.
+      if (typeof task.createdAt === "string" && task.createdAt.slice(0, 10) > date) return false;
+      return (
         task.recurrence === "daily" ||
         (task.recurrence === "weekdays" && !weekend) ||
         (task.recurrence === "weekends" && weekend)
-    ).length;
+      );
+    }).length;
 
     const bucket = buckets.get(weekday) ?? { events: 0, done: 0, expected: 0, days: 0 };
     bucket.events += eventsByDate.get(date) ?? 0;
@@ -248,7 +290,11 @@ export function draftWeek(history: MealPlanEntry[], days: string[]): DraftedMeal
   const planned = new Set(dinners.map((entry) => entry.date));
   if (dinners.length === 0) return [];
 
-  const rhythms = mealRhythms(dinners);
+  // The rhythm is read from what came before the week being drafted. Drafting
+  // reads its own output otherwise: a draft that puts tacos on Tuesday would
+  // come back next time as evidence that tacos is a Tuesday thing.
+  const from = [...days].sort()[0];
+  const rhythms = from ? mealRhythms(dinners, from) : [];
   const lastSeen = new Map<string, string>();
   for (const entry of dinners) {
     const name = entry.mealName.trim();

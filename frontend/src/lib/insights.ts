@@ -219,8 +219,8 @@ function expectedDays(task: Task, windowStart: string, today: string): number {
  * Not "you eat this a lot", but "this is a Tuesday thing" — the rhythm the
  * family has actually settled into, offered back for the day it belongs to.
  */
-function mealInsights({ mealPlan }: InsightSources): Insight[] {
-  return mealRhythms(mealPlan)
+function mealInsights({ mealPlan, today }: InsightSources): Insight[] {
+  return mealRhythms(mealPlan, today)
     .slice(0, 1)
     .map((rhythm) => ({
       id: `meal:${rhythm.weekday}:${rhythm.mealName}`,
