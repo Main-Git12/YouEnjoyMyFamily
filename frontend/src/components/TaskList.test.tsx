@@ -13,17 +13,44 @@ describe("TaskList", () => {
     expect(screen.getByText(/nothing on the list/i)).toBeInTheDocument();
   });
 
-  it("renders each task's title and due date", () => {
+  it("renders each task's title", () => {
     const tasks: Task[] = [
-      { taskId: "t1", title: "Pack soccer bag", assignedTo: null, dueDate: "2025-01-15", gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 , createdAt: "2020-01-01T00:00:00.000Z"},
+      { taskId: "t1", title: "Pack soccer bag", assignedTo: null, dueDate: "2026-09-23", gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 , createdAt: "2020-01-01T00:00:00.000Z"},
       { taskId: "t2", title: "Buy milk", assignedTo: null, dueDate: null, gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 , createdAt: "2020-01-01T00:00:00.000Z"},
     ];
 
     render(<TaskList tasks={tasks} />);
 
     expect(screen.getByText("Pack soccer bag")).toBeInTheDocument();
-    expect(screen.getByText(/2025-01-15/)).toBeInTheDocument();
     expect(screen.getByText("Buy milk")).toBeInTheDocument();
+    // A chore due on the day being shown says nothing about its date: it
+    // would be on every row and tell nobody anything.
+    expect(screen.queryByText(/2026-09-23/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/due/i)).not.toBeInTheDocument();
+  });
+
+  it("says which day a carried-over chore came from, in words rather than an ISO date", () => {
+    // A one-off nobody got to stays on the list instead of vanishing, so the
+    // row has to be honest about how old it is.
+    const tasks: Task[] = [
+      { taskId: "t1", title: "Return library book", assignedTo: "Parker", dueDate: "2026-09-21", gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "none", completedOn: null, status: "pending", gemsAwarded: 0 , createdAt: "2020-01-01T00:00:00.000Z"},
+    ];
+
+    render(<TaskList tasks={tasks} />);
+
+    expect(screen.getByText(/was due Monday/)).toBeInTheDocument();
+    expect(screen.queryByText(/2026-09-21/)).not.toBeInTheDocument();
+  });
+
+  it("drops the overdue line once the chore is done", () => {
+    const tasks: Task[] = [
+      { taskId: "t1", title: "Return library book", assignedTo: "Parker", dueDate: "2026-09-21", gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "none", completedOn: "2026-09-23", status: "done", gemsAwarded: 10 , createdAt: "2020-01-01T00:00:00.000Z"},
+    ];
+
+    render(<TaskList tasks={tasks} />);
+
+    expect(screen.getByText("Return library book")).toBeInTheDocument();
+    expect(screen.queryByText(/was due/)).not.toBeInTheDocument();
   });
 
   it("calls onComplete when a pending task's mark-done button is clicked", () => {

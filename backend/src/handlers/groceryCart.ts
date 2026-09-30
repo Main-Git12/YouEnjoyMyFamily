@@ -4,7 +4,7 @@ import { ulid } from "ulid";
 import { GetCommand, PutCommand, UpdateCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import { docClient, TABLE_NAME } from "../lib/dynamoClient";
 import { queryAll } from "../lib/queryAll";
-import { ok, created, badRequest, notFound, serverError } from "../lib/response";
+import { ok, created, badRequest, notFound, conflict, serverError } from "../lib/response";
 import { parseBody, ValidationError } from "../lib/validation";
 import { authenticateFamily } from "../lib/auth";
 import { CartItemInput, CartItemPatch, type CartItem, type LearnedSubstitutionItem } from "../types";
@@ -176,55 +176,108 @@ async function findLearnedSubstitute(familyId: string, originalDescription: stri
   return (result.Item as LearnedSubstitutionItem | undefined)?.substituteDescription ?? null;
 }
 
-/** Only called when a family member explicitly confirms what they picked instead. */
+/**
+ * Only called when a family member explicitly confirms what they picked
+ * instead. `timesConfirmed` is incremented with ADD rather than read, added
+ * to and written back: two people confirming the same swap from two devices
+ * would otherwise both read 3 and both write 4, and the count is the whole
+ * point of the record. ADD treats a missing attribute as 0, so the first
+ * confirmation creates the row with the same expression.
+ */
 async function recordConfirmedSubstitution(familyId: string, originalDescription: string, substituteDescription: string): Promise<void> {
-  const existing = await docClient.send(
-    new GetCommand({ TableName: TABLE_NAME, Key: substitutionKey(familyId, originalDescription) })
+  await docClient.send(
+    new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: substitutionKey(familyId, originalDescription),
+      UpdateExpression:
+        "SET entityType = :entityType, familyId = :familyId, originalDescription = :original, " +
+        "substituteDescription = :substitute, updatedAt = :now ADD timesConfirmed :one",
+      ExpressionAttributeValues: {
+        ":entityType": "LEARNED_SUBSTITUTION",
+        ":familyId": familyId,
+        ":original": normalize(originalDescription),
+        ":substitute": substituteDescription,
+        ":now": new Date().toISOString(),
+        ":one": 1,
+      },
+    })
   );
-  const current = existing.Item as LearnedSubstitutionItem | undefined;
-
-  const item: LearnedSubstitutionItem = {
-    ...substitutionKey(familyId, originalDescription),
-    entityType: "LEARNED_SUBSTITUTION",
-    familyId,
-    originalDescription: normalize(originalDescription),
-    substituteDescription,
-    timesConfirmed: (current?.timesConfirmed ?? 0) + 1,
-    updatedAt: new Date().toISOString(),
-  };
-  await docClient.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));
 }
 
-interface PatchCartItemResult {
-  item: CartItem;
-  suggestedSubstitute: string | null;
-}
+export type PatchCartItemOutcome =
+  | { outcome: "patched"; item: CartItem; suggestedSubstitute: string | null }
+  | { outcome: "missing" }
+  | { outcome: "contended" };
 
-async function patchCartItem(familyId: string, itemId: string, patch: CartItemPatch): Promise<PatchCartItemResult | null> {
-  const existing = await docClient.send(new GetCommand({ TableName: TABLE_NAME, Key: cartItemKey(familyId, itemId) }));
-  if (!existing.Item) return null;
-  const current = existing.Item as CartItem;
+/**
+ * How many times a patch re-reads and re-applies before giving up. A patch is
+ * an intent ("mark this unavailable"), not a copy of the row, so re-applying
+ * it to whatever is there now is the right answer to losing a race — but only
+ * a bounded number of times, so a hot item can't hold a Lambda open.
+ */
+const PATCH_ATTEMPTS = 3;
 
-  const nextStatus = patch.status ?? current.status;
-  const item: CartItem = {
-    ...current,
-    status: nextStatus,
-    substituteDescription: patch.substituteDescription ?? current.substituteDescription,
-    // Putting an item back on the list clears the order stamp, so it reads as
-    // genuinely outstanding again rather than "ordered, but pending".
-    orderedAt: nextStatus === "ordered" ? (current.orderedAt ?? new Date().toISOString()) : null,
-    updatedAt: new Date().toISOString(),
-  };
-  await docClient.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));
+/**
+ * Read-modify-write, guarded. The write is conditional on the row still being
+ * there and still holding the status and updatedAt that were read, because
+ * two things race with a patch on a kitchen wall:
+ *
+ *  - checkout stamping the same item "ordered" while a phone is marking it
+ *    unavailable. An unconditional Put of the copy read beforehand would put
+ *    the pre-checkout status back, and the item would be shopped for twice.
+ *  - a delete landing between the read and the write, which an unconditional
+ *    Put would undo — the row would come back, deleted but present.
+ *
+ * Both show up as a failed condition, and both are answered by going round
+ * again: the second read sees the checkout stamp (and applies the patch on
+ * top of it) or sees nothing at all (and 404s, rather than resurrecting).
+ * `status` is checked as well as `updatedAt` because both writers stamp
+ * updatedAt from the clock, and two writes inside the same millisecond would
+ * otherwise carry the same value and slip past.
+ */
+async function patchCartItem(familyId: string, itemId: string, patch: CartItemPatch): Promise<PatchCartItemOutcome> {
+  for (let attempt = 0; attempt < PATCH_ATTEMPTS; attempt += 1) {
+    const existing = await docClient.send(new GetCommand({ TableName: TABLE_NAME, Key: cartItemKey(familyId, itemId) }));
+    if (!existing.Item) return { outcome: "missing" };
+    const current = existing.Item as CartItem;
 
-  if (nextStatus === "substituted" && patch.substituteDescription) {
-    await recordConfirmedSubstitution(familyId, current.description, patch.substituteDescription);
+    const nextStatus = patch.status ?? current.status;
+    const item: CartItem = {
+      ...current,
+      status: nextStatus,
+      substituteDescription: patch.substituteDescription ?? current.substituteDescription,
+      // Putting an item back on the list clears the order stamp, so it reads as
+      // genuinely outstanding again rather than "ordered, but pending".
+      orderedAt: nextStatus === "ordered" ? (current.orderedAt ?? new Date().toISOString()) : null,
+      updatedAt: new Date().toISOString(),
+    };
+
+    try {
+      await docClient.send(
+        new PutCommand({
+          TableName: TABLE_NAME,
+          Item: item,
+          ConditionExpression: "attribute_exists(PK) AND #status = :seenStatus AND updatedAt = :seenUpdatedAt",
+          ExpressionAttributeNames: { "#status": "status" },
+          ExpressionAttributeValues: { ":seenStatus": current.status, ":seenUpdatedAt": current.updatedAt },
+        })
+      );
+    } catch (err) {
+      if (!isConditionalCheckFailure(err)) throw err;
+      continue;
+    }
+
+    if (nextStatus === "substituted" && patch.substituteDescription) {
+      await recordConfirmedSubstitution(familyId, current.description, patch.substituteDescription);
+    }
+
+    const suggestedSubstitute =
+      nextStatus === "unavailable" ? await findLearnedSubstitute(familyId, current.description) : null;
+
+    return { outcome: "patched", item, suggestedSubstitute };
   }
 
-  const suggestedSubstitute =
-    nextStatus === "unavailable" ? await findLearnedSubstitute(familyId, current.description) : null;
-
-  return { item, suggestedSubstitute };
+  return { outcome: "contended" };
 }
 
 async function deleteCartItem(familyId: string, itemId: string): Promise<void> {
@@ -322,7 +375,11 @@ export async function routeGroceryCart(
       case "PUT": {
         if (!itemId) return badRequest("itemId is required");
         const result = await patchCartItem(familyId, itemId, parseBody(CartItemPatch, event.body));
-        return result ? ok(result) : notFound("Cart item not found");
+        if (result.outcome === "missing") return notFound("Cart item not found");
+        if (result.outcome === "contended") {
+          return conflict("Someone else changed that item just now — take another look and try again");
+        }
+        return ok({ item: result.item, suggestedSubstitute: result.suggestedSubstitute });
       }
       case "DELETE": {
         if (!itemId) return badRequest("itemId is required");

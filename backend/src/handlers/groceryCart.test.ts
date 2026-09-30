@@ -168,8 +168,8 @@ test("PUT confirming a substitute records it as learned for next time", async ()
   ddbMock.on(GetCommand, { Key: { PK: "FAMILY#fam_1", SK: "CARTITEM#i1" } }).resolves({
     Item: cartItem({ status: "unavailable" }),
   });
-  ddbMock.on(GetCommand, { Key: { PK: "FAMILY#fam_1", SK: "SUBSTITUTION#spaghetti" } }).resolves({ Item: undefined });
   ddbMock.on(PutCommand).resolves({});
+  ddbMock.on(UpdateCommand).resolves({});
   const headers = mockFamilyAuth(ddbMock, "fam_1");
 
   const result = await handler(
@@ -186,13 +186,22 @@ test("PUT confirming a substitute records it as learned for next time", async ()
   assert.equal(body.item.status, "substituted");
   assert.equal(body.item.substituteDescription, "Penne");
 
-  const learnedPut = ddbMock
-    .commandCalls(PutCommand)
-    .map((call) => call.args[0].input.Item as Record<string, unknown>)
-    .find((item) => item.entityType === "LEARNED_SUBSTITUTION");
-  assert.equal(learnedPut?.originalDescription, "spaghetti");
-  assert.equal(learnedPut?.substituteDescription, "Penne");
-  assert.equal(learnedPut?.timesConfirmed, 1);
+  const learned = ddbMock
+    .commandCalls(UpdateCommand)
+    .map((call) => call.args[0].input)
+    .find((input) => input.Key?.SK === "SUBSTITUTION#spaghetti");
+  assert.ok(learned, "expected the confirmed swap to be written under the original description");
+  assert.equal(learned.ExpressionAttributeValues?.[":substitute"], "Penne");
+  assert.equal(learned.ExpressionAttributeValues?.[":original"], "spaghetti");
+  // The count is incremented in the database, not read and written back:
+  // two people confirming the same swap at once must both be counted.
+  assert.match(learned.UpdateExpression ?? "", /ADD timesConfirmed :one/);
+  assert.equal(learned.ExpressionAttributeValues?.[":one"], 1);
+  // And nothing re-reads the row first, which is what made it lossy.
+  assert.equal(
+    ddbMock.commandCalls(GetCommand).filter((call) => call.args[0].input.Key?.SK === "SUBSTITUTION#spaghetti").length,
+    0
+  );
 });
 
 test("checkout builds Instacart line items, using the substitute description where confirmed", async () => {
@@ -536,4 +545,121 @@ test("the real Instacart client gives up on a hung request instead of riding out
   } finally {
     clearTimeout(guard);
   }
+});
+
+/**
+ * Stands in for DynamoDB rejecting a write. Deliberately keyed on the write
+ * *asking* to be checked: a Put with no ConditionExpression is one DynamoDB
+ * would happily land, so an unguarded patch has to show up here as a write
+ * that succeeded, not as one this fake threw on anyway.
+ */
+const rejectsIfGuarded = (input: { ConditionExpression?: string }) => {
+  if (!input.ConditionExpression?.includes("attribute_exists(PK)")) return {};
+  throw new ConditionalCheckFailedException({ $metadata: {}, message: "the row moved under you" });
+};
+
+// --- The two races a patch has to survive on a kitchen wall ---------------
+//
+// The cart is edited from the Echo Show, from phones, and by checkout itself.
+// Before this guard a patch was a plain Put of the copy it had read, so
+// whichever write landed last won outright.
+
+test("a patch that loses a race to checkout re-applies on top of it rather than reverting it", async () => {
+  // First read: still pending. Then checkout stamps it "ordered", so the
+  // conditional write fails; the second read sees the stamp.
+  const reads = [cartItem({ status: "pending" }), cartItem({ status: "ordered", orderedAt: "2025-01-02T09:00:00Z" })];
+  let read = 0;
+  ddbMock.on(GetCommand, { Key: { PK: "FAMILY#fam_1", SK: "CARTITEM#i1" } }).callsFake(() => ({
+    Item: reads[Math.min(read++, reads.length - 1)],
+  }));
+
+  let writes = 0;
+  ddbMock.on(PutCommand).callsFake((input) => {
+    if ((input.Item as CartItem).entityType !== "CART_ITEM") return {};
+    writes += 1;
+    if (writes === 1) return rejectsIfGuarded(input);
+    return {};
+  });
+  ddbMock.on(GetCommand, { Key: { PK: "FAMILY#fam_1", SK: "SUBSTITUTION#spaghetti" } }).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", itemId: "i1" },
+      headers,
+      body: JSON.stringify({ status: "unavailable" }),
+    })
+  );
+
+  assert.equal(result.statusCode, 200);
+  const body = JSON.parse(result.body ?? "{}");
+  assert.equal(body.item.status, "unavailable");
+  assert.equal(writes, 2, "expected the patch to be re-applied after losing the race");
+
+  // The point of all of it: the winning write must have been guarded, and
+  // guarded against what the *second* read saw — not the first.
+  const guarded = ddbMock
+    .commandCalls(PutCommand)
+    .map((call) => call.args[0].input)
+    .filter((input) => (input.Item as CartItem).entityType === "CART_ITEM");
+  assert.match(guarded[0]?.ConditionExpression ?? "", /attribute_exists\(PK\)/);
+  assert.equal(guarded[0]?.ExpressionAttributeValues?.[":seenStatus"], "pending");
+  assert.equal(guarded[1]?.ExpressionAttributeValues?.[":seenStatus"], "ordered");
+});
+
+test("a patch racing a delete 404s rather than putting the deleted item back", async () => {
+  let read = 0;
+  ddbMock
+    .on(GetCommand, { Key: { PK: "FAMILY#fam_1", SK: "CARTITEM#i1" } })
+    .callsFake(() => (read++ === 0 ? { Item: cartItem({ status: "pending" }) } : { Item: undefined }));
+  ddbMock.on(PutCommand).callsFake((input) => {
+    if ((input.Item as CartItem).entityType !== "CART_ITEM") return {};
+    return rejectsIfGuarded(input);
+  });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", itemId: "i1" },
+      headers,
+      body: JSON.stringify({ status: "unavailable" }),
+    })
+  );
+
+  assert.equal(result.statusCode, 404);
+  const writtenBack = ddbMock
+    .commandCalls(PutCommand)
+    .map((call) => call.args[0].input.Item as CartItem)
+    .filter((item) => item.entityType === "CART_ITEM");
+  // It may have *attempted* one write before learning the row was gone — the
+  // condition is what stops that attempt landing. It must not try again after.
+  assert.equal(writtenBack.length, 1);
+});
+
+test("a patch that keeps losing gives up with a conflict instead of retrying forever", async () => {
+  ddbMock
+    .on(GetCommand, { Key: { PK: "FAMILY#fam_1", SK: "CARTITEM#i1" } })
+    .resolves({ Item: cartItem({ status: "pending" }) });
+  ddbMock.on(PutCommand).callsFake((input) => {
+    if ((input.Item as CartItem).entityType !== "CART_ITEM") return {};
+    return rejectsIfGuarded(input);
+  });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", itemId: "i1" },
+      headers,
+      body: JSON.stringify({ status: "unavailable" }),
+    })
+  );
+
+  assert.equal(result.statusCode, 409);
+  const attempts = ddbMock
+    .commandCalls(PutCommand)
+    .filter((call) => (call.args[0].input.Item as CartItem).entityType === "CART_ITEM").length;
+  assert.equal(attempts, 3, "expected a bounded number of attempts");
 });

@@ -63,9 +63,16 @@ const isWeekend = (isoDate: string): boolean => [0, 6].includes(dayOfWeek(isoDat
 /**
  * Whether a chore belongs on a given day.
  *
- * A one-off with no due date keeps appearing until someone actually does it
- * — an unfinished job shouldn't quietly vanish overnight — and then shows
- * only on the day it was done, so that day's list stays truthful.
+ * A one-off keeps appearing until someone actually does it — an unfinished
+ * job shouldn't quietly vanish overnight — and then shows only on the day it
+ * was done, so that day's list stays truthful.
+ *
+ * A due date says when a one-off *starts* mattering, not the single day it
+ * exists: it stays off the list until its date, then stays on it until it is
+ * done. It used to read `dueDate === isoDate`, which meant a chore nobody got
+ * to on Tuesday was simply gone on Wednesday — the exact thing a family buys
+ * a planner to stop happening, and silent, so nobody could even notice it had
+ * happened. An overdue chore is the one most worth showing, not the least.
  */
 export function appliesOn(task: TaskItem, isoDate: string): boolean {
   switch (task.recurrence) {
@@ -77,7 +84,7 @@ export function appliesOn(task: TaskItem, isoDate: string): boolean {
       return isWeekend(isoDate);
     case "none":
       if (task.completedOn) return task.completedOn === isoDate;
-      return task.dueDate === null || task.dueDate === isoDate;
+      return task.dueDate === null || task.dueDate <= isoDate;
   }
 }
 
@@ -355,7 +362,14 @@ async function updateDefinition(familyId: string, task: TaskItem, patch: TaskPat
   // "leave it".
   if (patch.title !== undefined) assign("title", patch.title);
   if (patch.assignedTo !== undefined) assign("assignedTo", patch.assignedTo);
-  if (patch.dueDate !== undefined) assign("dueDate", patch.dueDate);
+  if (patch.dueDate !== undefined) {
+    assign("dueDate", patch.dueDate);
+    // GSI1SK is derived from dueDate (see createTask), so moving the date has
+    // to move the index entry with it. Nothing reads this index by due date
+    // today, which is precisely why a stale entry would sit here unnoticed
+    // until the first query that does.
+    assign("GSI1SK", `DUE#${patch.dueDate ?? "9999-12-31"}`);
+  }
   if (patch.gemValue !== undefined) assign("gemValue", patch.gemValue);
   if (patch.dueWindow !== undefined) assign("dueWindow", patch.dueWindow);
   if (patch.recurrence !== undefined) assign("recurrence", patch.recurrence);

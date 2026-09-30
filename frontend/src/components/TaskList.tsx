@@ -1,6 +1,7 @@
 import type { Task } from "../types";
 import { DUE_WINDOW_LABELS } from "../lib/choreCatalog";
 import { currentWindow, isWindowPast, windowOrderFor } from "../lib/timeOfDay";
+import { describeDueDate } from "../lib/dates";
 
 interface TaskListProps {
   tasks: Task[];
@@ -80,6 +81,10 @@ function TaskRow({
   // "Slipped" is just the clock against the window the family chose for
   // this chore — nothing about the child is being watched.
   const slipped = !done && past;
+  // A one-off that nobody got to now carries forward rather than vanishing,
+  // so the row has to say which day it came from. Silent on the day it's
+  // due, where the date would be on every row and tell nobody anything.
+  const due = done ? null : describeDueDate(task.dueDate, task.date);
 
   return (
     <li
@@ -107,7 +112,7 @@ function TaskRow({
           <span className={`text-lg ${done ? "line-through text-olive-600" : "text-olive-900"}`}>{task.title}</span>
           <span className="block text-xs uppercase tracking-wide text-olive-600">
             {task.assignedTo ?? "Anyone"}
-            {task.dueDate ? ` · ${task.dueDate}` : ""}
+            {due ? ` · ${due}` : ""}
             {slipped ? " · still to do" : ""}
           </span>
         </span>

@@ -148,10 +148,29 @@ test("appliesOn retires a one-off after the day it was done, but keeps that day 
   assert.equal(appliesOn(done, "2026-09-24"), false);
 });
 
-test("appliesOn puts a dated one-off only on its own day", () => {
+test("appliesOn holds a dated one-off back until its date", () => {
   const dated = task({ recurrence: "none", dueDate: "2026-09-25" });
-  assert.equal(appliesOn(dated, "2026-09-25"), true);
   assert.equal(appliesOn(dated, "2026-09-23"), false);
+  assert.equal(appliesOn(dated, "2026-09-24"), false);
+  assert.equal(appliesOn(dated, "2026-09-25"), true);
+});
+
+test("appliesOn keeps a dated one-off nobody got to on the list, rather than dropping it", () => {
+  // The whole point of the app. A chore due Friday that nobody did must be
+  // there on Saturday, and the Saturday after that, until it is done.
+  const missed = task({ recurrence: "none", dueDate: "2026-09-25", completedOn: null });
+  assert.equal(appliesOn(missed, "2026-09-26"), true);
+  assert.equal(appliesOn(missed, "2026-10-03"), true);
+  assert.equal(appliesOn(missed, "2027-01-01"), true);
+});
+
+test("appliesOn still retires a dated one-off once it is done", () => {
+  const late = task({ recurrence: "none", dueDate: "2026-09-25", completedOn: "2026-09-28" });
+  assert.equal(appliesOn(late, "2026-09-28"), true);
+  assert.equal(appliesOn(late, "2026-09-29"), false);
+  // Including on its original due date: the day it was actually done is the
+  // day the list should show it on.
+  assert.equal(appliesOn(late, "2026-09-25"), false);
 });
 
 test("GET returns the day's chores, with that day's state merged in", async () => {
@@ -459,6 +478,45 @@ test("PUT can hand a chore to nobody in particular", async () => {
   const written = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
   assert.match(written?.UpdateExpression ?? "", /#assignedTo = :assignedTo/);
   assert.equal(written?.ExpressionAttributeValues?.[":assignedTo"], null);
+});
+
+test("PUT moving a chore's due date moves its index entry with it", async () => {
+  ddbMock.on(GetCommand).resolves({ Item: undefined });
+  ddbMock.on(GetCommand, { Key: { PK: "FAMILY#fam_1", SK: "TASK#t1" } }).resolves({ Item: task() });
+  ddbMock.on(UpdateCommand).resolves({ Attributes: task({ dueDate: "2026-10-09" }) });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", taskId: "t1" },
+      headers,
+      body: JSON.stringify({ dueDate: "2026-10-09" }),
+    })
+  );
+
+  const written = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
+  assert.equal(written?.ExpressionAttributeValues?.[":dueDate"], "2026-10-09");
+  assert.equal(written?.ExpressionAttributeValues?.[":GSI1SK"], "DUE#2026-10-09");
+});
+
+test("PUT clearing a due date parks the index entry where a dateless chore goes", async () => {
+  ddbMock.on(GetCommand).resolves({ Item: undefined });
+  ddbMock.on(GetCommand, { Key: { PK: "FAMILY#fam_1", SK: "TASK#t1" } }).resolves({ Item: task() });
+  ddbMock.on(UpdateCommand).resolves({ Attributes: task({ dueDate: null }) });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", taskId: "t1" },
+      headers,
+      body: JSON.stringify({ dueDate: null }),
+    })
+  );
+
+  const written = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
+  assert.equal(written?.ExpressionAttributeValues?.[":GSI1SK"], "DUE#9999-12-31");
 });
 
 test("PUT for a chore that isn't there returns 404", async () => {
