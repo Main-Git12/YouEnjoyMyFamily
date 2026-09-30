@@ -241,3 +241,20 @@ export interface SchoolMenu {
   fetchedAt: string | null;
   missingMonths: string[];
 }
+
+/**
+ * A record that what the school asked for on one day was ticked off.
+ *
+ * It records that *somebody said they had done it* — nothing more. The app
+ * cannot see inside a schoolbag, so an absent row means "this was not ticked
+ * off", never "the book was forgotten". Everything built on it inherits that
+ * limit, the same way the awareness engine reports what co-occurred and
+ * refuses to say why.
+ */
+export interface SchoolPrep {
+  memberId: string;
+  date: string;
+  subject: string;
+  note: string | null;
+  packedAt: string;
+}

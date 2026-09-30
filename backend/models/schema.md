@@ -28,6 +28,7 @@ items returned from a `Query` without a second read.
 | Focus block         | `FAMILY#<familyId>`   | `FOCUS#<isoDate>#<blockId>` | —                       | —                          |
 | School profile      | `FAMILY#<familyId>`   | `SCHOOL#<memberId>`         | —                       | —                          |
 | School menu month   | `FAMILY#<familyId>`   | `SCHOOLMENU#<menuId>#<yyyy-mm>`| —                    | —                          |
+| School prep tick    | `FAMILY#<familyId>`   | `SCHOOLPREP#<isoDate>#<memberId>`| —                  | —                          |
 
 `Family` (`METADATA`) is the tenant record every other item's `PK` depends
 on, and the only thing that makes a `familyId` real rather than an
@@ -184,6 +185,36 @@ Note the prefixes once more. `SCHOOL#` ends in a `#`, so
 them under `SCHOOLMENU#` — the byte in that position is `M`, not `#`. There
 is a test asserting it, because a prefix query that quietly returns a
 neighbour's rows reads as missing data rather than as an error.
+
+`School prep tick` is the record that what the school asked for on one day
+was actually dealt with — the library book put in the bag, the laptop put on
+the charger. Without it the specials note was information only: it came back
+identical every Wednesday evening whether or not anyone had acted on it, and
+a prompt that cannot be answered is one people learn to walk past.
+
+Be exact about what this row asserts, because everything built on it
+inherits the limit. It records that *somebody said they had done it*. The app
+has no way of knowing whether the book is really in the bag, so nothing may
+read an absent row as "it was forgotten" — only as "this was not ticked
+off". That is the same discipline `frontend/src/lib/awareness.ts` follows in
+reporting what co-occurred and refusing to say why.
+
+`subject` and `note` are copied onto the row rather than looked up through
+the profile, exactly as a task completion copies its title. A rotation
+edited in January must not silently rewrite what December's ticks were
+about. `packedAt` is kept from the first write and never bumped: two taps on
+a kitchen screen, or the retry after a dropped response, must not move the
+time somebody said it was done.
+
+The date comes first in this sort key and the member second — the opposite
+way round from `School profile`. Reads here are always "what was ticked over
+this range", the same shape as task completions, and date-first is what
+makes that a range query rather than a scan.
+
+There are now three prefixes beginning with the word SCHOOL — `SCHOOL#`,
+`SCHOOLMENU#` and `SCHOOLPREP#` — and none is a prefix of another, because
+each closes its own word with a `#` where the others have a letter. There is
+a test asserting it rather than a comment claiming it.
 
 Days the school publishes as empty — Labor Day, fall break, a conference day
 — are absent from `days` and counted separately from days that could not be

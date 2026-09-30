@@ -29,9 +29,12 @@ src/
                               and its subject is a chore or a meal or a list, never a person
     routines.ts              Meal rhythms, grocery cadences, busiest day, and the week draft
     schoolDay.ts             The school day: which day is the one to prepare for (today until the
-                              after-school window closes, tomorrow after), and what the sheet says
-                              has to be in the bag. Also merges the specials rotation into the
-                              calendar rather than storing it as a year of events
+                              after-school window closes, tomorrow after), what the sheet says has
+                              to be in the bag, and whether anyone has ticked it off. A tick is
+                              filed against the day the note is *for* — `prepRecordFor`, which is
+                              the rule that decides whether this feature helps or nags. Also
+                              merges the specials rotation into the calendar rather than storing
+                              it as a year of events
     gemThreats.ts            Which chore has slipped its window, and which character comes for it
     familyKey.ts             The per-device family id + key (see "Connecting a screen" below)
     api.ts                   Typed fetch client: friendly errors, a 12s timeout, one retry on reads
@@ -46,8 +49,10 @@ src/
     TaskList.tsx             Today's chores, grouped by part of the day and reordered by the clock
     Kitchen.tsx              The meal plan and the shopping list, behind one pair of tabs
     Insights.tsx             What we've noticed, each with its because
-    SchoolDay.tsx            Tomorrow's specials and what they need brought, plus that day's
-                              published school lunch
+    SchoolDay.tsx            Tomorrow's specials and what they need brought, ticked off or not,
+                              plus that day's published school lunch. An untouched note reads
+                              "still not ticked off" — a fact about the records — and never
+                              "forgotten", on a screen the child can read
     PrizeGoal.tsx            What each child is saving for, and claiming it
     GemCastle.tsx            The castle, opened from the header's gem total
     Calendar.tsx / MealPlan.tsx / GroceryCart.tsx / FamilyFavorites.tsx / ChoreLibrary.tsx

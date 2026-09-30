@@ -292,6 +292,41 @@ Resources:
             Path: /families/{familyId}/school-menu
             Method: GET
 
+  SchoolPrepFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/schoolPrep.ts]
+    Properties:
+      Handler: src/handlers/schoolPrep.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref YouEnjoyMyFamilyTable
+      Events:
+        List:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/school-prep
+            Method: GET
+        MarkPacked:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/school-prep/{memberId}/{date}
+            Method: PUT
+        Undo:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/school-prep/{memberId}/{date}
+            Method: DELETE
+
   SchedulesFunction:
     Type: AWS::Serverless::Function
     Metadata:

@@ -49,6 +49,9 @@ vi.mock("../lib/api", () => ({
     recordFocusBlock: vi.fn(),
     listSchoolProfiles: vi.fn(),
     getSchoolMenu: vi.fn(),
+    listSchoolPrep: vi.fn(),
+    markSchoolPrepPacked: vi.fn(),
+    undoSchoolPrepPacked: vi.fn(),
   },
 }));
 
@@ -65,6 +68,7 @@ describe("Dashboard", () => {
     vi.mocked(api.listRoutineRuns).mockResolvedValue([]);
     vi.mocked(api.listFocusBlocks).mockResolvedValue([]);
     vi.mocked(api.listSchoolProfiles).mockResolvedValue([]);
+    vi.mocked(api.listSchoolPrep).mockResolvedValue([]);
   });
 
   /**
@@ -1401,6 +1405,137 @@ describe("Dashboard", () => {
         expect([...asked].sort()).toEqual(["Parker", "Rowan"]);
       });
       expect(screen.getByRole("heading", { name: /Today.s chores/i })).toBeInTheDocument();
+    });
+  });
+
+  describe("Dashboard — ticking the school note off", () => {
+    beforeEach(() => {
+      vi.mocked(api.listTasks).mockResolvedValue([]);
+      vi.mocked(api.listSchedules).mockResolvedValue([]);
+      vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+      vi.mocked(api.listSchoolPrep).mockResolvedValue([]);
+    });
+
+    /**
+     * Thursday 1 October 2026, ten to seven in the morning — Library day,
+     * and the last hour in which an untouched library book can still be
+     * dealt with.
+     *
+     * The clock is pinned with `toFake: ["Date"]` rather than the whole
+     * timer set. Replacing the timers makes `waitFor` burn its own timeout
+     * in a few real milliseconds and give up before the school effect's
+     * promise chain has settled.
+     *
+     * These cover the round trip — click, request, optimistic render,
+     * rollback. The rule about *which day* a tick is filed against is tested
+     * in lib/schoolDay.test.ts against `prepRecordFor`, where an evening can
+     * be pinned without rendering a whole dashboard to do it.
+     */
+    const THURSDAY_MORNING = new Date(2026, 9, 1, 6, 50);
+    const THURSDAY = "2026-10-01";
+    const pinTo = (when: Date) => vi.useFakeTimers({ toFake: ["Date"], now: when });
+
+    const PARKER = {
+      memberId: "Parker",
+      schoolName: "Violet Elementary",
+      teacher: "Miss Hineline",
+      gradeLabel: null,
+      specials: [{ dayOfWeek: 4, subject: "Library", prepNote: "Bring the library book back." }],
+      menuSource: null,
+    };
+
+    it("sends the tick and shows it before the server has answered", async () => {
+      pinTo(THURSDAY_MORNING);
+      vi.mocked(api.listSchoolProfiles).mockResolvedValue([PARKER]);
+      vi.mocked(api.markSchoolPrepPacked).mockImplementation(async (_f: string, memberId: string, date: string) => ({
+        memberId,
+        date,
+        subject: "Library",
+        note: "Bring the library book back.",
+        packedAt: new Date().toISOString(),
+      }));
+
+      render(<Dashboard />);
+      // Waited on the button rather than the note: the note text appears on
+      // the calendar as well as on the school panel, by design.
+      await waitFor(() => expect(screen.getByRole("button", { name: "Packed" })).toBeInTheDocument());
+      fireEvent.click(screen.getByRole("button", { name: "Packed" }));
+
+      await waitFor(() => expect(api.markSchoolPrepPacked).toHaveBeenCalledTimes(1));
+      const [, memberId, date, body] = vi.mocked(api.markSchoolPrepPacked).mock.calls[0]!;
+      expect(memberId).toBe("Parker");
+      expect(date).toBe(THURSDAY);
+      expect(body).toMatchObject({ subject: "Library", note: "Bring the library book back." });
+      await waitFor(() => expect(screen.getByText(/Ticked off at/)).toBeInTheDocument());
+    });
+
+    it("files an evening tick against tomorrow, the day the note is for", async () => {
+      // The strong version of the rule, end to end: at half eight on
+      // Wednesday the panel is asking about Thursday, so that is the day the
+      // tick has to land on. `prepRecordFor` is unit-tested for the same
+      // thing; this proves the dashboard actually uses it.
+      vi.useFakeTimers({ toFake: ["Date"], now: new Date(2026, 8, 30, 20, 30) });
+      vi.mocked(api.listSchoolProfiles).mockResolvedValue([PARKER]);
+      vi.mocked(api.markSchoolPrepPacked).mockImplementation(async (_f: string, memberId: string, date: string) => ({
+        memberId,
+        date,
+        subject: "Library",
+        note: "Bring the library book back.",
+        packedAt: new Date().toISOString(),
+      }));
+
+      render(<Dashboard />);
+      await waitFor(() => expect(screen.getByRole("button", { name: "Packed" })).toBeInTheDocument());
+      fireEvent.click(screen.getByRole("button", { name: "Packed" }));
+
+      await waitFor(() => expect(api.markSchoolPrepPacked).toHaveBeenCalledTimes(1));
+      const [, , date] = vi.mocked(api.markSchoolPrepPacked).mock.calls[0]!;
+      expect(date).toBe(THURSDAY);
+      expect(date).not.toBe("2026-09-30");
+    });
+
+    it("reads a tick made last night back, so the morning stops asking", async () => {
+      pinTo(THURSDAY_MORNING);
+      vi.mocked(api.listSchoolProfiles).mockResolvedValue([PARKER]);
+      vi.mocked(api.listSchoolPrep).mockResolvedValue([
+        {
+          memberId: "Parker",
+          date: THURSDAY,
+          subject: "Library",
+          note: "Bring the library book back.",
+          packedAt: "2026-09-30T20:31:00.000Z",
+        },
+      ]);
+
+      render(<Dashboard />);
+
+      await waitFor(() => expect(screen.getByText(/Ticked off at/)).toBeInTheDocument());
+      expect(screen.queryByText("Still not ticked off.")).not.toBeInTheDocument();
+    });
+
+    it("says what is still outstanding on the morning it matters", async () => {
+      pinTo(THURSDAY_MORNING);
+      vi.mocked(api.listSchoolProfiles).mockResolvedValue([PARKER]);
+
+      render(<Dashboard />);
+
+      await waitFor(() => expect(screen.getByText("Still not ticked off.")).toBeInTheDocument());
+    });
+
+    it("puts the tick back when the server refuses it", async () => {
+      pinTo(THURSDAY_MORNING);
+      vi.mocked(api.listSchoolProfiles).mockResolvedValue([PARKER]);
+      vi.mocked(api.markSchoolPrepPacked).mockRejectedValue(new Error("nope"));
+
+      render(<Dashboard />);
+      // Waited on the button rather than the note: the note text appears on
+      // the calendar as well as on the school panel, by design.
+      await waitFor(() => expect(screen.getByRole("button", { name: "Packed" })).toBeInTheDocument());
+      fireEvent.click(screen.getByRole("button", { name: "Packed" }));
+
+      // Rolled back rather than left showing a state the server never took.
+      await waitFor(() => expect(screen.getByRole("button", { name: "Packed" })).toBeInTheDocument());
+      expect(screen.queryByText(/Ticked off at/)).not.toBeInTheDocument();
     });
   });
 });

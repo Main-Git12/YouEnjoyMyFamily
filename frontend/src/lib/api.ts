@@ -1,4 +1,4 @@
-import type { Task, TaskCompletion, ScheduleEntry, CartItem, StatedPreference, MealPlanEntry, MealSlot, RewardGoal, GemBalance, GemBalanceReport, Routine, RoutineRun, RoutineStep, FocusBlock, SchoolProfile, SchoolMenu } from "../types";
+import type { Task, TaskCompletion, ScheduleEntry, CartItem, StatedPreference, MealPlanEntry, MealSlot, RewardGoal, GemBalance, GemBalanceReport, Routine, RoutineRun, RoutineStep, FocusBlock, SchoolProfile, SchoolMenu, SchoolPrep } from "../types";
 
 import { getFamilyApiKey } from "./familyKey";
 
@@ -211,6 +211,21 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(profile),
     }),
+
+  listSchoolPrep: (familyId: string, start: string, end: string) =>
+    request<SchoolPrep[]>(`/families/${familyId}/school-prep?start=${start}&end=${end}`),
+
+  markSchoolPrepPacked: (familyId: string, memberId: string, date: string, prep: { subject: string; note?: string | null }) =>
+    request<SchoolPrep>(`/families/${familyId}/school-prep/${encodeURIComponent(memberId)}/${date}`, {
+      method: "PUT",
+      body: JSON.stringify(prep),
+    }),
+
+  undoSchoolPrepPacked: (familyId: string, memberId: string, date: string) =>
+    request<{ deleted: { memberId: string; date: string } }>(
+      `/families/${familyId}/school-prep/${encodeURIComponent(memberId)}/${date}`,
+      { method: "DELETE" }
+    ),
 
   /**
    * The published lunch menu for one child over one date range.

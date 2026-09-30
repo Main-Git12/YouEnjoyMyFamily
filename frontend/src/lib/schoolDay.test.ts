@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { horizonFor, lunchOn, menuSource, packingNotes, schoolDayNotes, specialOn } from "./schoolDay";
+import {
+  horizonFor,
+  isStillOpen,
+  lunchOn,
+  menuSource,
+  packingNotes,
+  prepRecordFor,
+  schoolDayNotes,
+  specialOn,
+  stillOpenThisMorning,
+} from "./schoolDay";
 import type { SchoolMenu, SchoolProfile } from "../types";
+import { WINDOW_CLOSES_AT_MINUTE } from "./timeOfDay";
 
 /** Miss Hineline's sheet, word for word off the paper on the fridge. */
 const PARKER: SchoolProfile = {
@@ -174,5 +185,139 @@ describe("the lunch menu", () => {
       "Violet Elementary's published lunch menu — couldn't be loaded."
     );
     expect(menuSource(null, now)).toBeNull();
+  });
+});
+
+describe("what has been ticked off", () => {
+  const packed = (date: string, memberId = "Parker") => ({
+    memberId,
+    date,
+    subject: "Library",
+    note: "Have your student bring in their library book to return.",
+    packedAt: `${date}T06:40:00.000Z`,
+  });
+
+  it("marks a note as ticked when there is a record for that child on that day", () => {
+    const notes = schoolDayNotes([PARKER], at("2026-09-30", 20), [packed("2026-10-01")]);
+    expect(notes[0]?.packedAt).toBe("2026-10-01T06:40:00.000Z");
+    expect(isStillOpen(notes[0]!)).toBe(false);
+  });
+
+  it("does not credit one child's tick to another, or one day's to the next", () => {
+    const wrongChild = schoolDayNotes([PARKER], at("2026-09-30", 20), [packed("2026-10-01", "Rowan")]);
+    expect(wrongChild[0]?.packedAt).toBeNull();
+    const wrongDay = schoolDayNotes([PARKER], at("2026-09-30", 20), [packed("2026-09-30")]);
+    expect(wrongDay[0]?.packedAt).toBeNull();
+  });
+
+  it("puts what is still open above what is already done", () => {
+    const sibling: SchoolProfile = {
+      ...PARKER,
+      memberId: "Rowan",
+      specials: [{ dayOfWeek: 4, subject: "Gym", prepNote: "Closed toed shoes." }],
+    };
+    const notes = schoolDayNotes([PARKER, sibling], at("2026-09-30", 20), [packed("2026-10-01")]);
+    expect(notes.map((n) => n.memberId)).toEqual(["Rowan", "Parker"]);
+  });
+
+  it("puts a day that needs nothing last, ticked or not", () => {
+    const quiet: SchoolProfile = {
+      ...PARKER,
+      memberId: "Rowan",
+      specials: [{ dayOfWeek: 4, subject: "Music", prepNote: null }],
+    };
+    const notes = schoolDayNotes([quiet, PARKER], at("2026-09-30", 20), [packed("2026-10-01")]);
+    expect(notes.map((n) => n.memberId)).toEqual(["Parker", "Rowan"]);
+  });
+});
+
+/**
+ * The evening prompt is the useful one, but it is not the last one. An
+ * unticked library book is worth something at ten to seven and worth
+ * nothing at nine.
+ */
+describe("what is still open while there is time to do something", () => {
+  it("raises today's unticked note in the morning", () => {
+    const open = stillOpenThisMorning([PARKER], at("2026-10-01", 6, 50), []);
+    expect(open.map((n) => n.subject)).toEqual(["Library"]);
+  });
+
+  it("says nothing once the morning window has closed", () => {
+    expect(stillOpenThisMorning([PARKER], at("2026-10-01", 9, 0), [])).toEqual([]);
+    expect(stillOpenThisMorning([PARKER], at("2026-10-01", 14, 0), [])).toEqual([]);
+  });
+
+  it("says nothing about a note that was ticked off", () => {
+    const prep = [
+      {
+        memberId: "Parker",
+        date: "2026-10-01",
+        subject: "Library",
+        note: null,
+        packedAt: "2026-09-30T20:12:00.000Z",
+      },
+    ];
+    expect(stillOpenThisMorning([PARKER], at("2026-10-01", 6, 50), prep)).toEqual([]);
+  });
+
+  it("says nothing in the evening, when the horizon is already tomorrow", () => {
+    // Tomorrow not being packed yet is not outstanding — it is simply not
+    // done yet, and the panel is already asking for it.
+    expect(stillOpenThisMorning([PARKER], at("2026-09-30", 20), [])).toEqual([]);
+  });
+
+  it("says nothing about a day whose subject needs nothing brought", () => {
+    // Monday is Art, and Art asks for nothing.
+    expect(stillOpenThisMorning([PARKER], at("2026-10-05", 6, 50), [])).toEqual([]);
+  });
+
+  it("says nothing at the weekend", () => {
+    expect(stillOpenThisMorning([PARKER], at("2026-10-03", 7, 30), [])).toEqual([]);
+  });
+
+  /**
+   * `stillOpenThisMorning` also filters on `horizon === "today"`, which
+   * today can never be false: the morning window closes at 09:00 and the
+   * evening does not begin until 17:00, so everything before the cutoff is
+   * already "today". A mutation removing that filter passes every test above,
+   * and rather than write a test that cannot fail, this asserts the invariant
+   * the redundancy rests on. If the windows move so that the morning window
+   * outlasts the afternoon, this fails and that filter starts earning its
+   * place.
+   */
+  it("the morning window closes before the evening begins", () => {
+    expect(WINDOW_CLOSES_AT_MINUTE.morning).not.toBeNull();
+    expect(WINDOW_CLOSES_AT_MINUTE.morning as number).toBeLessThan(
+      WINDOW_CLOSES_AT_MINUTE.after_school as number
+    );
+  });
+});
+
+/**
+ * The rule that decides whether the whole feature helps or nags: a tick is
+ * filed against the day the note is *for*. In the evening that is tomorrow.
+ * Filing it against the day the button was pressed would mean the bag gets
+ * packed on Wednesday night and Thursday morning still reports it untouched.
+ */
+describe("what a tick records", () => {
+  it("files an evening tick against tomorrow, not against tonight", () => {
+    const note = schoolDayNotes([PARKER], at("2026-09-30", 20, 30))[0]!;
+    expect(prepRecordFor(note)).toEqual({
+      memberId: "Parker",
+      date: "2026-10-01",
+      subject: "Library",
+      note: "Have your student bring in their library book to return.",
+    });
+    expect(prepRecordFor(note).date).not.toBe("2026-09-30");
+  });
+
+  it("files a morning tick against today", () => {
+    const note = schoolDayNotes([PARKER], at("2026-10-01", 6, 50))[0]!;
+    expect(prepRecordFor(note).date).toBe("2026-10-01");
+  });
+
+  it("carries the school's own wording onto the record", () => {
+    const note = schoolDayNotes([PARKER], at("2026-09-29", 20))[0]!;
+    expect(prepRecordFor(note).note).toBe("Make sure computers are fulled charged.");
   });
 });

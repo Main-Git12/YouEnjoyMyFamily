@@ -44,6 +44,11 @@ src/handlers/                (every handler below has a matching *.test.ts)
                            sent home. `menuSource` is three integers against a closed provider
                            list, never a URL — a URL in a row is request forgery with a table for
                            a front door
+  schoolPrep.ts           /families/{familyId}/school-prep[/{memberId}/{date}] — the record that
+                           what the school asked for on one day was ticked off. Records that
+                           *somebody said they had done it*, nothing more: the app cannot see
+                           inside a schoolbag, so an absent row reads "not ticked off" and never
+                           "forgotten". `packedAt` is kept from the first write, never bumped
   schoolMenu.ts           GET /families/{familyId}/school-menu?memberId=&start=&end= — the
                            published lunch menu, read through a DynamoDB cache of one row per
                            menu-month. Goes to the provider only when what it has is over 12h old;

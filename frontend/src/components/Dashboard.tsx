@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, ApiError } from "../lib/api";
-import type { Task, TaskCompletion, ScheduleEntry, StatedPreference, StatedPreferenceCategory, MealPlanEntry, MealSlot, CartItem, RewardGoal, GemBalance, DueWindow, Routine, RoutineRun, RoutineStep, FocusBlock, SchoolProfile, SchoolMenu } from "../types";
+import type { Task, TaskCompletion, ScheduleEntry, StatedPreference, StatedPreferenceCategory, MealPlanEntry, MealSlot, CartItem, RewardGoal, GemBalance, DueWindow, Routine, RoutineRun, RoutineStep, FocusBlock, SchoolProfile, SchoolMenu, SchoolPrep } from "../types";
 import { chooseThreatenedChore, type ThreatenedChore } from "../lib/gemThreats";
 import FamilyCard from "./FamilyCard";
 import TaskList from "./TaskList";
@@ -26,7 +26,7 @@ import Kitchen from "./Kitchen";
 import CastleOverlay from "./CastleOverlay";
 import { planPanels, drawerLabel, type PanelId } from "../lib/dashboardLayout";
 import SchoolDay from "./SchoolDay";
-import { horizonFor, schoolDayNotes, specialsOn } from "../lib/schoolDay";
+import { horizonFor, prepRecordFor, schoolDayNotes, specialsOn, type SchoolDayNote } from "../lib/schoolDay";
 import type { CardSize } from "./FamilyCard";
 import { currentWindow } from "../lib/timeOfDay";
 
@@ -147,6 +147,8 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   const [schoolProfiles, setSchoolProfiles] = useState<SchoolProfile[]>([]);
   /** Keyed by memberId. A child whose school publishes no menu isn't in here. */
   const [schoolMenus, setSchoolMenus] = useState<Record<string, SchoolMenu>>({});
+  /** What the school asked for and somebody has said is done. */
+  const [schoolPrep, setSchoolPrep] = useState<SchoolPrep[]>([]);
   const [focusOpen, setFocusOpen] = useState(false);
   const [castleOpen, setCastleOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -233,6 +235,11 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   const fetchSchool = useCallback(async () => {
     const profiles = await api.listSchoolProfiles(familyId);
     const end = toLocalIsoDate(new Date(Date.now() + SCHOOL_MENU_DAYS * 24 * 60 * 60 * 1000));
+    // Yesterday as well as ahead: at ten to seven the tick that matters was
+    // made last night, and a window starting today would show this morning's
+    // library book as untouched when somebody had already dealt with it.
+    const prepFrom = toLocalIsoDate(new Date(Date.now() - 24 * 60 * 60 * 1000));
+    const prep = await api.listSchoolPrep(familyId, prepFrom, end).catch(() => []);
     const withMenus = profiles.filter((profile) => profile.menuSource !== null);
     const fetched = await Promise.all(
       withMenus.map((profile) =>
@@ -244,7 +251,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
       const menu = fetched[index];
       if (menu) menus[profile.memberId] = menu;
     });
-    return { profiles, menus };
+    return { profiles, menus, prep };
   }, [familyId, today]);
 
   // Bumped at the start *and* the end of every local write. A sync that
@@ -329,10 +336,11 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
       })
       .catch(() => undefined);
     void fetchSchool()
-      .then(({ profiles, menus }) => {
+      .then(({ profiles, menus, prep }) => {
         if (superseded) return;
         setSchoolProfiles(profiles);
         setSchoolMenus(menus);
+        setSchoolPrep(prep);
       })
       .catch(() => undefined);
     return () => {
@@ -721,7 +729,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
     hasBedtimeRoutine: bedtimeRoutine !== null,
     focusBlocksToday: focusBlocks.filter((block) => block.date === today).length,
     statedPreferenceCount: preferences.length,
-    schoolNotesNow: schoolDayNotes(schoolProfiles, clock).length,
+    schoolNotesNow: schoolDayNotes(schoolProfiles, clock, schoolPrep).length,
   };
   const panelPlan = planPanels(panelSignals);
 
@@ -1016,6 +1024,50 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
     }
   }
 
+  /**
+   * Ticking the school note off, and taking it back.
+   *
+   * Applied locally first: the person tapping "Packed" is standing at the
+   * screen holding the library book, and a button that waits on a round trip
+   * before acknowledging gets pressed twice. A failure puts the old rows
+   * back rather than leaving a tick the server never took.
+   */
+  async function handleSchoolPacked(note: SchoolDayNote) {
+    const previous = schoolPrep;
+    const record = prepRecordFor(note);
+    const optimistic: SchoolPrep = { ...record, packedAt: new Date().toISOString() };
+    setSchoolPrep((prev) => [
+      ...prev.filter((row) => !(row.date === record.date && row.memberId === record.memberId)),
+      optimistic,
+    ]);
+    try {
+      const saved = await guardedWrite(() =>
+        api.markSchoolPrepPacked(familyId, record.memberId, record.date, {
+          subject: record.subject,
+          note: record.note,
+        })
+      );
+      setSchoolPrep((prev) => prev.map((row) => (row.date === saved.date && row.memberId === saved.memberId ? saved : row)));
+      setError(null);
+    } catch (err) {
+      setSchoolPrep(previous);
+      reportError(err);
+    }
+  }
+
+  async function handleSchoolUnpacked(note: SchoolDayNote) {
+    const previous = schoolPrep;
+    const record = prepRecordFor(note);
+    setSchoolPrep((prev) => prev.filter((row) => !(row.date === record.date && row.memberId === record.memberId)));
+    try {
+      await guardedWrite(() => api.undoSchoolPrepPacked(familyId, record.memberId, record.date));
+      setError(null);
+    } catch (err) {
+      setSchoolPrep(previous);
+      reportError(err);
+    }
+  }
+
   async function handleCheckout(): Promise<string> {
     const { productsLinkUrl } = await api.checkoutGroceryCart(familyId);
     return productsLinkUrl;
@@ -1025,7 +1077,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
    * Every panel the dashboard can show, keyed by id, so the layout plan
    * can place them without the render knowing what's in any of them.
    */
-  const schoolNotes = schoolDayNotes(schoolProfiles, clock);
+  const schoolNotes = schoolDayNotes(schoolProfiles, clock, schoolPrep);
   const schoolHorizon = horizonFor(clock);
 
   const PANELS: Record<PanelId, { title: string; subtitle?: string; body: ReactNode }> = {
@@ -1180,7 +1232,16 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
       subtitle: schoolNotes.length
         ? `${schoolHorizon.horizon === "today" ? "Today" : "Tomorrow"} — ${schoolNotes.map((note) => note.subject).join(", ")}`
         : undefined,
-      body: <SchoolDay profiles={schoolProfiles} menus={schoolMenus} now={clock} />,
+      body: (
+        <SchoolDay
+          profiles={schoolProfiles}
+          menus={schoolMenus}
+          prep={schoolPrep}
+          onPacked={handleSchoolPacked}
+          onUnpacked={handleSchoolUnpacked}
+          now={clock}
+        />
+      ),
     },
   };
 

@@ -1,4 +1,4 @@
-import type { SchoolMenu, SchoolMenuDay, SchoolProfile, SchoolSpecial } from "../types";
+import type { SchoolMenu, SchoolMenuDay, SchoolPrep, SchoolProfile, SchoolSpecial } from "../types";
 import { toLocalIsoDate } from "./dates";
 import { weekdayOf } from "./routines";
 import { WINDOW_CLOSES_AT_MINUTE, minutesIntoDay } from "./timeOfDay";
@@ -65,6 +65,16 @@ export interface SchoolCalendarEntry {
 
 export interface SchoolDayNote extends SchoolCalendarEntry {
   horizon: Horizon;
+  /**
+   * When somebody said this was done, or null.
+   *
+   * Null means *not ticked off*, and that is the only thing it is allowed to
+   * mean. The app cannot see inside a schoolbag: the book may well be in
+   * there. Every line built on this says "not ticked off", never "forgotten"
+   * — the same discipline the awareness engine keeps when it reports what
+   * co-occurred and refuses to say why.
+   */
+  packedAt: string | null;
 }
 
 const sheetSource = (profile: SchoolProfile): string =>
@@ -80,13 +90,19 @@ const sheetSource = (profile: SchoolProfile): string =>
  * problem, and putting them on screen for the whole weekend is how a screen
  * teaches people to stop reading it.
  */
-export function schoolDayNotes(profiles: SchoolProfile[], now: Date = new Date()): SchoolDayNote[] {
+export function schoolDayNotes(
+  profiles: SchoolProfile[],
+  now: Date = new Date(),
+  prep: SchoolPrep[] = []
+): SchoolDayNote[] {
   const { horizon, date } = horizonFor(now);
+  const packed = new Map(prep.map((row) => [`${row.date}:${row.memberId}`, row.packedAt]));
   return specialsOn(profiles, date)
-    .map((entry) => ({ ...entry, horizon }))
-    // The ones with something to bring first: a day that needs nothing is
-    // worth a glance, and a day that needs the library book is worth acting on.
-    .sort((a, b) => Number(Boolean(b.prepNote)) - Number(Boolean(a.prepNote)));
+    .map((entry) => ({ ...entry, horizon, packedAt: packed.get(`${date}:${entry.memberId}`) ?? null }))
+    // Still open first, then anything else that asks for something, then the
+    // days that need nothing. A ticked-off Thursday has stopped being a job
+    // and should not sit above an untouched one.
+    .sort((a, b) => rank(a) - rank(b));
 }
 
 /**
@@ -117,9 +133,75 @@ export function specialsOn(profiles: SchoolProfile[], isoDate: string): SchoolCa
   return entries;
 }
 
-/** Just the ones that actually ask for something. */
-export const packingNotes = (profiles: SchoolProfile[], now: Date = new Date()): SchoolDayNote[] =>
-  schoolDayNotes(profiles, now).filter((note) => note.prepNote !== null);
+/**
+ * Where a note sits in the list: still open, done, or nothing to do.
+ * Written as a function of the note rather than a chain of comparators so
+ * the ordering can be read in one line.
+ */
+const rank = (note: SchoolDayNote): number => {
+  if (note.prepNote === null) return 2;
+  return note.packedAt === null ? 0 : 1;
+};
+
+/**
+ * What a tick records.
+ *
+ * `date` is the day the note is *for*, which in the evening is tomorrow —
+ * never the day the button happened to be pressed. Getting that backwards
+ * would mean the bag is packed on Wednesday night and Thursday morning still
+ * says it was never ticked, which is precisely the nagging this feature
+ * exists to stop. It is a named function rather than four inline arguments
+ * so that rule has somewhere to be tested.
+ */
+export const prepRecordFor = (note: SchoolDayNote): { memberId: string; date: string; subject: string; note: string | null } => ({
+  memberId: note.memberId,
+  date: note.date,
+  subject: note.subject,
+  note: note.prepNote,
+});
+
+/** A note that asks for something and has not been ticked off. */
+export const isStillOpen = (note: SchoolDayNote): boolean =>
+  note.prepNote !== null && note.packedAt === null;
+
+/** Just the ones that actually ask for something, ticked or not. */
+export const packingNotes = (
+  profiles: SchoolProfile[],
+  now: Date = new Date(),
+  prep: SchoolPrep[] = []
+): SchoolDayNote[] => schoolDayNotes(profiles, now, prep).filter((note) => note.prepNote !== null);
+
+/**
+ * What is still outstanding while there is time left to do something.
+ *
+ * The evening prompt is the useful one, but it is not the last one. If
+ * nobody ticked the library book off last night, the fact is worth
+ * something at ten to seven this morning and worth nothing at all at nine —
+ * so this answers only before the morning window closes, and only about
+ * today. That is the same rule the routine planner works to: a plan is
+ * built backwards from the moment it stops being actionable.
+ *
+ * It returns notes, not accusations. The caller may say "not ticked off".
+ * It may not say "forgotten", because nothing here knows that.
+ */
+export function stillOpenThisMorning(
+  profiles: SchoolProfile[],
+  now: Date = new Date(),
+  prep: SchoolPrep[] = []
+): SchoolDayNote[] {
+  const closesAt = WINDOW_CLOSES_AT_MINUTE.morning;
+  if (closesAt === null || minutesIntoDay(now) >= closesAt) return [];
+  const notes = schoolDayNotes(profiles, now, prep);
+  // The `horizon` half is belt-and-braces rather than load-bearing: with the
+  // app's current windows — morning closes at 09:00, the evening begins at
+  // 17:00 — anything this side of the cutoff above is already "today", so
+  // that test can never fail. It is kept because it is the condition
+  // actually meant (an unpacked *tomorrow* is not outstanding, it is just
+  // not done yet), and the invariant it leans on is asserted in
+  // schoolDay.test.ts. If those windows ever move, that test says so instead
+  // of this silently starting to matter.
+  return notes.filter((note) => note.horizon === "today" && isStillOpen(note));
+}
 
 /** The published menu for one date, or null when the school published none. */
 export function lunchOn(menu: SchoolMenu | null | undefined, isoDate: string): SchoolMenuDay | null {

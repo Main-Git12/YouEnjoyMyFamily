@@ -727,3 +727,44 @@ export interface SchoolMenuMonthItem {
   /** When this was last read from the provider — what staleness is judged on. */
   fetchedAt: string;
 }
+
+/**
+ * A record that what the school asked for on one day was actually dealt with.
+ *
+ * The specials sheet alone is information: it says Thursday is Library. The
+ * app already puts that on the wall the night before. What it could not do
+ * is tell the difference between a note somebody read and a book that is in
+ * the bag — so the note came back identical every Wednesday evening, and a
+ * prompt that cannot be answered is one people learn to walk past.
+ *
+ * Note carefully what this records and what it does not. Ticking it means
+ * *somebody said they had done it*, nothing more. The app has no way of
+ * knowing whether the book is really in the bag, so nothing built on this
+ * may claim that it is. The honest reading of an unticked Thursday is "this
+ * was not ticked off", never "the book was forgotten" — the same rule the
+ * awareness engine follows when it reports what co-occurred and refuses to
+ * say why.
+ *
+ * `subject` and `note` are copied onto the row rather than looked up, the
+ * same way a task completion copies its title. A rotation that changes in
+ * January must not silently rewrite what December's ticks were about.
+ */
+export const SchoolPrepInput = z.object({
+  /** Copied from the rotation so the record reads on its own. */
+  subject: z.string().min(1).max(60),
+  note: z.string().max(240).nullable().optional(),
+});
+export type SchoolPrepInput = z.infer<typeof SchoolPrepInput>;
+
+export interface SchoolPrepItem {
+  PK: string;
+  SK: string;
+  entityType: "SCHOOL_PREP";
+  familyId: string;
+  memberId: string;
+  date: string;
+  subject: string;
+  note: string | null;
+  /** When somebody said it was done. The only fact this row actually holds. */
+  packedAt: string;
+}
