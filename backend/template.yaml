@@ -95,6 +95,18 @@ Resources:
             Path: /families
             Method: POST
 
+        Get:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}
+            Method: GET
+        Update:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}
+            Method: PUT
   TasksFunction:
     Type: AWS::Serverless::Function
     Metadata:
@@ -326,6 +338,31 @@ Resources:
             ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}/school-prep/{memberId}/{date}
             Method: DELETE
+
+  WeatherFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/weather.ts]
+    Properties:
+      Handler: src/handlers/weather.handler
+      CodeUri: .
+      # Waits on somebody else's server, like the school menu does.
+      Timeout: 20
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref YouEnjoyMyFamilyTable
+      Events:
+        Get:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/weather
+            Method: GET
 
   SchedulesFunction:
     Type: AWS::Serverless::Function

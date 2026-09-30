@@ -351,6 +351,41 @@ export type CreateFamilyInput = z.infer<typeof CreateFamilyInput>;
 // caller-supplied string — see POST /families (families.ts) for how one gets
 // created, and lib/auth.ts for how apiKeyHash is checked on every other
 // route. The raw API key is never stored, only its SHA-256 hash.
+/**
+ * Where the household is, and which clock it keeps.
+ *
+ * Stored once for the family rather than per member, because a household
+ * leaves from one front door. The coordinate is rounded before it is ever
+ * sent anywhere (see `roundCoordinate` in lib/weather.ts) — about a
+ * kilometre, enough for a forecast and not enough to point at a house.
+ *
+ * `timeZone` earns its place beyond the weather: the Alexa skill currently
+ * carries the family's zone as an environment variable on its Lambda, which
+ * is a second copy of a fact that belongs here.
+ */
+export const HouseholdLocationInput = z.object({
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  /** An IANA zone, e.g. `America/New_York`. */
+  timeZone: z.string().min(1).max(64),
+  /** What to call it on screen. Never sent to any third party. */
+  label: z.string().max(80).nullable().optional(),
+});
+export type HouseholdLocationInput = z.infer<typeof HouseholdLocationInput>;
+
+export const FamilyPatch = z.object({
+  name: z.string().min(1).max(120).nullable().optional(),
+  location: HouseholdLocationInput.nullable().optional(),
+});
+export type FamilyPatch = z.infer<typeof FamilyPatch>;
+
+export interface HouseholdLocation {
+  latitude: number;
+  longitude: number;
+  timeZone: string;
+  label: string | null;
+}
+
 export interface FamilyRecord {
   PK: string;
   SK: "METADATA";
@@ -359,6 +394,8 @@ export interface FamilyRecord {
   name: string | null;
   apiKeyHash: string;
   createdAt: string;
+  /** Null until a parent says where the house is. */
+  location?: HouseholdLocation | null;
 }
 
 export interface CalendarTokenRecord {
@@ -767,4 +804,23 @@ export interface SchoolPrepItem {
   note: string | null;
   /** When somebody said it was done. The only fact this row actually holds. */
   packedAt: string;
+}
+
+/**
+ * One cached hour of weather.
+ *
+ * `weather` is nullable and that null is meaningful: it records that the
+ * provider had no row for that hour — a date past the forecast horizon,
+ * usually — so the app does not ask again every thirty seconds for
+ * something that does not exist yet.
+ */
+export interface WeatherHourItem {
+  PK: string;
+  SK: string;
+  entityType: "WEATHER_HOUR";
+  familyId: string;
+  date: string;
+  atTime: string;
+  weather: import("./lib/weather").WeatherAt | null;
+  fetchedAt: string;
 }

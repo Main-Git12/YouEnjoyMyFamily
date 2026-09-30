@@ -29,6 +29,7 @@ items returned from a `Query` without a second read.
 | School profile      | `FAMILY#<familyId>`   | `SCHOOL#<memberId>`         | —                       | —                          |
 | School menu month   | `FAMILY#<familyId>`   | `SCHOOLMENU#<menuId>#<yyyy-mm>`| —                    | —                          |
 | School prep tick    | `FAMILY#<familyId>`   | `SCHOOLPREP#<isoDate>#<memberId>`| —                  | —                          |
+| Weather hour        | `FAMILY#<familyId>`   | `WEATHER#<isoDate>T<HH>`    | —                       | —                          |
 
 `Family` (`METADATA`) is the tenant record every other item's `PK` depends
 on, and the only thing that makes a `familyId` real rather than an
@@ -221,6 +222,34 @@ Days the school publishes as empty — Labor Day, fall break, a conference day
 parsed. Collapsing the two was the first version of this, and it reported
 three parse failures for a district that had simply closed the school, which
 made the failure count worthless for spotting a real one.
+
+`Family` now also carries an optional `location` — a coordinate, an IANA
+time zone and a label — set through `PUT /families/{familyId}`. It is
+stored once for the household because a family leaves from one front door,
+and the coordinate is **rounded to two decimal places on the way in**, not
+on the way out to the weather service: keeping a precise location in a
+database for the sake of a forecast that does not need one would be storing
+a risk for no benefit. Two decimal places is about a kilometre.
+
+That row is the family's only credential, so `PUT` merges field by field
+onto the stored record rather than spreading a patch over it. A spread here
+is one careless edit away from erasing `apiKeyHash`, and there is no
+recovering from that — the raw key exists only on the family's devices.
+
+`Weather hour` caches one hour of forecast: the hour the family actually
+leaves. The cache is not an optimisation, it is what makes the feature
+possible. Every screen re-reads the family's data every thirty seconds, so
+three devices would be eight and a half thousand requests a day to a free
+service for a number that changes hourly — the first live call from this
+repo was answered with a rate limit, which is how that was learned rather
+than assumed. One row per hour actually asked for is a handful a day.
+
+A cached hour older than an hour is refreshed; one that cannot be refreshed
+is served from the last copy with `stale: true` and *without* its
+`fetchedAt` bumped, exactly as `School menu month` does. `weather` is
+nullable and the null is meaningful: it records that the provider had no row
+for that hour — a date past the forecast horizon — so the app stops asking
+for something that does not exist yet.
 
 ## Access patterns
 
