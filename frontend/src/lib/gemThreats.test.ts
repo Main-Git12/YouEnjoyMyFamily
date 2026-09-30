@@ -11,7 +11,7 @@ function task(overrides: Partial<Task> = {}): Task {
     gemValue: 10,
     dueWindow: "after_dinner", date: "2026-09-23", recurrence: "daily", completedOn: null,
     status: "pending",
-    gemsAwarded: 0,
+    gemsAwarded: 0, createdAt: "2020-01-01T00:00:00.000Z",
     ...overrides,
   };
 }
@@ -63,7 +63,7 @@ describe("chooseThreatenedChore", () => {
   });
 
   it("raises nothing for a chore already ticked off", () => {
-    expect(chooseThreatenedChore([task({ status: "done", gemsAwarded: 10 })], at(21, 0))).toBeNull();
+    expect(chooseThreatenedChore([task({ status: "done", gemsAwarded: 10 , createdAt: "2020-01-01T00:00:00.000Z"})], at(21, 0))).toBeNull();
   });
 
   it("picks the chore furthest past its window", () => {

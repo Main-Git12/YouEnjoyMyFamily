@@ -12,7 +12,7 @@ const threatened: ThreatenedChore = {
     gemValue: 10,
     dueWindow: "after_dinner", date: "2026-09-23", recurrence: "daily", completedOn: null,
     status: "pending",
-    gemsAwarded: 0,
+    gemsAwarded: 0, createdAt: "2020-01-01T00:00:00.000Z",
   },
   threat: threatForChore("Wipe Table"),
   assignee: "Parker",

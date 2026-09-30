@@ -15,8 +15,8 @@ describe("TaskList", () => {
 
   it("renders each task's title and due date", () => {
     const tasks: Task[] = [
-      { taskId: "t1", title: "Pack soccer bag", assignedTo: null, dueDate: "2025-01-15", gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
-      { taskId: "t2", title: "Buy milk", assignedTo: null, dueDate: null, gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
+      { taskId: "t1", title: "Pack soccer bag", assignedTo: null, dueDate: "2025-01-15", gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 , createdAt: "2020-01-01T00:00:00.000Z"},
+      { taskId: "t2", title: "Buy milk", assignedTo: null, dueDate: null, gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 , createdAt: "2020-01-01T00:00:00.000Z"},
     ];
 
     render(<TaskList tasks={tasks} />);
@@ -29,7 +29,7 @@ describe("TaskList", () => {
   it("calls onComplete when a pending task's mark-done button is clicked", () => {
     const onComplete = vi.fn();
     const tasks: Task[] = [
-      { taskId: "t1", title: "Pack soccer bag", assignedTo: null, dueDate: null, gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
+      { taskId: "t1", title: "Pack soccer bag", assignedTo: null, dueDate: null, gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 , createdAt: "2020-01-01T00:00:00.000Z"},
     ];
 
     render(<TaskList tasks={tasks} onComplete={onComplete} />);
@@ -41,7 +41,7 @@ describe("TaskList", () => {
   it("hides the mark-done button and shows a strikethrough for a completed task", () => {
     const onComplete = vi.fn();
     const tasks: Task[] = [
-      { taskId: "t1", title: "Pack soccer bag", assignedTo: null, dueDate: null, gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "done", gemsAwarded: 10 },
+      { taskId: "t1", title: "Pack soccer bag", assignedTo: null, dueDate: null, gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "done", gemsAwarded: 10 , createdAt: "2020-01-01T00:00:00.000Z"},
     ];
 
     render(<TaskList tasks={tasks} onComplete={onComplete} />);
@@ -52,8 +52,8 @@ describe("TaskList", () => {
 
   it("shows what each chore pays, and what it actually paid once it's done", () => {
     const tasks: Task[] = [
-      { taskId: "t1", title: "Sleep in my own bed", assignedTo: "Parker", dueDate: null, gemValue: 20, dueWindow: "bedtime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
-      { taskId: "t2", title: "Get Dressed", assignedTo: "Isla", dueDate: null, gemValue: 5, dueWindow: "morning", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "done", gemsAwarded: 5 },
+      { taskId: "t1", title: "Sleep in my own bed", assignedTo: "Parker", dueDate: null, gemValue: 20, dueWindow: "bedtime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 , createdAt: "2020-01-01T00:00:00.000Z"},
+      { taskId: "t2", title: "Get Dressed", assignedTo: "Isla", dueDate: null, gemValue: 5, dueWindow: "morning", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "done", gemsAwarded: 5 , createdAt: "2020-01-01T00:00:00.000Z"},
     ];
 
     render(<TaskList tasks={tasks} />);
@@ -64,8 +64,8 @@ describe("TaskList", () => {
 
   it("groups the day by part of day, with a heading for each", () => {
     const tasks: Task[] = [
-      { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "after_dinner", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
-      { taskId: "t2", title: "Get Dressed", assignedTo: "Isla", dueDate: null, gemValue: 5, dueWindow: "morning", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
+      { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "after_dinner", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 , createdAt: "2020-01-01T00:00:00.000Z"},
+      { taskId: "t2", title: "Get Dressed", assignedTo: "Isla", dueDate: null, gemValue: 5, dueWindow: "morning", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 , createdAt: "2020-01-01T00:00:00.000Z"},
     ];
 
     render(<TaskList tasks={tasks} now={new Date(2026, 8, 23, 7, 0)} />);
@@ -79,8 +79,8 @@ describe("TaskList", () => {
 
   it("puts the part of the day you're in at the top, and marks it", () => {
     const tasks: Task[] = [
-      { taskId: "t1", title: "Get Dressed", assignedTo: "Isla", dueDate: null, gemValue: 5, dueWindow: "morning", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
-      { taskId: "t2", title: "Put on pajamas", assignedTo: "Isla", dueDate: null, gemValue: 5, dueWindow: "bedtime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
+      { taskId: "t1", title: "Get Dressed", assignedTo: "Isla", dueDate: null, gemValue: 5, dueWindow: "morning", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 , createdAt: "2020-01-01T00:00:00.000Z"},
+      { taskId: "t2", title: "Put on pajamas", assignedTo: "Isla", dueDate: null, gemValue: 5, dueWindow: "bedtime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 , createdAt: "2020-01-01T00:00:00.000Z"},
     ];
 
     // Half eight in the evening: morning is history, bedtime is the thing.
@@ -94,8 +94,8 @@ describe("TaskList", () => {
 
   it("says how much of each part of the day is left", () => {
     const tasks: Task[] = [
-      { taskId: "t1", title: "Get Dressed", assignedTo: "Isla", dueDate: null, gemValue: 5, dueWindow: "morning", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "done", gemsAwarded: 5 },
-      { taskId: "t2", title: "Brush Teeth", assignedTo: "Isla", dueDate: null, gemValue: 5, dueWindow: "morning", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
+      { taskId: "t1", title: "Get Dressed", assignedTo: "Isla", dueDate: null, gemValue: 5, dueWindow: "morning", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "done", gemsAwarded: 5 , createdAt: "2020-01-01T00:00:00.000Z"},
+      { taskId: "t2", title: "Brush Teeth", assignedTo: "Isla", dueDate: null, gemValue: 5, dueWindow: "morning", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 , createdAt: "2020-01-01T00:00:00.000Z"},
     ];
 
     render(<TaskList tasks={tasks} now={new Date(2026, 8, 23, 7, 0)} />);
@@ -105,7 +105,7 @@ describe("TaskList", () => {
 
   it("says so when a part of the day is finished", () => {
     const tasks: Task[] = [
-      { taskId: "t1", title: "Get Dressed", assignedTo: "Isla", dueDate: null, gemValue: 5, dueWindow: "morning", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "done", gemsAwarded: 5 },
+      { taskId: "t1", title: "Get Dressed", assignedTo: "Isla", dueDate: null, gemValue: 5, dueWindow: "morning", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "done", gemsAwarded: 5 , createdAt: "2020-01-01T00:00:00.000Z"},
     ];
 
     render(<TaskList tasks={tasks} now={new Date(2026, 8, 23, 7, 0)} />);
@@ -116,7 +116,7 @@ describe("TaskList", () => {
   it("marks a chore as still to do once its part of the day has passed", () => {
     vi.useFakeTimers({ now: new Date(2026, 8, 23, 21, 30) });
     const tasks: Task[] = [
-      { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "after_dinner", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
+      { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "after_dinner", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 , createdAt: "2020-01-01T00:00:00.000Z"},
     ];
 
     render(<TaskList tasks={tasks} />);
@@ -127,7 +127,7 @@ describe("TaskList", () => {
   it("does not nag about a chore whose part of the day is still open", () => {
     vi.useFakeTimers({ now: new Date(2026, 8, 23, 18, 45) });
     const tasks: Task[] = [
-      { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "after_dinner", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
+      { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "after_dinner", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 , createdAt: "2020-01-01T00:00:00.000Z"},
     ];
 
     render(<TaskList tasks={tasks} />);
@@ -138,7 +138,7 @@ describe("TaskList", () => {
   it("never calls a finished chore late, however late it is", () => {
     vi.useFakeTimers({ now: new Date(2026, 8, 23, 23, 59) });
     const tasks: Task[] = [
-      { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "after_dinner", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "done", gemsAwarded: 10 },
+      { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "after_dinner", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "done", gemsAwarded: 10 , createdAt: "2020-01-01T00:00:00.000Z"},
     ];
 
     render(<TaskList tasks={tasks} />);

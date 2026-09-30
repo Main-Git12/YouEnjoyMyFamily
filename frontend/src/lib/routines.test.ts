@@ -106,7 +106,7 @@ describe("how each weekday actually goes", () => {
     dueWindow: "after_dinner",
     recurrence: "daily",
     completedOn: null,
-    gemsAwarded: 0,
+    gemsAwarded: 0, createdAt: "2020-01-01T00:00:00.000Z",
   });
   const event = (date: string, scheduleId: string): ScheduleEntry => ({
     scheduleId,

@@ -309,7 +309,7 @@ describe("suggestMorningSteps", () => {
     dueWindow,
     recurrence: "daily",
     completedOn: null,
-    gemsAwarded: 0,
+    gemsAwarded: 0, createdAt: "2020-01-01T00:00:00.000Z",
   });
 
   it("offers the family's own morning chores as a starting point", () => {

@@ -13,7 +13,7 @@ const task = (overrides: Partial<Task> = {}): Task => ({
   dueWindow: "after_dinner",
   recurrence: "daily",
   completedOn: null,
-  gemsAwarded: 0,
+  gemsAwarded: 0, createdAt: "2020-01-01T00:00:00.000Z",
   ...overrides,
 });
 
@@ -247,5 +247,79 @@ describe("the panel as a whole", () => {
       if (insight.kind === "streak") continue;
       expect(insight.title).not.toMatch(/Parker|Isla/);
     }
+  });
+});
+
+/**
+ * The failures a family would have met in their first fortnight — every one
+ * of these produced a wrong sentence on the kitchen wall before it was
+ * fixed, and none of them failed a test or threw.
+ */
+describe("claims the records cannot support", () => {
+  it("says nothing about a chore added today, with no history to judge it by", () => {
+    // Day one in the kitchen: one chore, created an hour ago, nothing done
+    // yet. This used to render "Wipe Table is the one that keeps getting
+    // left", because the denominator counted 29 calendar days and the
+    // numerator counted the zero completions there had been time for.
+    const fresh = task({ createdAt: "2026-09-23T18:00:00.000Z", dueWindow: "bedtime" });
+    const insights = buildInsights(sources({ tasks: [fresh], completions: [] }));
+    expect(insights.filter((i) => i.kind === "slipping")).toEqual([]);
+  });
+
+  it("counts only the days since a chore existed, not the whole window", () => {
+    // Created four days ago and never done: still not enough of a record to
+    // call it the one that keeps getting left.
+    const recent = task({ createdAt: "2026-09-20T09:00:00.000Z", dueWindow: "bedtime" });
+    const insights = buildInsights(sources({ tasks: [recent], completions: [] }));
+    const slipping = insights.find((i) => i.kind === "slipping");
+    if (slipping) expect(slipping.because).toContain("of the last 4 days");
+  });
+
+  it("still notices a chore that really has been left, once there is a record of it", () => {
+    const old = task({ createdAt: "2026-01-01T00:00:00.000Z", dueWindow: "bedtime" });
+    const insights = buildInsights(sources({ tasks: [old], completions: [] }));
+    expect(insights.find((i) => i.kind === "slipping")?.title).toBe(
+      "Wipe Table is the one that keeps getting left."
+    );
+  });
+
+  it("names the worst chore, not the first one alphabetically", () => {
+    // "Brush teeth" done on 12 of the days, "Wipe Table" on none. The
+    // superlative used to be decided by localeCompare on the title.
+    const brush = task({ taskId: "t2", title: "Brush teeth", dueWindow: "bedtime", createdAt: "2026-01-01T00:00:00.000Z" });
+    const wipe = task({ taskId: "t1", title: "Wipe Table", dueWindow: "bedtime", createdAt: "2026-01-01T00:00:00.000Z" });
+    const brushed = ["2026-09-12", "2026-09-13", "2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17",
+      "2026-09-18", "2026-09-19", "2026-09-20", "2026-09-21", "2026-09-22", "2026-09-23"]
+      .map((d) => done(d, { taskId: "t2", title: "Brush teeth" }));
+
+    const insights = buildInsights(sources({ tasks: [brush, wipe], completions: brushed }));
+    expect(insights.find((i) => i.kind === "slipping")?.title).toBe(
+      "Wipe Table is the one that keeps getting left."
+    );
+  });
+
+  it("leads with the longest streak, not with whoever's name sorts last", () => {
+    // Mia's forty days used to be pushed off the panel by two of Parker's
+    // three-day runs, because the sort read the rendered sentence and the
+    // sentence starts with the child's name.
+    const days = (n: number, end: string) => {
+      const out: string[] = [];
+      const cursor = new Date(`${end}T12:00:00Z`);
+      for (let i = 0; i < n; i += 1) {
+        out.push(cursor.toISOString().slice(0, 10));
+        cursor.setUTCDate(cursor.getUTCDate() - 1);
+      }
+      return out;
+    };
+    const cat = task({ taskId: "t9", title: "Feed the cat", assignedTo: "Mia", createdAt: "2026-01-01T00:00:00.000Z" });
+    const wipe = task({ taskId: "t1", title: "Wipe Table", assignedTo: "Parker", createdAt: "2026-01-01T00:00:00.000Z" });
+    const completions = [
+      ...days(40, "2026-09-23").map((d) => done(d, { taskId: "t9", title: "Feed the cat", memberId: "Mia" })),
+      ...days(3, "2026-09-23").map((d) => done(d, { taskId: "t1", title: "Wipe Table", memberId: "Parker" })),
+    ];
+
+    const streaks = buildInsights(sources({ tasks: [cat, wipe], completions })).filter((i) => i.kind === "streak");
+    expect(streaks[0]?.title).toContain("Mia");
+    expect(streaks[0]?.title).toContain("40 days running");
   });
 });

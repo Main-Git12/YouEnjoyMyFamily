@@ -186,3 +186,40 @@ describe("how much it says at once", () => {
     expect(buildAwareness(sources())).toEqual([]);
   });
 });
+
+/**
+ * One late night is not a pattern. The guard used to require only that
+ * neither group be empty, so a single late night followed by a single tight
+ * morning was a rate of 100% and cleared the threshold on its own.
+ */
+describe("how much evidence a cross-domain claim needs", () => {
+  const nights = (dates: string[], minutesPast: number) =>
+    dates.map((d) => run("bed", d, "20:00", minutesPast));
+  const mornings = (dates: string[], minutesPast: number | null) =>
+    dates.map((d) => run("morn", d, "07:52", minutesPast));
+
+  it("says nothing from a single late night, however badly that morning went", () => {
+    const onTimeNights = ["2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17"];
+    const runs = [
+      ...nights(onTimeNights, -20),
+      ...mornings(["2026-09-15", "2026-09-16", "2026-09-17", "2026-09-18"], -30),
+      ...nights(["2026-09-21"], 45),
+      ...mornings(["2026-09-22"], 10),
+    ];
+    const found = buildAwareness(sources({ routineRuns: runs }));
+    expect(found.filter((i) => i.kind === "bedtime_and_mornings")).toEqual([]);
+  });
+
+  it("still speaks once both sides have enough nights behind them", () => {
+    const lateNights = ["2026-09-07", "2026-09-14", "2026-09-21"];
+    const calmNights = ["2026-09-01", "2026-09-02", "2026-09-03"];
+    const runs = [
+      ...nights(lateNights, 45),
+      ...mornings(["2026-09-08", "2026-09-15", "2026-09-22"], 10),
+      ...nights(calmNights, -20),
+      ...mornings(["2026-09-02", "2026-09-03", "2026-09-04"], -30),
+    ];
+    const found = buildAwareness(sources({ routineRuns: runs }));
+    expect(found.find((i) => i.kind === "bedtime_and_mornings")?.because).toContain("3 mornings after lights-out ran over");
+  });
+});

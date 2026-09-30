@@ -14,7 +14,7 @@ function task(overrides: Partial<Task> & { taskId: string; assignedTo: string | 
     dueWindow: "anytime",
     recurrence: "daily",
     completedOn: null,
-    gemsAwarded: 0,
+    gemsAwarded: 0, createdAt: "2020-01-01T00:00:00.000Z",
     ...overrides,
   };
 }
@@ -24,7 +24,7 @@ function streakOf(taskId: string, memberId: string, days: number): TaskCompletio
   return Array.from({ length: days }, (_, index) => {
     const date = new Date(`${TODAY}T12:00:00`);
     date.setDate(date.getDate() - (index + 1));
-    return { taskId, date: date.toISOString().slice(0, 10), title: taskId, memberId, gemsAwarded: 5 };
+    return { taskId, date: date.toISOString().slice(0, 10), title: taskId, memberId, gemsAwarded: 5 , createdAt: "2020-01-01T00:00:00.000Z"};
   });
 }
 

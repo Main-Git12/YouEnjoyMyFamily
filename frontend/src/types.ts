@@ -30,6 +30,13 @@ export interface Task {
   recurrence: Recurrence;
   completedOn: string | null;
   gemsAwarded: number;
+  /**
+   * When the chore was created. The API has always sent this; the type
+   * simply never declared it, and nothing on this side could therefore ask
+   * the one question that stops the app inventing a history — whether the
+   * chore even existed on the days it is being judged against.
+   */
+  createdAt: string;
 }
 
 /**

@@ -103,19 +103,26 @@ export interface InsightSources {
 }
 
 function streakInsights({ tasks, completions, today }: InsightSources): Insight[] {
-  const found: Insight[] = [];
+  const found: (Insight & { streak: number })[] = [];
   for (const task of tasks) {
     if (!task.assignedTo || task.recurrence === "none") continue;
     const streak = currentStreak(completions, task.taskId, task.assignedTo, today);
     if (streak < STREAK_WORTH_SHOWING) continue;
     found.push({
+      streak,
       id: `streak:${task.taskId}:${task.assignedTo}`,
       kind: "streak",
       title: `${task.assignedTo} has done ${task.title} ${streak} days running.`,
       because: `${streak} completions in a row, ending ${today}.`,
     });
   }
-  return found.sort((a, b) => b.title.localeCompare(a.title));
+  // Longest streak first. This used to sort the rendered sentence, which
+  // begins with the child's name — so with two children it was
+  // reverse-alphabetical, and a sibling's forty-day run could be pushed off
+  // the panel by two three-day ones belonging to whoever came later in the
+  // alphabet. The number is the thing being celebrated; it should be the
+  // thing that ranks.
+  return found.sort((a, b) => b.streak - a.streak || a.title.localeCompare(b.title));
 }
 
 /**
@@ -130,7 +137,7 @@ function slippingInsights({ tasks, completions, today }: InsightSources): Insigh
   const windowStart = isoDaysAgo(INSIGHT_WINDOW_DAYS, new Date(`${today}T12:00:00`));
   const recent = completions.filter((c) => c.date >= windowStart);
 
-  const found: Insight[] = [];
+  const found: (Insight & { missRate: number; missed: number })[] = [];
   for (const task of tasks) {
     if (task.recurrence === "none" || task.dueWindow === "anytime") continue;
 
@@ -142,6 +149,8 @@ function slippingInsights({ tasks, completions, today }: InsightSources): Insigh
     if (daysExpected === 0 || missed / daysExpected < SLIP_RATE_WORTH_MENTIONING) continue;
 
     found.push({
+      missRate: missed / daysExpected,
+      missed,
       id: `slipping:${task.taskId}`,
       kind: "slipping",
       title: `${task.title} is the one that keeps getting left.`,
@@ -151,13 +160,35 @@ function slippingInsights({ tasks, completions, today }: InsightSources): Insigh
       action: { label: "Try a different time of day", kind: "reschedule_chore", payload: task.taskId },
     });
   }
-  return found.sort((a, b) => a.title.localeCompare(b.title)).slice(0, 1);
+  // "*The* one that keeps getting left" is a superlative, so it has to be
+  // decided by the miss rate. It used to be decided by `localeCompare` on
+  // the title, which meant the app named whichever qualifying chore came
+  // first in the alphabet — telling a family that "Brush teeth" was the one
+  // being left while "Wipe Table", done on none of the last twenty-nine
+  // days, went unmentioned.
+  return found
+    .sort((a, b) => b.missRate - a.missRate || b.missed - a.missed || a.title.localeCompare(b.title))
+    .slice(0, 1);
 }
 
-/** The days in the window a recurring chore was actually meant to happen. */
+/**
+ * The days in the window a recurring chore was actually meant to happen.
+ *
+ * The window never begins before the chore existed. Without that, the very
+ * first evening in a new kitchen produced "Wipe Table is the one that keeps
+ * getting left" — from a chore created an hour earlier and a record of
+ * nothing at all, because the denominator counted twenty-nine calendar days
+ * and the numerator counted the zero completions there had been time for.
+ *
+ * The backend has always sent `createdAt` and already refuses to backdate a
+ * completion past it ("That chore didn't exist yet on that day"). This is
+ * the same rule, applied to the app's own claims about the family.
+ */
 function expectedDays(task: Task, windowStart: string, today: string): number {
   let days = 0;
-  const cursor = new Date(`${windowStart}T12:00:00`);
+  const existedFrom = task.createdAt.slice(0, 10);
+  const from = existedFrom > windowStart ? existedFrom : windowStart;
+  const cursor = new Date(`${from}T12:00:00`);
   const end = new Date(`${today}T12:00:00`);
   while (cursor <= end) {
     const weekend = [0, 6].includes(cursor.getDay());

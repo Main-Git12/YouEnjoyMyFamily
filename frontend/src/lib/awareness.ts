@@ -37,6 +37,15 @@ import { weekdayName } from "./routines";
 
 /** Below this there isn't a pattern, there's a fortnight of noise. */
 const MIN_PAIRED_NIGHTS = 5;
+/**
+ * And a minimum on *each* side of the comparison. Requiring only that
+ * neither group be empty let a single late night decide the whole claim: one
+ * late night followed by one tight morning is a rate of 100%, which clears
+ * any gap threshold against four calm ones. "The mornings after a late
+ * bedtime have been the tight ones" is a claim about a pattern, and one
+ * night is not a pattern.
+ */
+const MIN_NIGHTS_EACH_SIDE = 3;
 /** And the two rates have to actually differ before it's worth saying. */
 const MIN_RATE_GAP = 0.3;
 /** A morning is "tight" if it finished within this of the deadline, or not at all. */
@@ -114,7 +123,8 @@ function bedtimeAndMornings(sources: AwarenessSources): Insight[] {
     }
   }
 
-  if (late + onTime < MIN_PAIRED_NIGHTS || late === 0 || onTime === 0) return [];
+  if (late + onTime < MIN_PAIRED_NIGHTS) return [];
+  if (late < MIN_NIGHTS_EACH_SIDE || onTime < MIN_NIGHTS_EACH_SIDE) return [];
   const lateRate = tightAfterLate / late;
   const onTimeRate = tightAfterOnTime / onTime;
   if (lateRate - onTimeRate < MIN_RATE_GAP) return [];
