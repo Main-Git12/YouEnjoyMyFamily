@@ -98,14 +98,42 @@ export interface ThreatenedChore {
 }
 
 /**
+ * Whether a chore is here from an earlier day rather than belonging to this
+ * one. A one-off keeps its place on the list until somebody does it (see the
+ * backend's `appliesOn`), so "on today's list" and "due today" are not the
+ * same question.
+ */
+export function isCarriedOver(task: Task): boolean {
+  return task.dueDate !== null && task.dueDate < task.date;
+}
+
+/**
  * The chore a threat should be raised over, if any: still not done, belongs
- * to someone in particular, and its part of the day has already passed.
- * Returns the one furthest past its window, so the most overdue chore is
- * the one that gets rescued first.
+ * to someone in particular, due today, and its part of the day has already
+ * passed. Returns the one furthest past its window, so the most overdue
+ * chore is the one that gets rescued first.
+ *
+ * A chore carried over from an earlier day raises nothing, and that
+ * exclusion is the whole reason this function reads `dueDate` at all. The
+ * threat is a game about *the evening you are in* — the day slipping away,
+ * with something still to do before it goes. A library book that was due
+ * last Monday is not that. Left in, it would summon the same monster over
+ * the same child's name every single night until somebody returned the
+ * book, and it would win the sort every time, so the game would stop
+ * working for the chores that actually belong to today.
+ *
+ * That nightly repetition is also exactly the line this app doesn't cross.
+ * One evening's "only Parker can stop them" is a game. The same sentence
+ * every night for a fortnight is the screen telling a child what they are
+ * like, which is what the rules in CLAUDE.md forbid — arrived at by
+ * accumulation rather than by wording, but arrived at all the same. The
+ * chore stays on the list, and the row still says it was due Monday. It
+ * just doesn't bring a monster.
  */
 export function chooseThreatenedChore(tasks: Task[], now: Date = new Date()): ThreatenedChore | null {
   const overdue = tasks.filter(
-    (task) => task.status !== "done" && task.assignedTo && isPastWindow(task.dueWindow, now)
+    (task) =>
+      task.status !== "done" && task.assignedTo && !isCarriedOver(task) && isPastWindow(task.dueWindow, now)
   );
   if (overdue.length === 0) return null;
 

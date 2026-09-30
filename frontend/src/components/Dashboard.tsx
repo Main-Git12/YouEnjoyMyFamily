@@ -42,6 +42,9 @@ import { currentWindow } from "../lib/timeOfDay";
  * what you get from pasting a label into a template; a person says "one
  * to go after school".
  */
+/** Which stretch of the day we are in, including the one after the last window closes. */
+const quietKeyForNow = (now: Date = new Date()): string => currentWindow(now) ?? "after-the-last-window";
+
 const WHEN_IT_IS: Record<Exclude<DueWindow, "anytime">, string> = {
   morning: "this morning",
   after_school: "after school",
@@ -130,6 +133,14 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   const [familyGems, setFamilyGems] = useState({ earned: 0, spent: 0, balance: 0 });
   const [threatened, setThreatened] = useState<ThreatenedChore | null>(null);
   const [dismissedThreatTaskIds, setDismissedThreatTaskIds] = useState<string[]>([]);
+  /**
+   * The part of the day a "not now" was tapped in — nothing else shows until
+   * it passes. Stored as a key rather than a `DueWindow` because after the
+   * last window closes there is no current one, and `null` there would mean
+   * "not quieted": tapping "not now" at half nine, which is exactly when
+   * these appear, would have quieted nothing at all.
+   */
+  const [quietedWindow, setQuietedWindow] = useState<string | null>(null);
   const [choreBeingRetimed, setChoreBeingRetimed] = useState<string | null>(null);
   // True from the moment "defend" is tapped until the scenario closes
   // itself, so the celebration beat is not yanked off screen the instant
@@ -452,13 +463,25 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   // Raise a scenario when a chore has slipped past the part of the day the
   // family assigned it to. Re-checked whenever the chores change, so it can
   // come back later in the evening rather than firing once and never again.
-  // Chores waved away stay waved away, so dismissing one doesn't just bring
-  // the next one round in a loop.
+  // One monster at a time, and at most one per part of the day.
+  //
+  // Waving a chore away used to be per-chore only, which on an evening with
+  // five things left meant tapping "not now" and watching the next monster
+  // arrive in its place, over and over, each one covering the whole screen.
+  // That is not a game, it is a queue of interruptions, and on a wall in a
+  // kitchen it is the thing that gets the screen turned around to face the
+  // wall. "Not now" now means not for this part of the day: the game comes
+  // back when the day moves on, which is also when the urgency it is about
+  // has genuinely changed.
   useEffect(() => {
     if (defending) return;
+    if (quietedWindow !== null && quietedWindow === quietKeyForNow()) {
+      setThreatened(null);
+      return;
+    }
     const candidate = chooseThreatenedChore(tasks.filter((task) => !dismissedThreatTaskIds.includes(task.taskId)));
     setThreatened(candidate);
-  }, [tasks, dismissedThreatTaskIds, defending]);
+  }, [tasks, dismissedThreatTaskIds, defending, quietedWindow]);
 
   // What the family has saved *now* — everything earned, minus what's been
   // claimed. The castle reflects the same thing, so taking a prize visibly
@@ -964,6 +987,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   function handleDismissThreat() {
     const taskId = threatened?.task.taskId;
     if (taskId) setDismissedThreatTaskIds((prev) => (prev.includes(taskId) ? prev : [...prev, taskId]));
+    setQuietedWindow(quietKeyForNow());
     setDefending(false);
     setThreatened(null);
   }

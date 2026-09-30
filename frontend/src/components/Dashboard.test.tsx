@@ -231,6 +231,24 @@ describe("Dashboard", () => {
     await waitFor(() => expect(within(screen.getByRole("alertdialog")).getByText("Gems saved!")).toBeInTheDocument());
   });
 
+  it("doesn't summon a monster over a chore carried in from an earlier day", async () => {
+    // One-offs stay on the list until they're done, so without this the
+    // same monster arrives over the same name every night until somebody
+    // returns the book.
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date(2026, 8, 23, 21, 30) });
+    vi.mocked(api.listTasks).mockResolvedValue([
+      { taskId: "t_library", title: "Return the library book", assignedTo: "Parker", dueDate: "2026-09-21", gemValue: 5, dueWindow: "after_school", date: "2026-09-23", recurrence: "none", completedOn: null, status: "pending", gemsAwarded: 0, createdAt: "2020-01-01T00:00:00.000Z" },
+    ]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+
+    render(<Dashboard />);
+
+    // The chore is still on the list, and still says where it came from.
+    await waitFor(() => expect(screen.getAllByText("Return the library book").length).toBeGreaterThan(0));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
   it("does not raise a scenario while the chore's part of the day is still open", async () => {
     // Seven in the morning: a bedtime chore is not late, it's early.
     vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date(2026, 8, 23, 7, 0) });
@@ -246,7 +264,12 @@ describe("Dashboard", () => {
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 
-  it("does not bring a waved-away scenario straight back as the next chore", async () => {
+  it("waving one away ends the game for that part of the day, rather than queueing the next", async () => {
+    // This test used to assert the opposite — that the next chore "steps
+    // up" — and it was wrong in the room. Seen at 1280x800 on an evening
+    // with several chores left, each "not now" swapped one full-screen
+    // monster for another: not a game, a queue of interruptions, on a
+    // screen that hangs on a kitchen wall and can't be walked away from.
     vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date(2026, 8, 23, 21, 30) });
     vi.mocked(api.listTasks).mockResolvedValue([
       { taskId: "t1", title: "Wipe Table", assignedTo: "Parker", dueDate: null, gemValue: 10, dueWindow: "after_dinner", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 , createdAt: "2020-01-01T00:00:00.000Z"},
@@ -261,12 +284,11 @@ describe("Dashboard", () => {
     await waitFor(() => expect(within(screen.getByRole("alertdialog")).getByText(/Wipe Table/)).toBeInTheDocument());
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: /not now/i }));
 
-    // The next one steps up...
-    await waitFor(() => expect(within(screen.getByRole("alertdialog")).getByText(/Put on pajamas/)).toBeInTheDocument());
-    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: /not now/i }));
-
-    // ...and waving that away ends it, rather than cycling back to the first.
+    // And that is the end of it for now — the pyjamas don't step up, and
+    // nothing cycles back to the first either.
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 
   it("adds a chore from the library with the gem value the family already uses", async () => {
