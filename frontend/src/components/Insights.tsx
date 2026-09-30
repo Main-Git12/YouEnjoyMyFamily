@@ -11,6 +11,9 @@ const KIND_MARK: Record<Insight["kind"], string> = {
   busy_day: "📅",
   meal_rhythm: "🍽️",
   grocery_due: "🛒",
+  // Noticed across domains rather than inside one — see lib/awareness.ts.
+  bedtime_and_mornings: "🌙",
+  stacked_day_no_dinner: "📅",
 };
 
 /**

@@ -7,6 +7,21 @@ export default {
         // The portrait Echo Show is 600px wide — below Tailwind's `sm`, so
         // without this it gets the phone layout on a 10-inch screen.
         show: '600px',
+        /**
+         * The portrait Show *only* — a band, not a floor.
+         *
+         * `extend.screens` appends to the end of the breakpoint list
+         * rather than sorting by width, so every `show:` rule is emitted
+         * after `lg:` and `xl:` and beats them at any width at all. A
+         * two-column rule meant for a 600px screen was therefore winning
+         * on a 1280px one, squeezing the side panels to 181px and
+         * wrapping "Brush teeth 13 days running" over six lines.
+         *
+         * Anything that should apply to the portrait Show and nowhere
+         * else belongs here. A plain `show:` is still right for a rule
+         * that genuinely means "600px and up".
+         */
+        showOnly: { raw: '(min-width: 600px) and (max-width: 1023px)' },
         // ...and the landscape one has only 600px of height, where the
         // default vertical rhythm pushes the first card off the bottom.
         short: { raw: '(max-height: 700px)' },

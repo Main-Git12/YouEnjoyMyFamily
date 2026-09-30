@@ -26,7 +26,17 @@ import type { ScheduleEntry } from "../types";
  *    confident guess.
  */
 
-export type InsightKind = "streak" | "slipping" | "meal_rhythm" | "grocery_due" | "busy_day";
+export type InsightKind =
+  | "streak"
+  | "slipping"
+  | "meal_rhythm"
+  | "grocery_due"
+  | "busy_day"
+  // Noticed across domains rather than within one — see lib/awareness.ts.
+  // They share this shape so they land in the same panel: to a family
+  // "what we've noticed" is one idea, not two engines.
+  | "bedtime_and_mornings"
+  | "stacked_day_no_dinner";
 
 export interface Insight {
   id: string;

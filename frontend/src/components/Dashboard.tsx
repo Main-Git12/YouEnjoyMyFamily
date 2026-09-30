@@ -15,6 +15,7 @@ import { toLocalIsoDate, weekFromOffset } from "../lib/dates";
 import { knownMembers } from "../lib/members";
 import { greeting } from "../lib/timeOfDay";
 import { buildInsights, INSIGHT_WINDOW_DAYS, type Insight } from "../lib/insights";
+import { buildAwareness } from "../lib/awareness";
 import Insights from "./Insights";
 import RetimeChore from "./RetimeChore";
 import DraftWeek from "./DraftWeek";
@@ -360,7 +361,13 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
    * each render rather than cached: it's arithmetic over data already in
    * hand, and a stale observation is worse than none.
    */
-  const insights = buildInsights({ tasks, completions, mealPlan, cartItems, schedule, today });
+  const insights = [
+    // Across domains first. These are the ones no single card could have
+    // reached, and they are the reason to look at the panel at all — a
+    // family already knows their own chore list.
+    ...buildAwareness({ routines, routineRuns, schedule, mealPlan, weekDays, today }),
+    ...buildInsights({ tasks, completions, mealPlan, cartItems, schedule, today }),
+  ].slice(0, 4);
 
   /**
    * The morning, as it stands right now.
@@ -1182,7 +1189,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
           {/* Alongside it: what this hour actually needs, quieter. */}
           <aside
             aria-label="Alongside"
-            className="lg:col-span-5 xl:col-span-4 lg:min-h-0 lg:overflow-y-auto flex flex-col gap-4 sm:gap-6 show:grid show:grid-cols-2 lg:flex lg:flex-col"
+            className="lg:col-span-5 xl:col-span-4 lg:min-h-0 lg:overflow-y-auto flex flex-col gap-4 sm:gap-6 showOnly:grid showOnly:grid-cols-2"
           >
             {/* One list, stable keys. The drawer's panels are hidden
                 rather than unmounted, so a panel that moves between the
