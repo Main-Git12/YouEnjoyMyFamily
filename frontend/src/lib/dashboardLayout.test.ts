@@ -14,6 +14,7 @@ function signals(overrides: Partial<PanelSignals> = {}): PanelSignals {
     hasBedtimeRoutine: false,
     focusBlocksToday: 0,
     statedPreferenceCount: 0,
+    schoolNotesNow: 0,
     ...overrides,
   };
 }
@@ -114,5 +115,49 @@ describe("drawerLabel", () => {
   it("counts what's behind the tap", () => {
     expect(drawerLabel({ lead: "chores", rail: ["schedule"], drawer: ["prize", "kitchen"] })).toBe("2 more");
     expect(drawerLabel({ lead: "chores", rail: [], drawer: ["prize"] })).toBe("1 more");
+  });
+});
+
+/**
+ * The school panel earns its cell only when there is a school day to show —
+ * which on a Saturday, or a Friday evening, is never. That is deliberate:
+ * a panel that sits there saying "nothing" all weekend teaches people to
+ * stop looking at that corner of the screen.
+ */
+describe("the school panel", () => {
+  it("loses its place to a panel that has something in it", () => {
+    // Stated as a comparison rather than "it is never in the rail when
+    // empty", because when *nothing* has content the rail falls back to
+    // preference order and school is high in the evening's — which is the
+    // engine working, not a bug. The rule being asserted is the engine's
+    // actual promise: content beats emptiness.
+    const busy = { insightCount: 3, outstandingCartItems: 4, scheduleEntriesToday: 2, focusBlocksToday: 1 };
+    const plan = planPanels(signals({ now: at(20), schoolNotesNow: 0, ...busy }));
+    expect(plan.rail).not.toContain("school");
+    expect(plan.drawer).toContain("school");
+  });
+
+  it("beats a panel that has nothing in it, on a school night", () => {
+    const plan = planPanels(signals({ now: at(20), schoolNotesNow: 1 }));
+    expect(plan.rail).toContain("school");
+  });
+
+  it("reaches the rail on a school night, when the bag can still be packed", () => {
+    const plan = planPanels(signals({ now: at(20), schoolNotesNow: 1 }));
+    expect(plan.rail).toContain("school");
+  });
+
+  it("reaches the rail in the morning, when there is still time to act on it", () => {
+    const plan = planPanels(signals({ now: at(7), schoolNotesNow: 1 }));
+    expect(plan.rail).toContain("school");
+  });
+
+  it("is never dropped — it is always either in the rail or one tap away", () => {
+    for (const hour of [6, 8, 12, 15, 18, 20, 22]) {
+      for (const schoolNotesNow of [0, 1, 2]) {
+        const plan = planPanels(signals({ now: at(hour), schoolNotesNow }));
+        expect([...plan.rail, ...plan.drawer, plan.lead]).toContain("school");
+      }
+    }
   });
 });

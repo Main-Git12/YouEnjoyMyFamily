@@ -598,3 +598,132 @@ export interface FocusBlockItem {
   note: string | null;
   createdAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// School: the specials rotation, and where lunch comes from
+
+/**
+ * A child's school week, and the part of it that lands on a parent.
+ *
+ * A specials rotation is the sort of thing a school sends home once on a
+ * decorated sheet of paper that then lives on the fridge until it goes soft.
+ * Most of it is only mildly useful — knowing Friday is Music changes nothing.
+ * The useful part is the small print under two or three of the days: gym
+ * shoes, a charged laptop, the library book that has to go back. Those are
+ * not facts about the school day, they are jobs for the night before, and
+ * missing one is how a Tuesday morning turns into a search of the whole
+ * house at 07:40.
+ *
+ * So `prepNote` is the reason this entity exists, and it is stored verbatim
+ * as the school wrote it rather than reworded, because a parent reading
+ * "bring in a pair to change into" should recognise the sentence from the
+ * sheet on the fridge.
+ */
+export const SchoolSpecialInput = z.object({
+  /** 0 = Sunday, matching `Date.prototype.getDay` and `RoutineInput.daysOfWeek`. */
+  dayOfWeek: z.number().int().min(0).max(6),
+  subject: z.string().min(1).max(60),
+  /** What has to happen the night before, in the school's own words. */
+  prepNote: z.string().max(240).nullable().optional(),
+});
+export type SchoolSpecialInput = z.infer<typeof SchoolSpecialInput>;
+
+/**
+ * Where a school's published lunch menu can be read from.
+ *
+ * Only one provider so far. It is spelled out as a closed list rather than a
+ * free URL on purpose: a stored URL is something a Lambda can be told to
+ * fetch, and "fetch whatever this row says" is a request-forgery hole with a
+ * database row for a front door. These three numbers name a menu inside a
+ * provider whose base URL lives in the code.
+ */
+export const MENU_PROVIDERS = ["myschoolmenus"] as const;
+export type MenuProvider = (typeof MENU_PROVIDERS)[number];
+
+export const SchoolMenuSourceInput = z.object({
+  provider: z.enum(MENU_PROVIDERS),
+  organizationId: z.number().int().positive(),
+  siteId: z.number().int().positive(),
+  menuId: z.number().int().positive(),
+});
+export type SchoolMenuSourceInput = z.infer<typeof SchoolMenuSourceInput>;
+
+export const SchoolProfileInput = z.object({
+  schoolName: z.string().min(1).max(120),
+  /** Whose classroom it is. Shown so a parent knows which sheet this came from. */
+  teacher: z.string().max(120).nullable().optional(),
+  gradeLabel: z.string().max(40).nullable().optional(),
+  specials: z.array(SchoolSpecialInput).max(7),
+  /** Null for a school whose menu is not published anywhere this app can read. */
+  menuSource: SchoolMenuSourceInput.nullable().optional(),
+});
+export type SchoolProfileInput = z.infer<typeof SchoolProfileInput>;
+
+export interface SchoolSpecial {
+  dayOfWeek: number;
+  subject: string;
+  prepNote: string | null;
+}
+
+export interface SchoolProfileItem {
+  PK: string;
+  SK: string;
+  entityType: "SCHOOL_PROFILE";
+  familyId: string;
+  memberId: string;
+  schoolName: string;
+  teacher: string | null;
+  gradeLabel: string | null;
+  specials: SchoolSpecial[];
+  menuSource: SchoolMenuSourceInput | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * One published day of a lunch menu, as the school grouped it.
+ *
+ * `groups` keeps the school's own headings and ordering — Lunch Entree,
+ * Vegetables, Fruit, Milk, Condiments — rather than flattening to "lunch is
+ * chicken nuggets". A child who will only eat the fruit has a different
+ * question about Thursday than a parent deciding whether to pack something,
+ * and the published menu answers both if it is not thrown away first.
+ *
+ * `heading` is nullable because a provider may list items before any
+ * heading. That is a real shape in the data and it is not this app's place
+ * to invent a category name for it.
+ */
+export interface SchoolMenuGroup {
+  heading: string | null;
+  items: string[];
+}
+
+export interface SchoolMenuDay {
+  date: string;
+  groups: SchoolMenuGroup[];
+}
+
+/**
+ * A month of a menu, cached whole.
+ *
+ * One row per menu-month rather than per day, because that is the shape the
+ * provider publishes in and because a month of lunches is about thirteen
+ * kilobytes — far inside a DynamoDB item, and one read instead of twenty-two.
+ *
+ * Keyed by `menuId` rather than by member: a district publishes one
+ * elementary menu, so two children at two different schools in the same
+ * district share these rows instead of each keeping their own copy of the
+ * same thing.
+ */
+export interface SchoolMenuMonthItem {
+  PK: string;
+  SK: string;
+  entityType: "SCHOOL_MENU_MONTH";
+  familyId: string;
+  menuId: number;
+  /** `YYYY-MM`. */
+  month: string;
+  days: SchoolMenuDay[];
+  /** When this was last read from the provider — what staleness is judged on. */
+  fetchedAt: string;
+}

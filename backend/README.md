@@ -38,6 +38,18 @@ src/handlers/                (every handler below has a matching *.test.ts)
   focusBlocks.ts          /families/{familyId}/focus-blocks[/{blockId}] — a block of focused work
                            and, inseparably, its timesheet line. `actualMinutes` is computed on
                            write from the timestamps rather than trusted from the caller
+  schoolProfiles.ts       CRUD: /families/{familyId}/school-profiles[/{memberId}] — one row per
+                           child: the school, the teacher, the weekly specials rotation, and which
+                           published lunch menu is theirs. All typed in off the sheet the school
+                           sent home. `menuSource` is three integers against a closed provider
+                           list, never a URL — a URL in a row is request forgery with a table for
+                           a front door
+  schoolMenu.ts           GET /families/{familyId}/school-menu?memberId=&start=&end= — the
+                           published lunch menu, read through a DynamoDB cache of one row per
+                           menu-month. Goes to the provider only when what it has is over 12h old;
+                           a month it cannot refresh is served from the last copy with
+                           `stale: true` and *without* its `fetchedAt` bumped. `getSchoolMenu`
+                           takes an injectable fetch, for the same reason `runCalendarSync` does
   calendarSync.ts         EventBridge cron: refreshes Google Calendar events per connected family;
                            `runCalendarSync`/`syncFamilyCalendar` take an injectable `CalendarClientFactory`
                            so tests fake the Google API without network access — see `MinimalCalendarClient`

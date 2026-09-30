@@ -230,6 +230,68 @@ Resources:
             Path: /families/{familyId}/routines/{routineId}/runs
             Method: PUT
 
+  SchoolProfilesFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/schoolProfiles.ts]
+    Properties:
+      Handler: src/handlers/schoolProfiles.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref YouEnjoyMyFamilyTable
+      Events:
+        List:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/school-profiles
+            Method: GET
+        Save:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/school-profiles/{memberId}
+            Method: PUT
+        Delete:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/school-profiles/{memberId}
+            Method: DELETE
+
+  SchoolMenuFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/schoolMenu.ts]
+    Properties:
+      Handler: src/handlers/schoolMenu.handler
+      CodeUri: .
+      # Longer than the 10s default: a range spanning two months makes two
+      # sequential calls out to the menu provider, and this is the one
+      # function in the API that waits on somebody else's server.
+      Timeout: 25
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref YouEnjoyMyFamilyTable
+      Events:
+        Get:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/school-menu
+            Method: GET
+
   SchedulesFunction:
     Type: AWS::Serverless::Function
     Metadata:

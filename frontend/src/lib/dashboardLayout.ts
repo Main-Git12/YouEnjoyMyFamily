@@ -33,7 +33,8 @@ export type PanelId =
   | "favorites"
   | "morning"
   | "bedtime"
-  | "focus";
+  | "focus"
+  | "school";
 
 /** Every panel there is, in the order they fall back to when nothing else decides. */
 export const ALL_PANELS: PanelId[] = [
@@ -45,6 +46,7 @@ export const ALL_PANELS: PanelId[] = [
   "morning",
   "bedtime",
   "focus",
+  "school",
   "favorites",
 ];
 
@@ -74,6 +76,13 @@ export interface PanelSignals {
   /** Blocks of focused work recorded today. */
   focusBlocksToday: number;
   statedPreferenceCount: number;
+  /**
+   * School days worth showing right now — today's in the morning, tomorrow's
+   * after the after-school window closes. Zero on a Saturday, and zero on a
+   * Friday evening, which is the point: the panel earns its cell only when
+   * there is a bag to pack.
+   */
+  schoolNotesNow: number;
 }
 
 /** Does this panel have anything in it right now? */
@@ -95,6 +104,8 @@ function hasContent(panel: PanelId, signals: PanelSignals): boolean {
       return signals.hasBedtimeRoutine;
     case "focus":
       return signals.focusBlocksToday > 0;
+    case "school":
+      return signals.schoolNotesNow > 0;
     // The prize board is the one panel that is *more* useful when empty,
     // because an empty one is an invitation to set a goal.
     case "prize":
@@ -111,15 +122,15 @@ function hasContent(panel: PanelId, signals: PanelSignals): boolean {
  */
 const PREFERENCE_BY_WINDOW: Record<string, PanelId[]> = {
   // Before nine: getting out of the door, and what today holds.
-  morning: ["morning", "schedule", "insights", "kitchen", "prize", "focus", "favorites", "bedtime"],
+  morning: ["morning", "school", "schedule", "insights", "kitchen", "prize", "focus", "favorites", "bedtime"],
   // The working day, for whoever is at a desk; then the afternoon's plan.
-  after_school: ["schedule", "focus", "kitchen", "insights", "prize", "favorites", "morning", "bedtime"],
+  after_school: ["schedule", "focus", "kitchen", "insights", "school", "prize", "favorites", "morning", "bedtime"],
   // Dinner, the shop, and what's left of the chores.
-  after_dinner: ["kitchen", "schedule", "insights", "prize", "bedtime", "favorites", "focus", "morning"],
-  // Wind-down.
-  bedtime: ["bedtime", "insights", "prize", "kitchen", "schedule", "favorites", "morning", "focus"],
+  after_dinner: ["kitchen", "school", "schedule", "insights", "prize", "bedtime", "favorites", "focus", "morning"],
+  // Wind-down — and the last useful moment to put the library book in the bag.
+  bedtime: ["bedtime", "school", "insights", "prize", "kitchen", "schedule", "favorites", "morning", "focus"],
   // After the last window closes: tomorrow is the only thing worth showing.
-  done: ["bedtime", "morning", "schedule", "kitchen", "insights", "prize", "favorites", "focus"],
+  done: ["bedtime", "school", "morning", "schedule", "kitchen", "insights", "prize", "favorites", "focus"],
 };
 
 /**

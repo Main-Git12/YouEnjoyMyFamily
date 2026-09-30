@@ -1,4 +1,4 @@
-import type { Task, TaskCompletion, ScheduleEntry, CartItem, StatedPreference, MealPlanEntry, MealSlot, RewardGoal, GemBalance, GemBalanceReport, Routine, RoutineRun, RoutineStep, FocusBlock } from "../types";
+import type { Task, TaskCompletion, ScheduleEntry, CartItem, StatedPreference, MealPlanEntry, MealSlot, RewardGoal, GemBalance, GemBalanceReport, Routine, RoutineRun, RoutineStep, FocusBlock, SchoolProfile, SchoolMenu } from "../types";
 
 import { getFamilyApiKey } from "./familyKey";
 
@@ -204,6 +204,26 @@ export const api = {
     }),
   listFocusBlocks: (familyId: string, start: string, end: string) =>
     request<FocusBlock[]>(`/families/${familyId}/focus-blocks?start=${start}&end=${end}`),
+  listSchoolProfiles: (familyId: string) => request<SchoolProfile[]>(`/families/${familyId}/school-profiles`),
+
+  saveSchoolProfile: (familyId: string, memberId: string, profile: Omit<SchoolProfile, "memberId">) =>
+    request<SchoolProfile>(`/families/${familyId}/school-profiles/${encodeURIComponent(memberId)}`, {
+      method: "PUT",
+      body: JSON.stringify(profile),
+    }),
+
+  /**
+   * The published lunch menu for one child over one date range.
+   *
+   * 404 is a normal answer here — it means this child has no published menu
+   * configured, which most schools don't — so callers treat it as "nothing
+   * to show" rather than as an error worth a red box on the wall.
+   */
+  getSchoolMenu: (familyId: string, memberId: string, start: string, end: string) =>
+    request<SchoolMenu>(
+      `/families/${familyId}/school-menu?memberId=${encodeURIComponent(memberId)}&start=${start}&end=${end}`
+    ),
+
   recordFocusBlock: (familyId: string, block: Omit<FocusBlock, "blockId" | "actualMinutes">) =>
     request<FocusBlock>(`/families/${familyId}/focus-blocks`, { method: "POST", body: JSON.stringify(block) }),
 };

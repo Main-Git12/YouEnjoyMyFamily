@@ -186,3 +186,58 @@ export interface FocusBlock {
   matter: string | null;
   note: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// School — see backend/models/schema.md
+
+/** One day of the weekly specials rotation. 0 = Sunday, as `Date.getDay()`. */
+export interface SchoolSpecial {
+  dayOfWeek: number;
+  subject: string;
+  /**
+   * What has to happen the night before, in the school's own words. This is
+   * the part that matters: knowing Friday is Music changes nothing, but the
+   * library book has to be in the bag before anyone is awake enough to
+   * remember it.
+   */
+  prepNote: string | null;
+}
+
+export interface SchoolMenuSource {
+  provider: "myschoolmenus";
+  organizationId: number;
+  siteId: number;
+  menuId: number;
+}
+
+export interface SchoolProfile {
+  memberId: string;
+  schoolName: string;
+  teacher: string | null;
+  gradeLabel: string | null;
+  specials: SchoolSpecial[];
+  menuSource: SchoolMenuSource | null;
+}
+
+/** A heading of null means the school listed these items under none. */
+export interface SchoolMenuGroup {
+  heading: string | null;
+  items: string[];
+}
+
+export interface SchoolMenuDay {
+  date: string;
+  groups: SchoolMenuGroup[];
+}
+
+export interface SchoolMenu {
+  memberId: string;
+  schoolName: string;
+  menuId: number;
+  /** School days only. A day the school was closed is simply absent. */
+  days: SchoolMenuDay[];
+  /** True when this came from the cache because the provider was unreachable. */
+  stale: boolean;
+  fetchedAt: string | null;
+  missingMonths: string[];
+}

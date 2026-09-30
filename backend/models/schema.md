@@ -26,6 +26,8 @@ items returned from a `Query` without a second read.
 | Routine (definition)| `FAMILY#<familyId>`   | `ROUTINE#<routineId>`       | —                       | —                          |
 | Routine run         | `FAMILY#<familyId>`   | `RUN#<isoDate>#<routineId>` | —                       | —                          |
 | Focus block         | `FAMILY#<familyId>`   | `FOCUS#<isoDate>#<blockId>` | —                       | —                          |
+| School profile      | `FAMILY#<familyId>`   | `SCHOOL#<memberId>`         | —                       | —                          |
+| School menu month   | `FAMILY#<familyId>`   | `SCHOOLMENU#<menuId>#<yyyy-mm>`| —                    | —                          |
 
 `Family` (`METADATA`) is the tenant record every other item's `PK` depends
 on, and the only thing that makes a `familyId` real rather than an
@@ -137,6 +139,57 @@ some work" would throw that away. `matter` is free text — this app has no
 business prescribing another organisation's matter taxonomy, and a short
 code is the sensible thing to type where the full client name is
 privileged.
+
+`School profile` is one row per child: the school's name, the teacher's,
+and the weekly specials rotation — Art on Monday, Gym on Tuesday, and so on
+— copied off the sheet the school sends home. All of it is typed in by a
+parent; nothing here is fetched or inferred.
+
+The rotation's `prepNote` is the reason the entity exists. Knowing Friday is
+Music changes nothing, but "have your student bring in their library book to
+return" is a job for Wednesday night, and it is the sort of thing that turns
+a Thursday morning into a search of the whole house. Notes are stored
+verbatim in the school's own wording, typos included, so a parent recognises
+the sentence from the paper on the fridge rather than reading this app's
+paraphrase of it.
+
+`menuSource` names the child's published lunch menu as three integers —
+`organizationId`, `siteId`, `menuId` — against a closed list of providers,
+not as a URL. That is deliberate: a URL in a database row is something a
+Lambda can be told to fetch, and "fetch whatever this row says" is
+request forgery with a table for a front door. The provider's base URL lives
+in `src/lib/schoolMenu.ts` and nowhere else.
+
+`School menu month` is a month of that menu, cached whole. MySchoolMenus
+(Health-e Pro) publishes a month at a time over a public, unauthenticated
+API and changes it rarely, so the read path checks this row first and only
+goes out to the network when what it has is more than twelve hours old.
+The cache is not a speed trick — it is what makes the answer survive the
+provider being down, which for a screen on a kitchen wall matters more than
+being an hour fresher. A month that cannot be refreshed is served from the
+last copy with `stale: true` and *without* its `fetchedAt` bumped, so it does
+not masquerade as fresh for another twelve hours; a month with neither a
+cache nor a provider is named in `missingMonths` rather than returned as a
+day with no lunch on it.
+
+One row per menu-month rather than per day, because that is the shape the
+provider publishes in, a month of lunches is about thirteen kilobytes, and
+it makes a week one read instead of five. Keyed by `menuId` rather than by
+member, because a district publishes one elementary menu: two children at
+two different buildings share these rows instead of each keeping a copy of
+the same thing.
+
+Note the prefixes once more. `SCHOOL#` ends in a `#`, so
+`begins_with(SK, "SCHOOL#")` lists children and not the menus filed beside
+them under `SCHOOLMENU#` — the byte in that position is `M`, not `#`. There
+is a test asserting it, because a prefix query that quietly returns a
+neighbour's rows reads as missing data rather than as an error.
+
+Days the school publishes as empty — Labor Day, fall break, a conference day
+— are absent from `days` and counted separately from days that could not be
+parsed. Collapsing the two was the first version of this, and it reported
+three parse failures for a district that had simply closed the school, which
+made the failure count worthless for spotting a real one.
 
 ## Access patterns
 

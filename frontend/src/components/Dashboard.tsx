@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, ApiError } from "../lib/api";
-import type { Task, TaskCompletion, ScheduleEntry, StatedPreference, StatedPreferenceCategory, MealPlanEntry, MealSlot, CartItem, RewardGoal, GemBalance, DueWindow, Routine, RoutineRun, RoutineStep, FocusBlock } from "../types";
+import type { Task, TaskCompletion, ScheduleEntry, StatedPreference, StatedPreferenceCategory, MealPlanEntry, MealSlot, CartItem, RewardGoal, GemBalance, DueWindow, Routine, RoutineRun, RoutineStep, FocusBlock, SchoolProfile, SchoolMenu } from "../types";
 import { chooseThreatenedChore, type ThreatenedChore } from "../lib/gemThreats";
 import FamilyCard from "./FamilyCard";
 import TaskList from "./TaskList";
@@ -25,6 +25,8 @@ import GroceryCart from "./GroceryCart";
 import Kitchen from "./Kitchen";
 import CastleOverlay from "./CastleOverlay";
 import { planPanels, drawerLabel, type PanelId } from "../lib/dashboardLayout";
+import SchoolDay from "./SchoolDay";
+import { horizonFor, schoolDayNotes, specialsOn } from "../lib/schoolDay";
 import type { CardSize } from "./FamilyCard";
 import { currentWindow } from "../lib/timeOfDay";
 
@@ -66,6 +68,14 @@ const CLOCK_TICK_MS = 15_000;
 // actually takes. Four weeks is about twenty school mornings — enough for
 // a median to mean something, recent enough to still describe this term.
 const ROUTINE_HISTORY_DAYS = 28;
+
+/**
+ * How far ahead the lunch menu is asked for. A week, because the panel's
+ * horizon rolls to tomorrow in the evening and because the backend serves
+ * a cached month either way — a longer range costs nothing and stops an
+ * always-on screen going blank at midnight.
+ */
+const SCHOOL_MENU_DAYS = 7;
 
 // How long the launch screen stays up after the last step is ticked.
 // `isRoutineDue` goes false the instant the routine is finished, so without
@@ -134,6 +144,9 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   // syncs, and a stalled countdown is worse than no countdown.
   const [clock, setClock] = useState(() => new Date());
   const [focusBlocks, setFocusBlocks] = useState<FocusBlock[]>([]);
+  const [schoolProfiles, setSchoolProfiles] = useState<SchoolProfile[]>([]);
+  /** Keyed by memberId. A child whose school publishes no menu isn't in here. */
+  const [schoolMenus, setSchoolMenus] = useState<Record<string, SchoolMenu>>({});
   const [focusOpen, setFocusOpen] = useState(false);
   const [castleOpen, setCastleOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -201,6 +214,37 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   const fetchFocusBlocks = useCallback(async () => {
     const start = toLocalIsoDate(new Date(Date.now() - ROUTINE_HISTORY_DAYS * 24 * 60 * 60 * 1000));
     return api.listFocusBlocks(familyId, start, today);
+  }, [familyId, today]);
+
+  /**
+   * The school profiles, and the published lunch menu for each child that
+   * has one.
+   *
+   * A week rather than just today, because the panel's horizon moves to
+   * tomorrow in the evening and because the backend serves a cached month
+   * anyway — asking for seven days costs the same as asking for one and
+   * survives the screen being left on overnight.
+   *
+   * One menu call per child, each catching its own failure. A 404 here is
+   * an ordinary answer, not a fault: it means that child's school doesn't
+   * publish a menu this app can read, and it must not take the other
+   * child's lunch off the screen with it.
+   */
+  const fetchSchool = useCallback(async () => {
+    const profiles = await api.listSchoolProfiles(familyId);
+    const end = toLocalIsoDate(new Date(Date.now() + SCHOOL_MENU_DAYS * 24 * 60 * 60 * 1000));
+    const withMenus = profiles.filter((profile) => profile.menuSource !== null);
+    const fetched = await Promise.all(
+      withMenus.map((profile) =>
+        api.getSchoolMenu(familyId, profile.memberId, today, end).catch(() => null)
+      )
+    );
+    const menus: Record<string, SchoolMenu> = {};
+    withMenus.forEach((profile, index) => {
+      const menu = fetched[index];
+      if (menu) menus[profile.memberId] = menu;
+    });
+    return { profiles, menus };
   }, [familyId, today]);
 
   // Bumped at the start *and* the end of every local write. A sync that
@@ -284,10 +328,17 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
         if (!superseded) setFocusBlocks(blocks);
       })
       .catch(() => undefined);
+    void fetchSchool()
+      .then(({ profiles, menus }) => {
+        if (superseded) return;
+        setSchoolProfiles(profiles);
+        setSchoolMenus(menus);
+      })
+      .catch(() => undefined);
     return () => {
       superseded = true;
     };
-  }, [fetchRoutines, fetchFocusBlocks]);
+  }, [fetchRoutines, fetchFocusBlocks, fetchSchool]);
 
   /**
    * The countdown's own clock.
@@ -670,6 +721,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
     hasBedtimeRoutine: bedtimeRoutine !== null,
     focusBlocksToday: focusBlocks.filter((block) => block.date === today).length,
     statedPreferenceCount: preferences.length,
+    schoolNotesNow: schoolDayNotes(schoolProfiles, clock).length,
   };
   const panelPlan = planPanels(panelSignals);
 
@@ -973,6 +1025,9 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
    * Every panel the dashboard can show, keyed by id, so the layout plan
    * can place them without the render knowing what's in any of them.
    */
+  const schoolNotes = schoolDayNotes(schoolProfiles, clock);
+  const schoolHorizon = horizonFor(clock);
+
   const PANELS: Record<PanelId, { title: string; subtitle?: string; body: ReactNode }> = {
     chores: {
       title: "Today's chores",
@@ -1006,7 +1061,12 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
     },
     schedule: {
       title: "Today's schedule",
-      body: <Calendar entries={schedule.filter((entry) => entry.date === today)} />,
+      body: (
+        <Calendar
+          entries={schedule.filter((entry) => entry.date === today)}
+          school={specialsOn(schoolProfiles, today)}
+        />
+      ),
     },
     insights: {
       title: "What we've noticed",
@@ -1114,6 +1174,13 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
           onStart={() => setFocusOpen(true)}
         />
       ),
+    },
+    school: {
+      title: "School",
+      subtitle: schoolNotes.length
+        ? `${schoolHorizon.horizon === "today" ? "Today" : "Tomorrow"} — ${schoolNotes.map((note) => note.subject).join(", ")}`
+        : undefined,
+      body: <SchoolDay profiles={schoolProfiles} menus={schoolMenus} now={clock} />,
     },
   };
 

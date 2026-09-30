@@ -47,6 +47,8 @@ vi.mock("../lib/api", () => ({
     saveRoutineRun: vi.fn(),
     listFocusBlocks: vi.fn(),
     recordFocusBlock: vi.fn(),
+    listSchoolProfiles: vi.fn(),
+    getSchoolMenu: vi.fn(),
   },
 }));
 
@@ -62,6 +64,7 @@ describe("Dashboard", () => {
     vi.mocked(api.listRoutines).mockResolvedValue([]);
     vi.mocked(api.listRoutineRuns).mockResolvedValue([]);
     vi.mocked(api.listFocusBlocks).mockResolvedValue([]);
+    vi.mocked(api.listSchoolProfiles).mockResolvedValue([]);
   });
 
   /**
@@ -1309,6 +1312,95 @@ describe("Dashboard", () => {
       await waitFor(() => expect(screen.getByRole("dialog", { name: /The bus at/ })).toBeInTheDocument());
       // Getting out of the door outranks a raccoon.
       expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    });
+  });
+
+  /**
+   * The school panel. The thing worth asserting at this level is not the
+   * wording — SchoolDay.test.tsx covers that — but that the dashboard asks
+   * for the data, survives a child whose school publishes no menu, and does
+   * not fall over when the whole school API is unreachable.
+   */
+  describe("Dashboard — school", () => {
+    beforeEach(() => {
+      // The three the outer beforeEach leaves to each test, because most
+      // tests here are about them. These ones are not.
+      vi.mocked(api.listTasks).mockResolvedValue([]);
+      vi.mocked(api.listSchedules).mockResolvedValue([]);
+      vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+    });
+
+    const PARKER = {
+      memberId: "Parker",
+      schoolName: "Violet Elementary",
+      teacher: "Miss Hineline",
+      gradeLabel: null,
+      specials: [
+        { dayOfWeek: 1, subject: "Art", prepNote: null },
+        { dayOfWeek: 2, subject: "Gym", prepNote: "Have students wear closed toed shoes or bring in a pair to change into." },
+        { dayOfWeek: 3, subject: "Technology", prepNote: "Make sure computers are fulled charged." },
+        { dayOfWeek: 4, subject: "Library", prepNote: "Have your student bring in their library book to return." },
+        { dayOfWeek: 5, subject: "Music", prepNote: null },
+      ],
+      menuSource: { provider: "myschoolmenus" as const, organizationId: 2230, siteId: 13754, menuId: 117559 },
+    };
+
+    it("asks for a menu only for the children whose school publishes one", async () => {
+      const noMenu = { ...PARKER, memberId: "Rowan", menuSource: null };
+      vi.mocked(api.listSchoolProfiles).mockResolvedValue([PARKER, noMenu]);
+      vi.mocked(api.getSchoolMenu).mockResolvedValue({
+        memberId: "Parker",
+        schoolName: "Violet Elementary",
+        menuId: 117559,
+        days: [],
+        stale: false,
+        fetchedAt: null,
+        missingMonths: [],
+      });
+
+      render(<Dashboard />);
+
+      await waitFor(() => expect(api.getSchoolMenu).toHaveBeenCalled());
+      // A set rather than a call count: the dashboard is free to re-read,
+      // and what matters is that Rowan is never asked for at all.
+      const asked = new Set(vi.mocked(api.getSchoolMenu).mock.calls.map((call) => call[1]));
+      expect([...asked]).toEqual(["Parker"]);
+    });
+
+    it("still renders the whole dashboard when the school API is unreachable", async () => {
+      vi.mocked(api.listSchoolProfiles).mockRejectedValue(new Error("network"));
+
+      render(<Dashboard />);
+
+      await waitFor(() => expect(screen.getByRole("heading", { name: /Today.s chores/i })).toBeInTheDocument());
+      // A school menu that will not load is not worth an error banner over
+      // the chores a child is standing in front of.
+      expect(screen.queryByText(/network/i)).not.toBeInTheDocument();
+    });
+
+    it("does not lose one child's lunch because the other child's menu failed", async () => {
+      const sibling = { ...PARKER, memberId: "Rowan" };
+      vi.mocked(api.listSchoolProfiles).mockResolvedValue([PARKER, sibling]);
+      vi.mocked(api.getSchoolMenu).mockImplementation(async (_family: string, memberId: string) => {
+        if (memberId === "Rowan") throw new Error("404");
+        return {
+          memberId: "Parker",
+          schoolName: "Violet Elementary",
+          menuId: 117559,
+          days: [],
+          stale: false,
+          fetchedAt: null,
+          missingMonths: [],
+        };
+      });
+
+      render(<Dashboard />);
+
+      await waitFor(() => {
+        const asked = new Set(vi.mocked(api.getSchoolMenu).mock.calls.map((call) => call[1]));
+        expect([...asked].sort()).toEqual(["Parker", "Rowan"]);
+      });
+      expect(screen.getByRole("heading", { name: /Today.s chores/i })).toBeInTheDocument();
     });
   });
 });
