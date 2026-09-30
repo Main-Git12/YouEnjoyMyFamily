@@ -34,7 +34,7 @@ export default function LinkDevice({ onLink, signedOut = false }: LinkDeviceProp
         className="bg-white rounded-card shadow-[var(--shadow-card)] border-2 border-olive-100 px-6 sm:px-10 py-8 w-full max-w-lg"
       >
         <div className="flex items-center gap-3 mb-5">
-          <img src="/brand-mark.png" alt="" className="h-12 w-12 rounded-full ring-4 ring-olive-100" />
+          <img src="/icon.svg" alt="" className="h-12 w-12 rounded-full ring-4 ring-olive-100" />
           <h1 className="font-display text-2xl sm:text-3xl text-olive-700">YouEnjoyMyFamily</h1>
         </div>
 

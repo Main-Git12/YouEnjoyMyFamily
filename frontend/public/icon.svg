@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="YouEnjoyMyFamily">
+  <!--
+    The app icon: the house and the sprig, without the wordmark.
+
+    The full lockup (brand-mark.png) carries "youenjoymyfamily" underneath.
+    That is right on a sign-in card and wrong everywhere an icon goes — at
+    32px the word is a smudge, and Android crops a maskable icon to a circle
+    that cuts it in half. So the glyph stands alone here.
+
+    Colours are sampled out of brand-mark.png rather than picked afresh, so
+    this reads as the same mark and not a cousin of it: house #b96b28,
+    sprig #6f712d, ground #f7ead3.
+
+    Two things are drawn heavier than the original lockup, because a favicon
+    is 32 pixels and not 512: the strokes, and the leaves. Four big leaves
+    survive the shrink where nine small ones turned into a green smear —
+    checked by rendering at 32 and looking, not by assuming.
+
+    The glyph is laid out in a 100x75 box and placed by its own bounding-box
+    centre (53.5, 40.15), so the drawing sits centred rather than the box it
+    happens to be drawn in.
+  -->
+  <rect width="512" height="512" fill="#f7ead3"/>
+  <g id="glyph" transform="translate(256 256) scale(3.95) translate(-53.5 -40.15)">
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <!-- House: an open outline with no floor, so it reads as shelter, not a box. -->
+      <path d="M36 75V34L67 6l31.5 28v41" stroke="#b96b28" stroke-width="6"/>
+      <!-- Ground: a dash under the sprig, and a small rise in the doorway. -->
+      <path d="M7 75h25M54 75q5-3 10 0" stroke="#6f712d" stroke-width="5"/>
+      <!-- Stem, rising and leaning away from the house. -->
+      <path d="M21 75C19 60 15 42 11 22" stroke="#6f712d" stroke-width="5"/>
+    </g>
+    <!-- Leaves: one almond, placed along the stem and turned. -->
+    <g fill="#6f712d">
+      <g transform="translate(18.7 60.7) rotate(-40)"><path d="M0 0c5-4.6 11.5-4.4 16 0-4.5 4.4-11 4.6-16 0Z"/></g>
+      <g transform="translate(18.7 62.6) rotate(-145)"><path d="M0 0c5-4.6 11.5-4.4 16 0-4.5 4.4-11 4.6-16 0Z"/></g>
+      <g transform="translate(15.4 43.9) rotate(-46)"><path d="M0 0c5-4.6 11.5-4.4 16 0-4.5 4.4-11 4.6-16 0Z"/></g>
+      <g transform="translate(15.4 45.8) rotate(-140)"><path d="M0 0c5-4.6 11.5-4.4 16 0-4.5 4.4-11 4.6-16 0Z"/></g>
+      <g transform="translate(11.6 23.5) rotate(-78)"><path d="M0 0c4-3.6 9-3.4 12.5 0-3.5 3.4-8.5 3.6-12.5 0Z"/></g>
+    </g>
+  </g>
+</svg>

@@ -1133,7 +1133,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
     <main className="min-h-screen lg:h-screen lg:overflow-hidden bg-white flex flex-col">
       <header className="shrink-0 flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-3">
         <div className="flex items-center gap-3 min-w-0">
-          <img src="/brand-mark.png" alt="" className="h-12 w-12 sm:h-14 sm:w-14 short:h-10 short:w-10 shrink-0 rounded-full ring-4 ring-olive-100" />
+          <img src="/icon.svg" alt="" className="h-12 w-12 sm:h-14 sm:w-14 short:h-10 short:w-10 shrink-0 rounded-full ring-4 ring-olive-100" />
           <div className="min-w-0">
             {/* The day leads, not the brand. Someone walking past a kitchen
                 screen wants to know what today is and what's left of it —

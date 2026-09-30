@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "lint": "eslint src",
     "test": "vitest run",
-    "verify:bundle": "node scripts/check-bundle-has-no-key.mjs"
+    "verify:bundle": "node scripts/check-bundle-has-no-key.mjs",
+    "verify:icons": "node scripts/check-icons.mjs",
+    "icons": "node scripts/render-icons.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

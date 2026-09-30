@@ -49,7 +49,48 @@ src/
   test/setup.ts             Vitest setup (jest-dom matchers)
   theme.contrast.test.ts     Reads the palette out of tailwind.config.js and asserts a real
                               contrast ratio per pair the components actually render
+public/
+  icon.svg                 The app mark: the house and the sprig, no wordmark. The one
+                            drawing every icon below is rendered from
+  brand-mark.png           The full lockup, wordmark included — link previews only
+  favicon-32.png, apple-touch-icon-180.png, icon-192.png, icon-512.png,
+  icon-maskable-512.png    Generated. See "Brand assets"
+scripts/
+  render-icons.mjs         Renders icon.svg into those PNGs (`npm run icons`)
+  check-icons.mjs          Checks what a launcher will actually show (`npm run verify:icons`)
+  check-bundle-has-no-key.mjs  Proves the family key cannot reach the bundle
 ```
+
+## Brand assets
+
+There are two marks, and the difference matters.
+
+`brand-mark.png` is the full **lockup** — house, sprig and the word
+"youenjoymyfamily" underneath. `icon.svg` is the **glyph** alone. The lockup
+used to do both jobs, and it was wrong at every size an icon appears: 1.6% of
+that square is drawing and the rest is cream, so the wordmark is about six
+pixels tall by the time a browser has it in a tab or a phone has it on a home
+screen. It is not cropped, just unreadable. The glyph is drawn roughly seven
+times heavier for the same square.
+
+So: the lockup is for link previews and anywhere it is shown large. Everything
+that is an *icon* comes from `icon.svg`, including the header avatar, which
+takes the SVG directly and so stays crisp at whatever the Echo Show's pixel
+ratio turns out to be.
+
+After editing `icon.svg`:
+
+```bash
+npm run icons         # re-render the PNGs (needs the Playwright Chromium)
+npm run verify:icons  # then check them, and commit both
+```
+
+`verify:icons` runs in CI. It decodes each committed PNG and asserts three
+things that otherwise only fail on somebody's phone: the declared size is the
+real size, there is enough ink to read once a launcher shrinks it, and the
+maskable icon stays inside the safe circle Android crops to. The PNGs are
+committed rather than generated at build time because a headless browser in
+CI would cost every run minutes to reproduce a file that already exists.
 
 ## Local development
 
@@ -62,10 +103,12 @@ npm run dev
 ## Checks
 
 ```bash
-npm run typecheck   # tsc --noEmit
-npm run lint         # eslint src
+npm run typecheck     # tsc --noEmit
+npm run lint          # eslint src
 npm test              # vitest run (jsdom + @testing-library/react)
 npm run build         # typecheck + production build
+npm run verify:bundle # rebuilds with a canary key and proves it cannot reach the output
+npm run verify:icons  # reads the committed icon PNGs; see "Brand assets" below
 ```
 
 ## Deploy (so phones can reach it)

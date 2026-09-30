@@ -4,10 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#7d7f45" />
-    <link rel="icon" type="image/png" href="/brand-mark.png" />
+    <!-- The glyph alone, not the full lockup: the wordmark in brand-mark.png
+         is illegible at a tab's 16px and gets cropped off a maskable icon.
+         Browsers that take the SVG scale it to any size; the 32px PNG is for
+         the ones that don't. See public/icon.svg. -->
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <!-- Add-to-home-screen on a phone: opens chrome-less, like an app. -->
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="apple-touch-icon" href="/brand-mark.png" />
+    <!-- iOS ignores the manifest here and adds its own rounding, so this one
+         is opaque and square on purpose. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon-180.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Family" />
@@ -17,6 +24,15 @@
       href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700&family=Quicksand:wght@500;600;700&display=swap"
       rel="stylesheet"
     />
+    <!-- Link previews get the full lockup, wordmark and all — the one place
+         a name under the house is the point rather than a liability. -->
+    <meta property="og:title" content="YouEnjoyMyFamily" />
+    <meta
+      property="og:description"
+      content="The family's tasks, schedule, meal plan and grocery list — on the fridge screen or in your pocket."
+    />
+    <meta property="og:image" content="/brand-mark.png" />
+    <meta name="twitter:card" content="summary" />
     <title>YouEnjoyMyFamily</title>
   </head>
   <body class="bg-white text-bark font-body">

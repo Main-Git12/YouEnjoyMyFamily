@@ -55,6 +55,10 @@ jobs:
       # Builds again with a canary key set, and fails if it reaches the
       # output. This is what makes it safe to serve from a public URL.
       - run: npm run verify:bundle
+      # Icons fail silently — an unreadable favicon or a maskable icon the
+      # launcher crops looks fine in `dist/` and wrong on a phone. This reads
+      # the committed PNGs and checks what a launcher will actually show.
+      - run: npm run verify:icons
 
   alexa-skill:
     runs-on: ubuntu-latest
