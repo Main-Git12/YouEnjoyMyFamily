@@ -53,6 +53,7 @@ vi.mock("../lib/api", () => ({
     getWeather: vi.fn(),
     getFamilySettings: vi.fn(),
     saveHouseholdLocation: vi.fn(),
+    searchPlaces: vi.fn(),
     markSchoolPrepPacked: vi.fn(),
     undoSchoolPrepPacked: vi.fn(),
   },
@@ -74,6 +75,7 @@ describe("Dashboard", () => {
     vi.mocked(api.listSchoolPrep).mockResolvedValue([]);
     // 404 is the ordinary answer until a household says where it is.
     vi.mocked(api.getWeather).mockRejectedValue(new Error("no location set"));
+    vi.mocked(api.getFamilySettings).mockResolvedValue({ familyId: "fam_1", name: null, location: null, createdAt: "2026-01-01T00:00:00.000Z" });
   });
 
   /**

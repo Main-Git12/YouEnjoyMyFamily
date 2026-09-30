@@ -204,6 +204,11 @@ export const api = {
     }),
   listFocusBlocks: (familyId: string, start: string, end: string) =>
     request<FocusBlock[]>(`/families/${familyId}/focus-blocks?start=${start}&end=${end}`),
+  searchPlaces: (familyId: string, q: string) =>
+    request<{ label: string; latitude: number; longitude: number; timeZone: string }[]>(
+      `/families/${familyId}/places?q=${encodeURIComponent(q)}`
+    ),
+
   getFamilySettings: (familyId: string) => request<FamilySettings>(`/families/${familyId}`),
 
   saveHouseholdLocation: (familyId: string, location: HouseholdLocation | null) =>

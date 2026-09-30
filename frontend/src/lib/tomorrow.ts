@@ -277,7 +277,12 @@ export function buildTomorrow(sources: TomorrowSources): TomorrowBrief | null {
   if (forecast && weather?.date === date) {
     const parts = [`${forecast.temperatureF}°F`];
     if (forecast.conditions) parts.push(forecast.conditions);
-    if (forecast.chanceOfRain >= RAIN_WORTH_MENTIONING) parts.push(`${forecast.chanceOfRain}% chance of rain`);
+    if (forecast.chanceOfRain >= RAIN_WORTH_MENTIONING) {
+      // "rain, 80% chance of rain" is what saying both plainly produces.
+      // Once the conditions have already named the weather, the number is
+      // just a likelihood.
+      parts.push(forecast.conditions ? `${forecast.chanceOfRain}% likely` : `${forecast.chanceOfRain}% chance of rain`);
+    }
     // Said only when it changes what somebody picks up on the way out. A
     // forecast panel is a phone's job; this is a coat's.
     const notable =

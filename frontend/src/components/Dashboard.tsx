@@ -28,9 +28,10 @@ import { planPanels, drawerLabel, type PanelId } from "../lib/dashboardLayout";
 import SchoolDay from "./SchoolDay";
 import SchoolSetup from "./SchoolSetup";
 import TomorrowBriefing from "./TomorrowBriefing";
+import HouseholdLocation from "./HouseholdLocation";
 import { buildTomorrow } from "../lib/tomorrow";
 import { createKeepAwake, type KeepAwakeStatus } from "../lib/keepAwake";
-import type { WeatherReading } from "../types";
+import type { WeatherReading, HouseholdLocation as Location } from "../types";
 import { horizonFor, prepRecordFor, schoolDayNotes, specialsOn, type SchoolDayNote } from "../lib/schoolDay";
 import type { CardSize } from "./FamilyCard";
 import { currentWindow } from "../lib/timeOfDay";
@@ -155,6 +156,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   /** What the school asked for and somebody has said is done. */
   const [schoolPrep, setSchoolPrep] = useState<SchoolPrep[]>([]);
   const [weather, setWeather] = useState<WeatherReading | null>(null);
+  const [household, setHousehold] = useState<Location | null>(null);
   const [focusOpen, setFocusOpen] = useState(false);
   const [castleOpen, setCastleOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -384,6 +386,12 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
         if (!superseded) setFocusBlocks(blocks);
       })
       .catch(() => undefined);
+    void api
+      .getFamilySettings(familyId)
+      .then((settings) => {
+        if (!superseded) setHousehold(settings.location);
+      })
+      .catch(() => undefined);
     void fetchSchool()
       .then(({ profiles, menus, prep }) => {
         if (superseded) return;
@@ -395,7 +403,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
     return () => {
       superseded = true;
     };
-  }, [fetchRoutines, fetchFocusBlocks, fetchSchool]);
+  }, [familyId, fetchRoutines, fetchFocusBlocks, fetchSchool]);
 
   /**
    * The countdown's own clock.
@@ -1345,12 +1353,33 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
       ),
     },
     "school-setup": {
-      title: "The specials sheet",
+      title: "Setup",
       subtitle: schoolProfiles.length
         ? schoolProfiles.map((profile) => profile.memberId).join(", ")
         : "not set up yet",
       body: (
-        <SchoolSetup members={members} profiles={schoolProfiles} onSave={handleSaveSchoolProfile} />
+        <div className="space-y-8">
+          <section>
+            <h3 className="font-display text-lg text-olive-800 mb-2">Where you are</h3>
+            <HouseholdLocation
+              location={household}
+              onSearch={(q) => api.searchPlaces(familyId, q)}
+              onSave={async (location) => {
+                try {
+                  const saved = await guardedWrite(() => api.saveHouseholdLocation(familyId, location));
+                  setHousehold(saved.location);
+                  setError(null);
+                } catch (err) {
+                  reportError(err);
+                }
+              }}
+            />
+          </section>
+          <section>
+            <h3 className="font-display text-lg text-olive-800 mb-2">The specials sheet</h3>
+            <SchoolSetup members={members} profiles={schoolProfiles} onSave={handleSaveSchoolProfile} />
+          </section>
+        </div>
       ),
     },
   };

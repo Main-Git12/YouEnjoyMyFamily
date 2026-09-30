@@ -392,9 +392,16 @@ describe("what the weather will be doing at the door", () => {
     expect(weather?.headline).toContain("Feels like 34°F");
   });
 
-  it("speaks up when it is going to be wet", () => {
+  it("speaks up when it is going to be wet, without saying rain twice", () => {
     const brief = buildTomorrow(base({ profiles: [PARKER], weather: reading({ conditions: "rain", chanceOfRain: 80 }) }));
-    expect(brief?.signals.find((s) => s.kind === "weather")?.headline).toContain("80% chance of rain");
+    const headline = brief?.signals.find((s) => s.kind === "weather")?.headline ?? "";
+    expect(headline).toContain("rain, 80% likely");
+    expect(headline).not.toContain("chance of rain");
+  });
+
+  it("spells out what the number means when the conditions did not name it", () => {
+    const brief = buildTomorrow(base({ profiles: [PARKER], weather: reading({ conditions: "", chanceOfRain: 70 }) }));
+    expect(brief?.signals.find((s) => s.kind === "weather")?.headline).toContain("70% chance of rain");
   });
 
   it("says when they will be leaving before the sun is up", () => {
