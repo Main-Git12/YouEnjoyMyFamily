@@ -50,6 +50,9 @@ vi.mock("../lib/api", () => ({
     listSchoolProfiles: vi.fn(),
     getSchoolMenu: vi.fn(),
     listSchoolPrep: vi.fn(),
+    getWeather: vi.fn(),
+    getFamilySettings: vi.fn(),
+    saveHouseholdLocation: vi.fn(),
     markSchoolPrepPacked: vi.fn(),
     undoSchoolPrepPacked: vi.fn(),
   },
@@ -69,6 +72,8 @@ describe("Dashboard", () => {
     vi.mocked(api.listFocusBlocks).mockResolvedValue([]);
     vi.mocked(api.listSchoolProfiles).mockResolvedValue([]);
     vi.mocked(api.listSchoolPrep).mockResolvedValue([]);
+    // 404 is the ordinary answer until a household says where it is.
+    vi.mocked(api.getWeather).mockRejectedValue(new Error("no location set"));
   });
 
   /**

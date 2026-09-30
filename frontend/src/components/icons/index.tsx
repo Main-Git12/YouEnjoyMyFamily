@@ -113,3 +113,11 @@ export const MoonIcon = (props: IconProps) => (
     <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" />
   </Frame>
 );
+
+/** What the weather means at a front door, rather than the weather itself. */
+export const CoatIcon = (props: IconProps) => (
+  <Frame {...props}>
+    <path d="M12 3 7 5l-2.5 6L7 12v8h10v-8l2.5-1L17 5Z" />
+    <path d="M12 3v8" />
+  </Frame>
+);

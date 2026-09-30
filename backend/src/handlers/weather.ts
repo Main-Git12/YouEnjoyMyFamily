@@ -3,7 +3,7 @@ import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { docClient, TABLE_NAME } from "../lib/dynamoClient";
 import { ok, badRequest, notFound, serverError } from "../lib/response";
 import { authenticateFamily, familyMetadataKey } from "../lib/auth";
-import { weatherAt, type WeatherAt, type WeatherFetch } from "../lib/weather";
+import { searchPlaces, weatherAt, type WeatherAt, type WeatherFetch } from "../lib/weather";
 import type { FamilyRecord, WeatherHourItem } from "../types";
 
 /**
@@ -109,6 +109,13 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
     const authError = await authenticateFamily(event, familyId);
     if (authError) return authError;
     if (method !== "GET") return badRequest(`Unsupported method: ${method}`);
+
+    // The same function serves the place lookup, because it is the one place
+    // in the API that already talks to this provider.
+    if (event.rawPath.endsWith("/places")) {
+      const q = query.q ?? "";
+      return ok(await searchPlaces(q));
+    }
 
     const { date, at } = query;
     if (!date || !ISO_DATE.test(date)) return badRequest("date must be YYYY-MM-DD");

@@ -265,3 +265,39 @@ export interface SchoolPrep {
   note: string | null;
   packedAt: string;
 }
+
+/** Where the household is. The coordinate is stored already rounded. */
+export interface HouseholdLocation {
+  latitude: number;
+  longitude: number;
+  timeZone: string;
+  label: string | null;
+}
+
+export interface FamilySettings {
+  familyId: string;
+  name: string | null;
+  location: HouseholdLocation | null;
+  createdAt: string;
+}
+
+/** The weather at one hour — the hour the family actually leaves. */
+export interface WeatherAtHour {
+  time: string;
+  temperatureF: number;
+  feelsLikeF: number;
+  chanceOfRain: number;
+  conditions: string;
+  beforeSunrise: boolean;
+  sunrise: string;
+}
+
+export interface WeatherReading {
+  date: string;
+  atTime: string;
+  /** Null when the forecast does not reach that far, or could not be read. */
+  weather: WeatherAtHour | null;
+  stale: boolean;
+  fetchedAt: string | null;
+  label: string | null;
+}

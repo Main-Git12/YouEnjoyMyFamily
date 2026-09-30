@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { weatherAt, describeCode, roundCoordinate, WeatherFetchError, type WeatherFetch } from "./weather";
+import { weatherAt, searchPlaces, describeCode, roundCoordinate, WeatherFetchError, type WeatherFetch } from "./weather";
 
 const QUERY = {
   latitude: 39.884812345,
@@ -123,4 +123,57 @@ test("no temperature at all means no answer", async () => {
     daily: { time: ["2026-10-01"], sunrise: ["2026-10-01T07:27"] },
   });
   assert.equal(await weatherAt(QUERY, stub(noTemp)), null);
+});
+
+// --- finding a place without asking anyone for a coordinate ----------------
+
+const geocoded = {
+  results: [
+    { name: "Pickerington", admin1: "Ohio", country_code: "US", latitude: 39.884231, longitude: -82.753512, timezone: "America/New_York" },
+    { name: "Pickerington Ponds", admin1: "Ohio", country_code: "US", latitude: 39.88145, longitude: -82.7974, timezone: "America/New_York" },
+  ],
+};
+
+test("finds a town by name and brings its timezone with it", async () => {
+  const places = await searchPlaces("Pickerington", stub(geocoded));
+  assert.equal(places[0]?.label, "Pickerington, Ohio, US");
+  assert.equal(places[0]?.timeZone, "America/New_York");
+  // Rounded here too, so a precise coordinate never even reaches the family's record.
+  assert.equal(places[0]?.latitude, 39.88);
+  assert.equal(places[0]?.longitude, -82.75);
+});
+
+test("does not go looking for one or two characters", async () => {
+  let called = false;
+  const spy: WeatherFetch = async () => {
+    called = true;
+    return { ok: true, status: 200, text: async () => JSON.stringify(geocoded) };
+  };
+  assert.deepEqual(await searchPlaces("P", spy), []);
+  assert.deepEqual(await searchPlaces("  ", spy), []);
+  assert.equal(called, false);
+});
+
+test("no match is an empty list, not an error", async () => {
+  // The service answers a miss with a body that simply has no `results`.
+  assert.deepEqual(await searchPlaces("zzzzzzzz", stub({ generationtime_ms: 0.1 })), []);
+});
+
+test("a row missing what a place needs is skipped rather than half-built", async () => {
+  const ragged = {
+    results: [
+      { name: "No coordinates", admin1: "Ohio", country_code: "US", timezone: "America/New_York" },
+      { name: "No zone", latitude: 1, longitude: 2, country_code: "US" },
+      { name: "Good", latitude: 3.456, longitude: 4.567, timezone: "Europe/London", country_code: "GB" },
+    ],
+  };
+  // A two-character minimum applies, so this asks with a real-looking name.
+  const places = await searchPlaces("Good", stub(ragged));
+  assert.equal(places.length, 1);
+  assert.equal(places[0]?.label, "Good, GB");
+});
+
+test("an upstream failure on the place lookup is an error, not an empty list", async () => {
+  await assert.rejects(() => searchPlaces("Pickerington", stub({}, { ok: false, status: 500 })), WeatherFetchError);
+  await assert.rejects(() => searchPlaces("Pickerington", stub("<html>")), WeatherFetchError);
 });

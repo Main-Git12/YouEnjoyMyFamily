@@ -1,4 +1,4 @@
-import type { MealPlanEntry, Routine, RoutineRun, ScheduleEntry, SchoolPrep, SchoolProfile } from "../types";
+import type { MealPlanEntry, Routine, RoutineRun, ScheduleEntry, SchoolPrep, SchoolProfile, WeatherReading } from "../types";
 import { toLocalIsoDate } from "./dates";
 import { anchorMomentOn, appliesOn } from "./routinePlan";
 import { weekdayName, weekdayOf } from "./routines";
@@ -46,6 +46,11 @@ import { WINDOW_CLOSES_AT_MINUTE, minutesIntoDay } from "./timeOfDay";
  * have noticed anything about it. Two is a coincidence.
  */
 const MIN_MORNINGS_FOR_A_CLAIM = 3;
+
+/** Cold enough that a coat changes the morning. */
+const COAT_WEATHER_F = 45;
+/** Wet enough to be worth saying out loud the night before. */
+const RAIN_WORTH_MENTIONING = 50;
 
 /** Slack at or below this counts as "finished with nothing to spare". */
 export const THIN_MARGIN_MINUTES = 5;
@@ -127,7 +132,7 @@ export function weekdayMargins(
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-export type SignalKind = "calendar" | "school" | "meal" | "morning";
+export type SignalKind = "calendar" | "school" | "meal" | "morning" | "weather";
 
 export interface TomorrowSignal {
   id: string;
@@ -162,6 +167,8 @@ export interface TomorrowSources {
   mealPlan: MealPlanEntry[];
   routines: Routine[];
   runs: RoutineRun[];
+  /** The forecast for the hour the morning has to be finished by, if known. */
+  weather?: WeatherReading | null;
 }
 
 /** Only from the evening on. Tomorrow is not tomorrow's problem at breakfast. */
@@ -173,7 +180,7 @@ const plural = (count: number, one: string, many: string): string =>
   `${count} ${count === 1 ? one : many}`;
 
 export function buildTomorrow(sources: TomorrowSources): TomorrowBrief | null {
-  const { now, schedule, profiles, prep, mealPlan, routines, runs } = sources;
+  const { now, schedule, profiles, prep, mealPlan, routines, runs, weather } = sources;
   if (!briefingIsDue(now)) return null;
 
   const tomorrowDate = new Date(now);
@@ -261,6 +268,40 @@ export function buildTomorrow(sources: TomorrowSources): TomorrowBrief | null {
     }
   }
 
+  // --- what it will be doing at the door -----------------------------------
+  //
+  // Placed high in the order below because it is the signal with the
+  // shortest shelf life: a coat can be found the night before, and cannot
+  // be found at 07:50.
+  const forecast = weather?.weather ?? null;
+  if (forecast && weather?.date === date) {
+    const parts = [`${forecast.temperatureF}°F`];
+    if (forecast.conditions) parts.push(forecast.conditions);
+    if (forecast.chanceOfRain >= RAIN_WORTH_MENTIONING) parts.push(`${forecast.chanceOfRain}% chance of rain`);
+    // Said only when it changes what somebody picks up on the way out. A
+    // forecast panel is a phone's job; this is a coat's.
+    const notable =
+      forecast.feelsLikeF <= COAT_WEATHER_F ||
+      forecast.chanceOfRain >= RAIN_WORTH_MENTIONING ||
+      forecast.beforeSunrise ||
+      /snow|freezing|thunder/.test(forecast.conditions);
+    if (notable) {
+      const dark = forecast.beforeSunrise ? ` Still dark — sunrise is ${forecast.sunrise.slice(11)}.` : "";
+      const feels =
+        forecast.feelsLikeF <= COAT_WEATHER_F && forecast.feelsLikeF !== forecast.temperatureF
+          ? ` Feels like ${forecast.feelsLikeF}°F.`
+          : "";
+      signals.push({
+        id: "weather",
+        kind: "weather",
+        headline: `${parts.join(", ")} at ${weather.atTime}.${feels}${dark}`,
+        because: weather.stale
+          ? `Forecast for ${weather.label ?? "your area"}, from a copy saved earlier.`
+          : `Forecast for ${weather.label ?? "your area"} at the time the morning has to be finished.`,
+      });
+    }
+  }
+
   if (!signals.length) return null;
 
   /**
@@ -274,7 +315,7 @@ export function buildTomorrow(sources: TomorrowSources): TomorrowBrief | null {
    * app, the one built from this weekday's own finished mornings, was the
    * line that fell off the bottom.
    */
-  const ACTIONABILITY: Record<SignalKind, number> = { school: 0, morning: 1, meal: 2, calendar: 3 };
+  const ACTIONABILITY: Record<SignalKind, number> = { school: 0, weather: 1, morning: 2, meal: 3, calendar: 4 };
   signals.sort((a, b) => ACTIONABILITY[a.kind] - ACTIONABILITY[b.kind]);
 
   // --- the overall read ----------------------------------------------------

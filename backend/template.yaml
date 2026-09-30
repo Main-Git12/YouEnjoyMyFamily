@@ -363,6 +363,12 @@ Resources:
             ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}/weather
             Method: GET
+        Places:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/places
+            Method: GET
 
   SchedulesFunction:
     Type: AWS::Serverless::Function

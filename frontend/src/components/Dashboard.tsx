@@ -30,6 +30,7 @@ import SchoolSetup from "./SchoolSetup";
 import TomorrowBriefing from "./TomorrowBriefing";
 import { buildTomorrow } from "../lib/tomorrow";
 import { createKeepAwake, type KeepAwakeStatus } from "../lib/keepAwake";
+import type { WeatherReading } from "../types";
 import { horizonFor, prepRecordFor, schoolDayNotes, specialsOn, type SchoolDayNote } from "../lib/schoolDay";
 import type { CardSize } from "./FamilyCard";
 import { currentWindow } from "../lib/timeOfDay";
@@ -153,6 +154,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   const [schoolMenus, setSchoolMenus] = useState<Record<string, SchoolMenu>>({});
   /** What the school asked for and somebody has said is done. */
   const [schoolPrep, setSchoolPrep] = useState<SchoolPrep[]>([]);
+  const [weather, setWeather] = useState<WeatherReading | null>(null);
   const [focusOpen, setFocusOpen] = useState(false);
   const [castleOpen, setCastleOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -267,6 +269,39 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
     });
     return { profiles, menus, prep };
   }, [familyId, today]);
+
+  /**
+   * The forecast for the hour the morning has to be finished by.
+   *
+   * Asked for tomorrow rather than today, because the briefing that uses it
+   * runs in the evening and a coat is found the night before. Nothing is
+   * requested at all without a morning routine: with no deadline there is
+   * no hour to ask about, and the weather on its own is not this app's
+   * business.
+   *
+   * The backend caches this; see handlers/weather.ts. The dashboard may
+   * therefore ask as often as it re-reads everything else without that
+   * reaching the weather service.
+   */
+  const morningAnchor =
+    routines.find((routine) => routine.kind === "morning" && routine.active)?.anchorTime ?? null;
+  const weatherDate = toLocalIsoDate(new Date(Date.now() + 24 * 60 * 60 * 1000));
+
+  useEffect(() => {
+    if (!morningAnchor) return;
+    let superseded = false;
+    void api
+      .getWeather(familyId, weatherDate, morningAnchor)
+      .then((reading) => {
+        if (!superseded) setWeather(reading);
+      })
+      // A 404 means nobody has said where the house is, which is an ordinary
+      // state and not worth a banner over a family's chores.
+      .catch(() => undefined);
+    return () => {
+      superseded = true;
+    };
+  }, [familyId, weatherDate, morningAnchor]);
 
   // Bumped at the start *and* the end of every local write. A sync that
   // overlapped a write is holding a snapshot taken before the server saw it,
@@ -747,6 +782,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
     mealPlan,
     routines,
     runs: routineRuns,
+    weather,
   });
 
   const panelSignals = {

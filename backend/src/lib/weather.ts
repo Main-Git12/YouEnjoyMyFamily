@@ -162,3 +162,73 @@ export async function weatherAt(
     sunrise,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Finding where the house is, without asking anyone for a coordinate
+
+const GEOCODING_BASE = "https://geocoding-api.open-meteo.com/v1/search";
+
+export interface Place {
+  /** What to show in the list: "Pickerington, Ohio, US". */
+  label: string;
+  latitude: number;
+  longitude: number;
+  timeZone: string;
+}
+
+/**
+ * Towns matching a name, so a parent types "Pickerington" instead of a
+ * latitude.
+ *
+ * Asking a family for coordinates would be a small act of contempt, and a
+ * timezone dropdown with four hundred entries not much better — the same
+ * service that has the forecast also knows both, from a place name.
+ *
+ * Runs on the Lambda rather than in the browser so the household's screens
+ * never talk to a third party directly. That is the same posture the school
+ * menu takes, and it also sidesteps whatever the Echo Show's browser thinks
+ * about cross-origin requests.
+ */
+export async function searchPlaces(
+  name: string,
+  fetchImpl: WeatherFetch = fetch
+): Promise<Place[]> {
+  const query = name.trim();
+  if (query.length < 2) return [];
+
+  const url = `${GEOCODING_BASE}?name=${encodeURIComponent(query)}&count=5&language=en&format=json`;
+  let response: Awaited<ReturnType<WeatherFetch>>;
+  try {
+    response = await fetchImpl(url);
+  } catch (err) {
+    throw new WeatherFetchError(`Could not reach the place lookup: ${String(err)}`);
+  }
+  if (!response.ok) throw new WeatherFetchError(`Place lookup returned ${response.status}`);
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(await response.text());
+  } catch {
+    throw new WeatherFetchError("Place lookup did not return JSON");
+  }
+  // No match is an empty body rather than an empty array, so an absent
+  // `results` is an ordinary "nothing found" and not a shape problem.
+  if (!isRecord(payload) || !Array.isArray(payload.results)) return [];
+
+  const places: Place[] = [];
+  for (const row of payload.results) {
+    if (!isRecord(row)) continue;
+    const { name: placeName, latitude, longitude, timezone, admin1, country_code: country } = row;
+    if (typeof placeName !== "string" || typeof latitude !== "number" || typeof longitude !== "number") continue;
+    if (typeof timezone !== "string" || !timezone) continue;
+    places.push({
+      label: [placeName, typeof admin1 === "string" ? admin1 : null, typeof country === "string" ? country : null]
+        .filter(Boolean)
+        .join(", "),
+      latitude: roundCoordinate(latitude),
+      longitude: roundCoordinate(longitude),
+      timeZone: timezone,
+    });
+  }
+  return places;
+}

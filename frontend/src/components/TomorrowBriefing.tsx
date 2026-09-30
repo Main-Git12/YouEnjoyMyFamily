@@ -1,6 +1,6 @@
 import type { ComponentType } from "react";
 import type { TomorrowBrief, TomorrowSignal } from "../lib/tomorrow";
-import { CalendarIcon, PlateIcon, SchoolBagIcon, StopwatchIcon, type IconProps } from "./icons";
+import { CalendarIcon, CoatIcon, PlateIcon, SchoolBagIcon, StopwatchIcon, type IconProps } from "./icons";
 
 interface TomorrowBriefingProps {
   brief: TomorrowBrief | null;
@@ -34,6 +34,7 @@ const MARK: Record<TomorrowSignal["kind"], ComponentType<IconProps>> = {
   school: SchoolBagIcon,
   meal: PlateIcon,
   morning: StopwatchIcon,
+  weather: CoatIcon,
 };
 
 export default function TomorrowBriefing({ brief, onOpen }: TomorrowBriefingProps) {

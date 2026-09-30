@@ -1,4 +1,4 @@
-import type { Task, TaskCompletion, ScheduleEntry, CartItem, StatedPreference, MealPlanEntry, MealSlot, RewardGoal, GemBalance, GemBalanceReport, Routine, RoutineRun, RoutineStep, FocusBlock, SchoolProfile, SchoolMenu, SchoolPrep } from "../types";
+import type { Task, TaskCompletion, ScheduleEntry, CartItem, StatedPreference, MealPlanEntry, MealSlot, RewardGoal, GemBalance, GemBalanceReport, Routine, RoutineRun, RoutineStep, FocusBlock, SchoolProfile, SchoolMenu, SchoolPrep, FamilySettings, HouseholdLocation, WeatherReading } from "../types";
 
 import { getFamilyApiKey } from "./familyKey";
 
@@ -204,6 +204,18 @@ export const api = {
     }),
   listFocusBlocks: (familyId: string, start: string, end: string) =>
     request<FocusBlock[]>(`/families/${familyId}/focus-blocks?start=${start}&end=${end}`),
+  getFamilySettings: (familyId: string) => request<FamilySettings>(`/families/${familyId}`),
+
+  saveHouseholdLocation: (familyId: string, location: HouseholdLocation | null) =>
+    request<FamilySettings>(`/families/${familyId}`, { method: "PUT", body: JSON.stringify({ location }) }),
+
+  /**
+   * The weather at one hour. 404 is an ordinary answer — it means nobody has
+   * said where the house is yet — so callers treat it as nothing to show.
+   */
+  getWeather: (familyId: string, date: string, at: string) =>
+    request<WeatherReading>(`/families/${familyId}/weather?date=${date}&at=${encodeURIComponent(at)}`),
+
   listSchoolProfiles: (familyId: string) => request<SchoolProfile[]>(`/families/${familyId}/school-profiles`),
 
   saveSchoolProfile: (familyId: string, memberId: string, profile: Omit<SchoolProfile, "memberId">) =>

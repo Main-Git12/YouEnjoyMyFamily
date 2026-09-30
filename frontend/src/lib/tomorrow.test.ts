@@ -355,3 +355,85 @@ describe("the order things are said in", () => {
     ]);
   });
 });
+
+/**
+ * The forecast is only ever mentioned when it changes what somebody picks
+ * up on the way out. A five-day outlook is a phone's job; this is a coat's.
+ */
+describe("what the weather will be doing at the door", () => {
+  const reading = (over: Partial<import("../types").WeatherAtHour> = {}, outer = {}) => ({
+    date: "2026-10-01",
+    atTime: "07:52",
+    stale: false,
+    fetchedAt: "2026-09-30T18:00:00.000Z",
+    label: "Pickerington",
+    weather: {
+      time: "2026-10-01T07:00",
+      temperatureF: 62,
+      feelsLikeF: 60,
+      chanceOfRain: 5,
+      conditions: "clear",
+      beforeSunrise: false,
+      sunrise: "2026-10-01T07:27",
+      ...over,
+    },
+    ...outer,
+  });
+
+  it("says nothing about a mild, dry, daylit morning", () => {
+    const brief = buildTomorrow(base({ profiles: [PARKER], weather: reading() }));
+    expect(brief?.signals.find((s) => s.kind === "weather")).toBeUndefined();
+  });
+
+  it("speaks up when it is cold enough for a coat", () => {
+    const brief = buildTomorrow(base({ profiles: [PARKER], weather: reading({ temperatureF: 41, feelsLikeF: 34 }) }));
+    const weather = brief?.signals.find((s) => s.kind === "weather");
+    expect(weather?.headline).toContain("41°F");
+    expect(weather?.headline).toContain("Feels like 34°F");
+  });
+
+  it("speaks up when it is going to be wet", () => {
+    const brief = buildTomorrow(base({ profiles: [PARKER], weather: reading({ conditions: "rain", chanceOfRain: 80 }) }));
+    expect(brief?.signals.find((s) => s.kind === "weather")?.headline).toContain("80% chance of rain");
+  });
+
+  it("says when they will be leaving before the sun is up", () => {
+    const brief = buildTomorrow(
+      base({ profiles: [PARKER], weather: reading({ beforeSunrise: true, sunrise: "2026-10-01T07:58" }) })
+    );
+    expect(brief?.signals.find((s) => s.kind === "weather")?.headline).toContain("Still dark — sunrise is 07:58");
+  });
+
+  it("names the hour and the place it is a forecast for", () => {
+    const brief = buildTomorrow(base({ profiles: [PARKER], weather: reading({ temperatureF: 30, feelsLikeF: 22 }) }));
+    expect(brief?.signals.find((s) => s.kind === "weather")?.because).toBe(
+      "Forecast for Pickerington at the time the morning has to be finished."
+    );
+  });
+
+  it("admits when it is showing a saved copy", () => {
+    const brief = buildTomorrow(
+      base({ profiles: [PARKER], weather: reading({ temperatureF: 30, feelsLikeF: 22 }, { stale: true }) })
+    );
+    expect(brief?.signals.find((s) => s.kind === "weather")?.because).toContain("from a copy saved earlier");
+  });
+
+  it("ignores a forecast that is for a different day than the one being briefed", () => {
+    const brief = buildTomorrow(
+      base({ profiles: [PARKER], weather: reading({ temperatureF: 20, feelsLikeF: 12 }, { date: "2026-10-05" }) })
+    );
+    expect(brief?.signals.find((s) => s.kind === "weather")).toBeUndefined();
+  });
+
+  it("puts the coat above everything except what goes in the bag", () => {
+    const brief = buildTomorrow(
+      base({
+        profiles: [PARKER],
+        routines: [MORNING],
+        runs: [run([2026, 9, 24], 2), run([2026, 9, 17], 3), run([2026, 9, 10], 1)],
+        weather: reading({ temperatureF: 30, feelsLikeF: 22 }),
+      })
+    );
+    expect(brief?.signals.map((s) => s.kind)).toEqual(["school", "weather", "morning"]);
+  });
+});
