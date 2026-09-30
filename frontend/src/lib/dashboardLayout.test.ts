@@ -161,3 +161,24 @@ describe("the school panel", () => {
     }
   });
 });
+
+/**
+ * Setting the sheet up is a once-a-year job, so it lives behind the drawer
+ * and stays there. A form nobody is filling in is the emptiest thing that
+ * could take a cell of a kitchen screen.
+ */
+describe("the specials-sheet form", () => {
+  it("is never in the rail, at any hour", () => {
+    for (const hour of [6, 8, 12, 15, 18, 20, 22]) {
+      for (const schoolNotesNow of [0, 1, 2]) {
+        const plan = planPanels(signals({ now: at(hour), schoolNotesNow }));
+        expect(plan.rail).not.toContain("school-setup");
+        expect(plan.drawer).toContain("school-setup");
+      }
+    }
+  });
+
+  it("is never the lead either", () => {
+    expect(planPanels(signals({ now: at(20) })).lead).not.toBe("school-setup");
+  });
+});

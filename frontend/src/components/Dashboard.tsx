@@ -26,6 +26,7 @@ import Kitchen from "./Kitchen";
 import CastleOverlay from "./CastleOverlay";
 import { planPanels, drawerLabel, type PanelId } from "../lib/dashboardLayout";
 import SchoolDay from "./SchoolDay";
+import SchoolSetup from "./SchoolSetup";
 import { horizonFor, prepRecordFor, schoolDayNotes, specialsOn, type SchoolDayNote } from "../lib/schoolDay";
 import type { CardSize } from "./FamilyCard";
 import { currentWindow } from "../lib/timeOfDay";
@@ -1068,6 +1069,22 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
     }
   }
 
+  /**
+   * Saving the specials sheet. A `PUT` replaces the whole profile, so the
+   * local list is replaced by what came back rather than merged into —
+   * anything the form chose not to send is gone on the server and pretending
+   * otherwise here would just hide it until the next reload.
+   */
+  async function handleSaveSchoolProfile(memberId: string, profile: Omit<SchoolProfile, "memberId">) {
+    try {
+      const saved = await guardedWrite(() => api.saveSchoolProfile(familyId, memberId, profile));
+      setSchoolProfiles((prev) => [...prev.filter((row) => row.memberId !== saved.memberId), saved]);
+      setError(null);
+    } catch (err) {
+      reportError(err);
+    }
+  }
+
   async function handleCheckout(): Promise<string> {
     const { productsLinkUrl } = await api.checkoutGroceryCart(familyId);
     return productsLinkUrl;
@@ -1241,6 +1258,15 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
           onUnpacked={handleSchoolUnpacked}
           now={clock}
         />
+      ),
+    },
+    "school-setup": {
+      title: "The specials sheet",
+      subtitle: schoolProfiles.length
+        ? schoolProfiles.map((profile) => profile.memberId).join(", ")
+        : "not set up yet",
+      body: (
+        <SchoolSetup members={members} profiles={schoolProfiles} onSave={handleSaveSchoolProfile} />
       ),
     },
   };

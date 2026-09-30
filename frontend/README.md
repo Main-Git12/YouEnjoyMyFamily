@@ -49,6 +49,10 @@ src/
     TaskList.tsx             Today's chores, grouped by part of the day and reordered by the clock
     Kitchen.tsx              The meal plan and the shopping list, behind one pair of tabs
     Insights.tsx             What we've noticed, each with its because
+    SchoolSetup.tsx          Typing the sheet from the fridge in, laid out as the school lays it
+                              out. Edits what changes — the rotation, the teacher — and carries
+                              the lunch-menu source through untouched, because a save replaces
+                              the whole profile
     SchoolDay.tsx            Tomorrow's specials and what they need brought, ticked off or not,
                               plus that day's published school lunch. An untouched note reads
                               "still not ticked off" — a fact about the records — and never
