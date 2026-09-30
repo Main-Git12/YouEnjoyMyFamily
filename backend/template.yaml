@@ -68,6 +68,21 @@ Resources:
         AllowOrigins: ["*"]
         AllowHeaders: ["Content-Type", "Authorization"]
         AllowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+      # A household is a handful of screens, not a public service. The
+      # default ceiling is set well above anything three devices polling can
+      # produce and well below anything that runs up a bill worth noticing.
+      DefaultRouteSettings:
+        ThrottlingRateLimit: 25
+        ThrottlingBurstLimit: 50
+      RouteSettings:
+        # `POST /families` is the one route with no credential to present —
+        # it is where a family's credential comes from. Unthrottled, anyone
+        # who finds the URL can mint family records for as long as they care
+        # to, and the bill is the family's. A real household creates one,
+        # once, so a rate this low costs them nothing.
+        "POST /families":
+          ThrottlingRateLimit: 1
+          ThrottlingBurstLimit: 3
 
   # The only unauthenticated route — see src/handlers/families.ts and
   # src/lib/auth.ts. Every other function's routes below require
@@ -107,6 +122,16 @@ Resources:
             ApiId: !Ref YouEnjoyMyFamilyHttpApi
             Path: /families/{familyId}
             Method: PUT
+        # Replaces the family's API key, authenticated with the key being
+        # replaced. The old key lives in the browser storage of a screen on a
+        # kitchen wall; without this the only way to cut off one that had got
+        # out was to tear the stack down.
+        RotateKey:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/key
+            Method: POST
   TasksFunction:
     Type: AWS::Serverless::Function
     Metadata:

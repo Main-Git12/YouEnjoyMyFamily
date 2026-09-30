@@ -18,7 +18,8 @@ export function hashApiKey(apiKey: string): string {
   return createHash("sha256").update(apiKey).digest("hex");
 }
 
-function extractBearerToken(event: APIGatewayProxyEventV2): string | null {
+/** Exported for the key-rotation route, which needs the hash it just authenticated. */
+export function extractBearerToken(event: APIGatewayProxyEventV2): string | null {
   // API Gateway HTTP APIs (payload v2) normalise header names to lowercase.
   const header = event.headers?.authorization ?? event.headers?.Authorization;
   const token = header?.match(/^Bearer (.+)$/)?.[1]?.trim();

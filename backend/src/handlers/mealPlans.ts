@@ -1,5 +1,5 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
-import { PutCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { UpdateCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import { docClient, TABLE_NAME } from "../lib/dynamoClient";
 import { queryAll } from "../lib/queryAll";
 import { ok, badRequest, serverError } from "../lib/response";
@@ -42,6 +42,17 @@ export async function listMealPlan(familyId: string, start?: string, end?: strin
   });
 }
 
+/**
+ * An Update rather than a Put of a whole new item, for one attribute:
+ * `createdAt`. A Put reset it on every edit, so correcting Tuesday's
+ * spelling made Tuesday's dinner look like it had been planned just now —
+ * and `createdAt` is what tells "this has been the plan all week" from
+ * "someone changed this a minute ago". `if_not_exists` keeps the first
+ * write's stamp without reading the row back first.
+ *
+ * `date` is a DynamoDB reserved word, so every attribute goes through
+ * ExpressionAttributeNames rather than only the one that needs it.
+ */
 async function upsertMealPlanEntry(
   familyId: string,
   date: string,
@@ -49,19 +60,37 @@ async function upsertMealPlanEntry(
   input: MealPlanEntryInput
 ): Promise<MealPlanEntryItem> {
   const now = new Date().toISOString();
-  const item: MealPlanEntryItem = {
-    ...mealPlanKey(familyId, date, slot),
-    entityType: "MEAL_PLAN_ENTRY",
-    familyId,
-    date,
-    slot,
-    mealName: input.mealName,
-    ingredients: input.ingredients ?? [],
-    createdAt: now,
-    updatedAt: now,
-  };
-  await docClient.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));
-  return item;
+  const result = await docClient.send(
+    new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: mealPlanKey(familyId, date, slot),
+      UpdateExpression:
+        "SET #entityType = :entityType, #familyId = :familyId, #date = :date, #slot = :slot, " +
+        "#mealName = :mealName, #ingredients = :ingredients, #updatedAt = :now, " +
+        "#createdAt = if_not_exists(#createdAt, :now)",
+      ExpressionAttributeNames: {
+        "#entityType": "entityType",
+        "#familyId": "familyId",
+        "#date": "date",
+        "#slot": "slot",
+        "#mealName": "mealName",
+        "#ingredients": "ingredients",
+        "#createdAt": "createdAt",
+        "#updatedAt": "updatedAt",
+      },
+      ExpressionAttributeValues: {
+        ":entityType": "MEAL_PLAN_ENTRY",
+        ":familyId": familyId,
+        ":date": date,
+        ":slot": slot,
+        ":mealName": input.mealName,
+        ":ingredients": input.ingredients ?? [],
+        ":now": now,
+      },
+      ReturnValues: "ALL_NEW",
+    })
+  );
+  return result.Attributes as MealPlanEntryItem;
 }
 
 async function deleteMealPlanEntry(familyId: string, date: string, slot: MealSlot): Promise<void> {

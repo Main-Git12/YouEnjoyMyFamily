@@ -18,9 +18,14 @@ import {
 
 /**
  * Note the sort-key prefixes: `ROUTINE#` for definitions and `RUN#` for the
- * per-day records. The obvious pairing — `ROUTINE#` and `ROUTINERUN#` —
- * cannot be used, because `begins_with(SK, "ROUTINE#")` would match every
- * run row as well and a family's routine list would fill up with history.
+ * per-day records, kept in separate namespaces rather than nested.
+ *
+ * The `#` on the end of the definition prefix is load-bearing, and it is the
+ * only thing doing the work: `begins_with(SK, "ROUTINE")` matches anything
+ * starting with those seven letters, so a routine list would come back with
+ * every morning since the app was installed mixed into it. With the `#` it
+ * cannot, and `RUN#` keeps the run rows out of that namespace regardless.
+ * Always query the prefix with its separator.
  */
 const routineKey = (familyId: string, routineId: string) => ({
   PK: `FAMILY#${familyId}`,
@@ -31,6 +36,12 @@ const runKey = (familyId: string, isoDate: string, routineId: string) => ({
   PK: `FAMILY#${familyId}`,
   SK: `RUN#${isoDate}#${routineId}`,
 });
+
+/** The `begins_with` prefix that lists definitions and nothing else. */
+export const ROUTINE_DEFINITION_PREFIX = "ROUTINE#";
+
+/** Exported so a test can check the two namespaces really don't overlap. */
+export const routineSortKeys = { routineKey, runKey };
 
 /** Step ids are assigned here; callers describe steps by title and duration. */
 function toStoredSteps(steps: RoutineStepInput[]): RoutineStep[] {
@@ -46,7 +57,7 @@ async function listRoutines(familyId: string): Promise<RoutineItem[]> {
   return queryAll<RoutineItem>({
     TableName: TABLE_NAME,
     KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)",
-    ExpressionAttributeValues: { ":pk": `FAMILY#${familyId}`, ":prefix": "ROUTINE#" },
+    ExpressionAttributeValues: { ":pk": `FAMILY#${familyId}`, ":prefix": ROUTINE_DEFINITION_PREFIX },
   });
 }
 

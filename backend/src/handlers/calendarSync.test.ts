@@ -23,6 +23,7 @@ const tokenRecord: CalendarTokenRecord = {
   SK: "TOKEN#google",
   GSI1PK: "PROVIDER#google",
   GSI1SK: "FAMILY#fam_1",
+  entityType: "CALENDAR_TOKEN",
   familyId: "fam_1",
   provider: "google",
   accessToken: "access-123",

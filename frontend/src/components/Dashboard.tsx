@@ -20,7 +20,7 @@ import Insights from "./Insights";
 import RetimeChore from "./RetimeChore";
 import DraftWeek from "./DraftWeek";
 import { draftWeek, type DraftedMeal } from "../lib/routines";
-import { getFamilyId } from "../lib/familyKey";
+import { getFamilyId, linkDevice } from "../lib/familyKey";
 import GroceryCart from "./GroceryCart";
 import Kitchen from "./Kitchen";
 import CastleOverlay from "./CastleOverlay";
@@ -29,6 +29,7 @@ import SchoolDay from "./SchoolDay";
 import SchoolSetup from "./SchoolSetup";
 import TomorrowBriefing from "./TomorrowBriefing";
 import HouseholdLocation from "./HouseholdLocation";
+import ReplaceKey from "./ReplaceKey";
 import { buildTomorrow } from "../lib/tomorrow";
 import { createKeepAwake, type KeepAwakeStatus } from "../lib/keepAwake";
 import type { WeatherReading, HouseholdLocation as Location } from "../types";
@@ -1378,6 +1379,13 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
           <section>
             <h3 className="font-display text-lg text-olive-800 mb-2">The specials sheet</h3>
             <SchoolSetup members={members} profiles={schoolProfiles} onSave={handleSaveSchoolProfile} />
+          </section>
+          <section>
+            <h3 className="font-display text-lg text-olive-800 mb-2">This family's key</h3>
+            <ReplaceKey
+              onReplace={async () => (await api.rotateFamilyKey(familyId)).apiKey}
+              onKeepOnThisDevice={(apiKey) => linkDevice(familyId, apiKey)}
+            />
           </section>
         </div>
       ),

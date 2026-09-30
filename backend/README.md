@@ -16,7 +16,9 @@ src/types.ts            Zod input schemas + persisted item interfaces (single so
 src/lib/                Dynamo client, typed API Gateway responses, request-body validation,
                          per-family API key check (auth.ts — see "Authentication" below)
 src/handlers/                (every handler below has a matching *.test.ts)
-  families.ts            POST /families — the one unauthenticated route; provisions a family and its API key
+  families.ts            POST /families — the one unauthenticated route; provisions a family and its API key.
+                           Also GET/PUT /families/{familyId} (name, household location) and
+                           POST /families/{familyId}/key to replace a key that has got out
   tasks.ts              CRUD: /families/{familyId}/tasks[/{taskId}]
   schedules.ts           CRUD: /families/{familyId}/schedules[/{scheduleId}]
   preferences.ts         GET/PUT: /families/{familyId}/members/{memberId}/preferences
@@ -95,6 +97,28 @@ does read `YOUENJOYMYFAMILY_FAMILY_API_KEY` from its function environment.
 This is one deployment per family rather than public multi-tenant signup,
 so `POST /families` has no invite/approval gate — whoever can reach it
 gets a family, the same trust model as the Alexa skill's invocation name.
+It is the one route with no credential to present, so it is the one route
+with its own throttle (`RouteSettings` in `template.yaml`): 1/second,
+burst 3. A household creates a family once; anyone minting them in a loop
+is doing something else, and the bill would be the family's.
+
+### Replacing a key that has got out
+
+```bash
+curl -X POST "$API_BASE_URL/families/$FAMILY_ID/key" \
+  -H "Authorization: Bearer $CURRENT_API_KEY"
+# -> { "familyId": "fam_...", "apiKey": "fk_..." }   (the old key stops working)
+```
+
+Authenticated with the key being replaced, and conditioned on that key
+still being the stored one — two rotations racing would otherwise both
+answer with a key while only one of them worked, which is worse than
+either failing, because nobody could tell which screen held the real one.
+
+Worth having because of where the key lives: the browser storage of a
+screen on a kitchen wall, which guests use, repair shops see, and
+households eventually sell. Every device then has to be re-linked, which
+is the point — that is what cutting off the old key means.
 
 ## Prerequisites
 

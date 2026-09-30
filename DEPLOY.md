@@ -248,7 +248,7 @@ Expect low single-digit dollars a month. Set a billing alarm anyway.
 |---|---|
 | Deploy rolls back mentioning `resolve:ssm` | A parameter from step 1 doesn't exist in that region |
 | Every request 401s | The key is wrong, or the screen was linked to a different family |
-| Screen shows the setup prompt again | The key was rejected — it's been rotated, or the stack was rebuilt |
+| Screen shows the setup prompt again | The key was rejected — someone replaced it (Setup → This family's key), or the stack was rebuilt |
 | `AccessDenied` in a Lambda log | A handler lost its DynamoDB policy; `npm run verify:template` names it |
 | The app loads but is stuck "Loading your family's day" | `VITE_API_BASE_URL` was wrong at build time — it's baked in, so rebuild |
 | Old version keeps loading | The CloudFront invalidation hasn't finished, or `index.html` was cached |

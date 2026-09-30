@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mockClient } from "aws-sdk-client-mock";
 import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
-import { handler } from "./routines";
+import { handler, ROUTINE_DEFINITION_PREFIX, routineSortKeys } from "./routines";
 import { mockFamilyAuth } from "../lib/authTestSupport";
 import type { RoutineItem } from "../types";
 
@@ -55,7 +55,8 @@ test("GET lists only routine definitions, never the daily run rows", async () =>
 
   assert.equal(result.statusCode, 200);
   const query = ddbMock.commandCalls(QueryCommand)[0]?.args[0].input;
-  // The prefix must not also match RUN# rows. `ROUTINERUN#` would have.
+  // The separator is what keeps the definition namespace to itself: the bare
+  // prefix "ROUTINE" matches anything starting with those letters.
   assert.equal(query?.ExpressionAttributeValues?.[":prefix"], "ROUTINE#");
 });
 
@@ -350,4 +351,22 @@ test("GET /routines reads every page", async () => {
   // A household with a morning and a bedtime routine must get both, or the
   // screen silently stops running one of them.
   assert.deepEqual(routines.map((routine) => routine.kind), ["morning", "bedtime"]);
+});
+
+test("a run key can never be picked up by the query that lists definitions", () => {
+  // The invariant the two prefixes exist to hold, checked against the key
+  // builders themselves rather than against a comment about them. Both a
+  // `RUN#` key and the tempting `ROUTINERUN#` pairing pass; what fails is
+  // querying the prefix without its separator, which is the mistake worth
+  // guarding — the bare letters match every run row.
+  const definition = routineSortKeys.routineKey("fam_1", "r1").SK;
+  const run = routineSortKeys.runKey("fam_1", "2026-09-30", "r1").SK;
+
+  assert.ok(definition.startsWith(ROUTINE_DEFINITION_PREFIX));
+  assert.equal(run.startsWith(ROUTINE_DEFINITION_PREFIX), false);
+  assert.ok(ROUTINE_DEFINITION_PREFIX.endsWith("#"), "the separator is what does the work");
+  assert.ok(
+    "ROUTINERUN#2026-09-30#r1".startsWith(ROUTINE_DEFINITION_PREFIX.replace(/#$/, "")),
+    "without the separator the prefix matches run rows, which is the actual hazard"
+  );
 });

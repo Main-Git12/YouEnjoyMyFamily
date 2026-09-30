@@ -1,7 +1,7 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { mockClient } from "aws-sdk-client-mock";
-import { DynamoDBDocumentClient, QueryCommand, PutCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, QueryCommand, PutCommand, DeleteCommand, UpdateCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
 import { handler, routeMealPlans, generateGroceryListFromMealPlan } from "./mealPlans";
@@ -121,7 +121,20 @@ test("PUT rejects a missing mealName", async () => {
 });
 
 test("PUT upserts a meal plan entry keyed by date and slot", async () => {
-  ddbMock.on(PutCommand).resolves({});
+  ddbMock.on(UpdateCommand).resolves({
+    Attributes: {
+      PK: "FAMILY#fam_1",
+      SK: "MEALPLAN#2025-01-15#dinner",
+      entityType: "MEAL_PLAN_ENTRY",
+      familyId: "fam_1",
+      date: "2025-01-15",
+      slot: "dinner",
+      mealName: "Tacos",
+      ingredients: ["Tortillas", "Ground beef"],
+      createdAt: "2025-01-01T00:00:00.000Z",
+      updatedAt: "2025-01-14T00:00:00.000Z",
+    },
+  });
   const headers = mockFamilyAuth(ddbMock, "fam_1");
 
   const result = await handler(
@@ -138,6 +151,50 @@ test("PUT upserts a meal plan entry keyed by date and slot", async () => {
   assert.equal(body.mealName, "Tacos");
   assert.deepEqual(body.ingredients, ["Tortillas", "Ground beef"]);
   assert.equal(body.SK, "MEALPLAN#2025-01-15#dinner");
+
+  const written = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
+  assert.deepEqual(written?.Key, { PK: "FAMILY#fam_1", SK: "MEALPLAN#2025-01-15#dinner" });
+  assert.equal(written?.ExpressionAttributeValues?.[":mealName"], "Tacos");
+});
+
+test("PUT editing an existing entry keeps the day it was first planned", async () => {
+  // Correcting a spelling on Friday must not make Tuesday's dinner look
+  // like it was planned on Friday — createdAt is what tells "this has been
+  // the plan all week" from "someone changed this a minute ago".
+  ddbMock.on(UpdateCommand).resolves({ Attributes: { mealName: "Tacos" } });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", date: "2025-01-15", slot: "dinner" },
+      headers,
+      body: JSON.stringify({ mealName: "Tacos" }),
+    })
+  );
+
+  const written = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
+  assert.match(written?.UpdateExpression ?? "", /#createdAt = if_not_exists\(#createdAt, :now\)/);
+  // And nothing reads the row back first to work it out.
+  assert.equal(ddbMock.commandCalls(GetCommand).length, 1, "only the family auth lookup");
+});
+
+test("PUT names every attribute, because `date` is a DynamoDB reserved word", async () => {
+  ddbMock.on(UpdateCommand).resolves({ Attributes: { mealName: "Tacos" } });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  await handler(
+    makeEvent({
+      method: "PUT",
+      pathParameters: { familyId: "fam_1", date: "2025-01-15", slot: "dinner" },
+      headers,
+      body: JSON.stringify({ mealName: "Tacos" }),
+    })
+  );
+
+  const written = ddbMock.commandCalls(UpdateCommand)[0]?.args[0].input;
+  assert.equal(written?.ExpressionAttributeNames?.["#date"], "date");
+  assert.doesNotMatch(written?.UpdateExpression ?? "", /(^|[^#\w])date\s*=/);
 });
 
 test("DELETE removes a meal plan entry for a date and slot", async () => {

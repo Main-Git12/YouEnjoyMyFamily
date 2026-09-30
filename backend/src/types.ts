@@ -396,13 +396,26 @@ export interface FamilyRecord {
   createdAt: string;
   /** Null until a parent says where the house is. */
   location?: HouseholdLocation | null;
+  /** When the API key was last replaced; absent on a family still using its first. */
+  keyRotatedAt?: string;
 }
 
+/**
+ * A family's stored OAuth tokens for a calendar provider.
+ *
+ * Nothing writes one yet — the Google OAuth callback that would is not
+ * built, which is why the 15-minute sync job finds no families and reports
+ * success over an empty list. The `entityType` is declared here anyway,
+ * because schema.md's first rule is that every item carries one, and the
+ * place to hold that line is the type, not the handler that eventually
+ * writes the row.
+ */
 export interface CalendarTokenRecord {
   PK: string;
   SK: string;
   GSI1PK: string;
   GSI1SK: string;
+  entityType: "CALENDAR_TOKEN";
   familyId: string;
   provider: "google";
   accessToken: string;

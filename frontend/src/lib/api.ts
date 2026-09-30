@@ -215,6 +215,15 @@ export const api = {
     request<FamilySettings>(`/families/${familyId}`, { method: "PUT", body: JSON.stringify({ location }) }),
 
   /**
+   * Replaces the family's API key, authenticated with the one this device
+   * already holds. The new key comes back exactly once, and every other
+   * device in the house stops working until it is re-linked — which is the
+   * whole point of asking.
+   */
+  rotateFamilyKey: (familyId: string) =>
+    request<{ familyId: string; apiKey: string }>(`/families/${familyId}/key`, { method: "POST" }),
+
+  /**
    * The weather at one hour. 404 is an ordinary answer — it means nobody has
    * said where the house is yet — so callers treat it as nothing to show.
    */

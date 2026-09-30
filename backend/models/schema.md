@@ -110,10 +110,15 @@ that was begun and never finished, which is a real outcome and must never
 be filled in with a guess — a step nobody completed has no duration, and
 counting one would quietly flatter every plan built afterwards.
 
-Note the sort-key prefixes. Definitions are `ROUTINE#` and runs are `RUN#`,
-*not* `ROUTINERUN#`, because `begins_with(SK, "ROUTINE#")` also matches
-every key beginning `ROUTINERUN#` — listing a family's three routines would
-have returned all of them plus every morning since the app was installed.
+Note the sort-key prefixes. Definitions are `ROUTINE#` and runs are `RUN#`:
+two namespaces, not one nested inside the other.
+
+The `#` terminator on a `begins_with` prefix is load-bearing wherever one
+key prefix is a prefix of another's letters. `begins_with(SK, "ROUTINE")`
+matches every key starting with those seven letters; `begins_with(SK,
+"ROUTINE#")` matches only keys with the separator there. Listing a family's
+three routines with the bare prefix would return all of them plus every
+morning since the app was installed. Query a prefix with its separator.
 
 Nothing about a routine is inferred. The steps, their order, the expected
 minutes and the deadline are all typed in by a parent. The only thing the
@@ -255,8 +260,18 @@ for something that does not exist yet.
 
 - Get a family + all members: `Query PK = FAMILY#<familyId>`, filter/prefix on `SK`.
 - List a family's chore definitions: `Query PK = FAMILY#<familyId>, SK begins_with TASK#`.
+> **Every range over a compound sort key needs the `#\uffff` upper bound.**
+> These keys carry more than the date — `MEALPLAN#<date>#<slot>`,
+> `SCHEDULE#<date>#<id>`, `COMPLETION#<date>#<taskId>`. A `between` ending
+> at `MEALPLAN#2026-10-05` stops *before* `MEALPLAN#2026-10-05#dinner`,
+> because the shorter string sorts first — so the last day of every range
+> silently comes back empty while every other day looks right. `\uffff` is
+> the highest code point, so appending it puts the bound above every real
+> key for that date. The handlers do this; a new range query that forgets
+> it will look correct in every test that doesn't ask for the final day.
+
 - List what got done over a date range: `Query PK = FAMILY#<familyId>, SK between COMPLETION#<start> and COMPLETION#<end>#\uffff`.
-- List a family's schedule for a date range: `Query PK = FAMILY#<familyId>, SK between SCHEDULE#<start> and SCHEDULE#<end>`. Paged to the end. Moving an entry to another day is one `TransactWriteItems` — Put the new `SCHEDULE#<newDate>#<id>` row with `attribute_not_exists(PK)`, Delete the old one with `attribute_exists(PK)` — so it can never end up on both days; a cancelled transaction (another screen moved it first) is a 409. A same-day edit is a Put conditioned on `attribute_exists(PK)`, so it can't resurrect a deleted entry.
+- List a family's schedule for a date range: `Query PK = FAMILY#<familyId>, SK between SCHEDULE#<start> and SCHEDULE#<end>#\uffff`. Paged to the end. Moving an entry to another day is one `TransactWriteItems` — Put the new `SCHEDULE#<newDate>#<id>` row with `attribute_not_exists(PK)`, Delete the old one with `attribute_exists(PK)` — so it can never end up on both days; a cancelled transaction (another screen moved it first) is a 409. A same-day edit is a Put conditioned on `attribute_exists(PK)`, so it can't resurrect a deleted entry.
 - Find a task by id across the table (e.g. Alexa deep link): `Query GSI1PK = TASK#<taskId>`.
 - Upsert a synced Google Calendar event idempotently by external id: `Query GSI1PK = EXTID#<googleEventId>`.
 - Re-sync a family's calendar: `Query PK = FAMILY#<familyId>, SK begins_with CALEVENT#` once per sync, to find what's already held. The date is part of the sort key, so an event moved to another day writes a *new* row — the old one has to be deleted or the family sees it on both days for good. Idempotency by external id alone isn't enough here. Every stored row for an event id whose key isn't the current one is deleted — not just the latest — so a row left by an earlier failed delete doesn't linger. Stored rows on strictly future days that Google no longer returns (cancelled or deleted there) are deleted too; if Google's answer hit the sync's `maxResults`, only rows before the last returned event's date are pruned, since later ones may simply be past the cut. Today's rows are never pruned, because Google omits events that already ended today.
@@ -275,13 +290,13 @@ for something that does not exist yet.
 - List what's been claimed: `Query PK = FAMILY#<familyId>, SK begins_with REWARDCLAIM#`. A child's balance is everything they've earned (completions) minus everything they've claimed — derived on read, never stored, so it can't drift out of step with the records behind it. Without the claim rows a total could only ever go up, and "Earned it!" would stay on the board for good.
 - Every "all of X" read above (chore definitions, completions over an all-time range, goals, claims) pages on `LastEvaluatedKey` via `queryAll` (`src/lib/queryAll.ts`). A single Query stops at 1MB — about a year of a busy family's completions — and reading only that page silently freezes earned gems while claims keep subtracting.
 - Guard a spend: `GetItem PK = FAMILY#<familyId>, SK = GEMLEDGER#<memberId>` (strongly consistent) for the child's `version` (absent = 0), *then* read the balance strongly consistent, then in the same `TransactWriteItems` as the spend bump `version` conditioned on it being unchanged (`attribute_not_exists(PK)` when it was 0). Both operations that take gems away — claiming a prize and un-ticking a chore — do this, so two of them can't both pass the "is there enough?" check against the same balance. Ticking a chore off only adds gems and doesn't touch it. The row holds nothing but the counter; balances are still derived from completions and claims.
-- List a family's meal plan for a date range: `Query PK = FAMILY#<familyId>, SK between MEALPLAN#<start> and MEALPLAN#<end>`.
+- List a family's meal plan for a date range: `Query PK = FAMILY#<familyId>, SK between MEALPLAN#<start> and MEALPLAN#<end>#\uffff`.
 - List a family's routines: `Query PK = FAMILY#<familyId>, SK begins_with ROUTINE#`. The run rows deliberately use a `RUN#` prefix so they don't match this.
 - List what a routine's mornings actually looked like, to learn its step durations: `Query PK = FAMILY#<familyId>, SK between RUN#<start> and RUN#<end>#\uffff`, then keep the rows whose `routineId` matches. One family runs few enough routines that filtering in memory beats a second index.
 - Record or update today's run: `PutItem PK = FAMILY#<familyId>, SK = RUN#<isoDate>#<routineId>` — one row per routine per day, replaced wholesale as the morning progresses, so a retry after a dropped response rewrites the same row instead of double-recording a step.
 - Read a day's timesheet, or a month of blocks to learn which length holds: `Query PK = FAMILY#<familyId>, SK between FOCUS#<start> and FOCUS#<end>#\uffff`. The same rows, read two ways.
 - Remove one timesheet line: `DeleteItem PK = FAMILY#<familyId>, SK = FOCUS#<isoDate>#<blockId>` — the date is in the sort key, so the caller says which day's line it means.
-- Look up or replace one day+slot's planned meal: `GetItem`/`PutItem PK = FAMILY#<familyId>, SK = MEALPLAN#<isoDate>#<slot>`.
+- Look up or replace one day+slot's planned meal: `GetItem`/`UpdateItem PK = FAMILY#<familyId>, SK = MEALPLAN#<isoDate>#<slot>`. An `UpdateItem` rather than a `PutItem` so that `createdAt` survives an edit (`if_not_exists`) — a Put reset it, and a corrected spelling made a meal planned last week look like it was planned a minute ago.
 - List every family (weekly meal-plan grocery sync only): `Scan filter entityType = FAMILY`, paging on `LastEvaluatedKey` — the one access pattern here with no natural partition to query across; a Scan is the pragmatic choice for a job that runs once a week over what's expected to be a small number of families. The paging is not optional: the 1MB cap counts rows *scanned*, not matched, so a filtered Scan can return an empty page while families sit further down the table.
 
 ## Chores: definition vs. completion
