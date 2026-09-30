@@ -20,7 +20,15 @@ You need:
 | **AWS SAM CLI** | [install guide](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html) — `brew install aws-sam-cli` on a Mac |
 | **Node.js 20+** | `node --version` |
 | **Instacart API key** | *optional* — only grocery checkout needs it |
-| **Google OAuth client** | *optional* — only calendar sync needs it |
+| **Google OAuth client** | *not yet worth getting* — see below |
+
+**Google Calendar sync does not work yet, and setting up a Google client
+will not make it work.** The sync job is written and tested and runs every
+fifteen minutes; what does not exist is the OAuth consent flow that would
+store a family's token in the first place. Nothing writes one, so the job
+finds no families, does nothing, and reports success. It is listed in
+step 1 because the template still resolves the parameters, not because
+connecting a calendar is possible today. Put a placeholder in and move on.
 
 Check the template before you spend anything. This runs in a second and
 needs no AWS access at all:
@@ -49,7 +57,8 @@ now they are:
 aws ssm put-parameter --name /youenjoymyfamily/instacart/api-key \
   --type SecureString --value "<your Instacart key>"
 
-# Only needed if you want Google Calendar sync.
+# Placeholders are fine: calendar sync can't be connected yet (step 0).
+# The stack needs these to exist, not to be valid.
 aws ssm put-parameter --name /youenjoymyfamily/google/client-id \
   --type String --value "<your client id>"
 aws ssm put-parameter --name /youenjoymyfamily/google/client-secret \
@@ -57,9 +66,10 @@ aws ssm put-parameter --name /youenjoymyfamily/google/client-secret \
 ```
 
 **Don't have them yet?** Put a placeholder in each rather than skipping
-them — the deploy needs the parameter to *exist*, not to be valid. Meal
-planning, chores, routines, gems and focus blocks all work without either
-integration; you'll just get an error if you press "checkout".
+them — the deploy needs the parameter to *exist*, not to be valid.
+Chores, routines, gems, focus blocks, meal planning, the grocery list,
+the school sheet and the weather all work without either integration.
+You'll get an error only if you press "checkout".
 
 ```bash
 for p in instacart/api-key google/client-secret; do
@@ -160,15 +170,46 @@ Open `<FrontendUrl>` on each device. It asks once for the **family id**
 and **API key** from step 3, keeps them in that device's `localStorage`,
 and sends the key only as an `Authorization` header.
 
-- **Echo Show** — open it in Silk, then add it to the home screen
-- **Phones** — open it, then **Add to Home Screen**; the web manifest makes
-  it open without browser chrome
+**Phones and tablets** — open it, then **Add to Home Screen**. The web
+manifest makes it open without browser chrome, like an app.
+
+**Echo Show** — this one is worth setting expectations about, because the
+device is more closed than it looks:
+
+1. Say **"Alexa, open Silk"**. The Echo Show runs Amazon's Silk browser
+   and there is no way to install a third-party app on it.
+2. Go to `<FrontendUrl>`, link the screen, then tap the **save page**
+   icon next to the address bar to bookmark it.
+3. After that, **"Alexa, open Silk"** and pick the bookmark.
+
+There is **no way to put a shortcut on the Echo Show's home screen** —
+Amazon doesn't offer one, and the bookmark is the nearest thing. Silk
+also **closes itself after a spell of inactivity**, and Amazon provides
+no setting to stop it; the screen goes back to Alexa's own home view and
+somebody has to say "Alexa, open Silk" again.
+
+The app has a **Keep screen on** button for the stretch while it is open,
+which uses the browser's wake-lock. Tap it once after opening the
+bookmark. Two honest caveats: the browser only grants a wake lock over
+HTTPS (so it will do nothing against a plain-HTTP address), and it has
+not been tried on a real Echo Show — it is built against the standard
+API, and how much of it Silk honours is not something this repo can
+claim from here.
+
+If you want the Echo Show to be able to *answer* rather than only
+display — "what's on at school", "what's left on the list" — that is
+what the Alexa skill in step 7 is for, and on that device it is the more
+reliable of the two.
 
 Every screen re-reads the family's data every 30 seconds and whenever it
 becomes visible, so an edit on a phone shows up in the kitchen without
 anyone reloading.
 
-To un-link a device later (selling a tablet, say), clear its site data.
+To un-link one device (selling a tablet, say), clear its site data. To cut
+off a key that has got out — it lives in the browser storage of a screen
+on a kitchen wall — use **Setup → This family's key → Replace the family
+key**. That signs out *every* device in the house, including the ones not
+in the room, and each has to be linked again with the new key.
 
 ---
 
@@ -181,8 +222,17 @@ Roughly ten minutes, and it's what makes everything afterwards work:
 2. **Set up the morning.** *The morning → Set up the school morning.* It
    drafts the steps from the morning chores you just added; correct the
    times and set the bus time. Do bedtime too if you want it.
-3. **Set a prize for each child** so the gems mean something.
-4. **Plan a few dinners.** The grocery list builds itself from the
+3. **Say where the house is.** *Setup → Where you are.* Searched by town
+   name, never a coordinate, and stored rounded to about a kilometre. It
+   buys one line: what the weather will be doing at the moment you have to
+   be out of the door. Skip it and everything else still works.
+4. **Type in the school sheet.** *Setup → The specials sheet.* The
+   rotation matters less than the small print under two or three of the
+   days — gym shoes, a charged laptop, the library book that goes back.
+   Type those in the school's own words, so you recognise the sentence.
+   That is what the evening panel and the Alexa question both read.
+5. **Set a prize for each child** so the gems mean something.
+6. **Plan a few dinners.** The grocery list builds itself from the
    ingredients you type in.
 
 Then leave it alone for a fortnight. Every "usually 15 min" and "100% of
@@ -211,7 +261,21 @@ Set these on the skill's Lambda function:
 
 The timezone matters more than it looks. Lambda runs in UTC, so without
 it an evening "what's for dinner?" answers with *tomorrow's* meal for any
-family west of UTC.
+family west of UTC — and "what's on at school" answers about the wrong
+day, since it switches from today to tomorrow at five in the evening.
+
+Things worth asking it, once the sheet from step 6 is in:
+
+- *"Alexa, ask you enjoy my family what's on at school"* — the special,
+  what the school said to bring, whether it's been ticked off, and
+  what's for lunch. Before five it means today; after five it means the
+  bag that has to be packed tonight.
+- *"...what's left on the list"*, *"...what's for dinner"*,
+  *"...how close is Parker to his prize"*.
+
+On an Echo Show this is the more reliable half of the two: the skill
+answers on a device where the browser closes itself and cannot be
+pinned to the home screen.
 
 ---
 
@@ -252,6 +316,11 @@ Expect low single-digit dollars a month. Set a billing alarm anyway.
 | `AccessDenied` in a Lambda log | A handler lost its DynamoDB policy; `npm run verify:template` names it |
 | The app loads but is stuck "Loading your family's day" | `VITE_API_BASE_URL` was wrong at build time — it's baked in, so rebuild |
 | Old version keeps loading | The CloudFront invalidation hasn't finished, or `index.html` was cached |
+| The Echo Show has gone back to Alexa's home view | Silk closed itself after a spell of idle. Say "Alexa, open Silk" and pick the bookmark; Amazon offers no setting to stop this |
+| "Keep screen on" does nothing | The browser only grants a wake lock over HTTPS, and how much of it Silk honours is untested on a real device |
+| The morning plan says "your estimate" everywhere | Normal for the first fortnight — every learned duration comes from your own finished runs, and it says so rather than guessing |
+| Nothing appears from Google Calendar | Expected: the sync runs but there is no way to connect a calendar yet (step 0) |
+| A 429 from the API | Something is calling `POST /families` in a loop — that route is throttled to 1/second on purpose |
 
 Logs:
 
