@@ -44,6 +44,8 @@ import { planRoutine, appliesOn, isRoutineDue, type PlannedStep } from "../lib/r
 import FocusDay from "./FocusDay";
 import FocusSession from "./FocusSession";
 import { suggestBlockLength } from "../lib/focusRhythm";
+import ChildView from "./ChildView";
+import { buildChildView } from "../lib/childView";
 
 // Which family this screen belongs to, set once per device (see
 // LinkDevice). Read at render rather than module load so a screen linked
@@ -134,6 +136,8 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   const [focusOpen, setFocusOpen] = useState(false);
   const [castleOpen, setCastleOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  /** Whose own screen is open, if any. */
+  const [childOnScreen, setChildOnScreen] = useState<string | null>(null);
 
   // Recomputed every render rather than memoized, so an always-on kitchen
   // display rolls over to the new day at midnight on its own.
@@ -518,6 +522,20 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   }
 
   const focusSuggestion = suggestBlockLength(focusBlocks);
+
+  // Built only while a child's screen is open, and only ever from their
+  // own rows — see lib/childView.ts on why the filtering happens there
+  // rather than in the markup.
+  const childView = childOnScreen
+    ? buildChildView({
+        memberId: childOnScreen,
+        tasks,
+        completions,
+        goals: rewardGoals,
+        balances: gemBalances,
+        today,
+      })
+    : null;
 
   /**
    * Whose focus blocks these are — taken from the most recent one, so it
@@ -955,6 +973,26 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
       body: (
         <>
           <TaskList tasks={tasks} onComplete={handleComplete} />
+          {/* One tap to a child's own screen. Placed under the list
+              rather than on each chore's name: a name beside a chore is
+              a label saying whose it is, and making every one of those a
+              button turns ticking a chore into a game of hitting the
+              right half of a row. */}
+          {members.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-olive-100">
+              {members.map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() => setChildOnScreen(name)}
+                  aria-label={`${name}'s gems and chores`}
+                  className="rounded-full px-4 py-2 font-body bg-olive-50 text-olive-700 border border-olive-100 hover:bg-olive-100"
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          )}
           <ChoreLibrary onAdd={handleAddChore} members={members} />
         </>
       ),
@@ -1176,6 +1214,8 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
       )}
 
       {castleOpen && <CastleOverlay totalGems={totalGems} onDismiss={() => setCastleOpen(false)} />}
+
+      {childView && <ChildView view={childView} onDismiss={() => setChildOnScreen(null)} />}
 
       {/* Rendered before the other overlays on purpose. At ten to eight
           getting out of the door outranks a chore scenario, and two

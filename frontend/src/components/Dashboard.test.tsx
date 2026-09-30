@@ -832,6 +832,81 @@ describe("Dashboard", () => {
     expect(screen.getByRole("tab", { name: /Shopping list/ })).toHaveAttribute("aria-selected", "true");
   });
 
+  describe("a child's own screen", () => {
+    function stubFamily() {
+      vi.mocked(api.listTasks).mockResolvedValue([
+        { taskId: "beds", title: "Make your bed", assignedTo: "Parker", dueDate: null, gemValue: 3, dueWindow: "morning", date: toLocalIsoDate(new Date()), recurrence: "daily", completedOn: null, status: "done", gemsAwarded: 3 },
+        { taskId: "dishes", title: "Load the dishwasher", assignedTo: "Parker", dueDate: null, gemValue: 5, dueWindow: "after_dinner", date: toLocalIsoDate(new Date()), recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
+        { taskId: "teeth", title: "Brush teeth", assignedTo: "Wren", dueDate: null, gemValue: 2, dueWindow: "morning", date: toLocalIsoDate(new Date()), recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 },
+      ]);
+      vi.mocked(api.listSchedules).mockResolvedValue([]);
+      vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+      vi.mocked(api.listRewardGoals).mockResolvedValue([
+        { memberId: "Parker", title: "Skate park trip", gemCost: 400, note: null },
+        { memberId: "Wren", title: "New art set", gemCost: 80, note: null },
+      ]);
+      vi.mocked(api.listGemBalances).mockResolvedValue({
+        balances: [
+          { memberId: "Parker", earned: 337, spent: 40, balance: 297 },
+          { memberId: "Wren", earned: 191, spent: 0, balance: 191 },
+        ],
+        family: { earned: 528, spent: 40, balance: 488 },
+      });
+    }
+
+    it("opens from a tap on the name, and shows their gems and prize", async () => {
+      stubFamily();
+      render(<Dashboard />);
+      await waitFor(() => expect(screen.getByRole("heading", { name: "Today's chores" })).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole("button", { name: "Parker's gems and chores" }));
+
+      const panel = within(await screen.findByRole("dialog", { name: "Parker's gems and chores" }));
+      expect(panel.getByText("297")).toBeInTheDocument();
+      expect(panel.getByText("Skate park trip")).toBeInTheDocument();
+      expect(panel.getByText("Load the dishwasher")).toBeInTheDocument();
+    });
+
+    it("shows no trace of a sibling on it", async () => {
+      stubFamily();
+      render(<Dashboard />);
+      await waitFor(() => expect(screen.getByRole("heading", { name: "Today's chores" })).toBeInTheDocument());
+      fireEvent.click(screen.getByRole("button", { name: "Parker's gems and chores" }));
+
+      const dialog = await screen.findByRole("dialog", { name: "Parker's gems and chores" });
+      const text = dialog.textContent ?? "";
+      // A wall-mounted leaderboard is how a seven-year-old learns their
+      // sibling is better at being good.
+      expect(text).not.toContain("Wren");
+      expect(text).not.toContain("art set");
+      expect(text).not.toContain("191");
+      expect(text).not.toContain("Brush teeth");
+    });
+
+    it("says what is left and what it is worth", async () => {
+      stubFamily();
+      render(<Dashboard />);
+      await waitFor(() => expect(screen.getByRole("heading", { name: "Today's chores" })).toBeInTheDocument());
+      fireEvent.click(screen.getByRole("button", { name: "Parker's gems and chores" }));
+
+      const panel = within(await screen.findByRole("dialog", { name: "Parker's gems and chores" }));
+      expect(panel.getByText(/1 left today · 5 gems still to earn/)).toBeInTheDocument();
+    });
+
+    it("closes on Escape like the other overlays", async () => {
+      stubFamily();
+      render(<Dashboard />);
+      await waitFor(() => expect(screen.getByRole("heading", { name: "Today's chores" })).toBeInTheDocument());
+      fireEvent.click(screen.getByRole("button", { name: "Parker's gems and chores" }));
+      await screen.findByRole("dialog", { name: "Parker's gems and chores" });
+
+      fireEvent.keyDown(document, { key: "Escape" });
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog", { name: "Parker's gems and chores" })).not.toBeInTheDocument()
+      );
+    });
+  });
+
   describe("the morning", () => {
     const MORNING_ROUTINE = {
       routineId: "r1",
