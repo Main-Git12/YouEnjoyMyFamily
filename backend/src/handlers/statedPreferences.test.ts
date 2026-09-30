@@ -139,3 +139,22 @@ test("DELETE removes a stated preference", async () => {
   assert.equal(result.statusCode, 200);
   assert.deepEqual(JSON.parse(result.body ?? "{}"), { deleted: "p1" });
 });
+
+test("listing reads every page — a list that is never pruned only grows", async () => {
+  ddbMock.on(QueryCommand).callsFake((input: { ExclusiveStartKey?: { page: number } }) => {
+    const pages = [
+      [{ preferenceId: "p1", statement: "No mushrooms" }],
+      [{ preferenceId: "p2", statement: "Loves taco night" }],
+    ];
+    const page = input.ExclusiveStartKey?.page ?? 0;
+    return { Items: pages[page] ?? [], LastEvaluatedKey: page + 1 < pages.length ? { page: page + 1 } : undefined };
+  });
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(makeEvent({ method: "GET", pathParameters: { familyId: "fam_1" }, headers }));
+
+  const prefs = JSON.parse(result.body ?? "[]") as { preferenceId: string }[];
+  // Otherwise a family that keeps using the app starts losing the oldest
+  // things they said — the ones a preference list exists to remember.
+  assert.deepEqual(prefs.map((pref) => pref.preferenceId), ["p1", "p2"]);
+});

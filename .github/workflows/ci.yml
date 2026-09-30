@@ -22,6 +22,19 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
+      # Typecheck and tests never read template.yaml, so a route pointing at
+      # a nonexistent ApiId passes them and only fails at deploy. These two
+      # catch it here. The first needs no AWS tooling, runs in a second and
+      # says which logical id you meant; it also catches a handler whose
+      # DynamoDB policy is missing, which `sam build` happily accepts and
+      # which then fails at runtime with AccessDenied.
+      - run: npm run verify:template
+      # And this one compiles every handler the way the deploy will.
+      # SAM's esbuild builder needs esbuild on PATH.
+      - uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+      - run: PATH="$PWD/node_modules/.bin:$PATH" sam build
 
   frontend:
     runs-on: ubuntu-latest
@@ -39,6 +52,9 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+      # Builds again with a canary key set, and fails if it reaches the
+      # output. This is what makes it safe to serve from a public URL.
+      - run: npm run verify:bundle
 
   alexa-skill:
     runs-on: ubuntu-latest

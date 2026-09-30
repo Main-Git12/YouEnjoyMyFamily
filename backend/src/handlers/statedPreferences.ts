@@ -1,7 +1,8 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 import { ulid } from "ulid";
-import { PutCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { PutCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import { docClient, TABLE_NAME } from "../lib/dynamoClient";
+import { queryAll } from "../lib/queryAll";
 import { ok, created, badRequest, serverError } from "../lib/response";
 import { parseBody, ValidationError } from "../lib/validation";
 import { authenticateFamily } from "../lib/auth";
@@ -16,14 +17,14 @@ const preferenceKey = (familyId: string, memberId: string, preferenceId: string)
 // member — never anything inferred. See STATED_PREFERENCE_CATEGORIES in types.ts.
 async function listStatedPreferences(familyId: string, memberId?: string): Promise<StatedPreferenceItem[]> {
   const prefix = memberId ? `STATEDPREF#${memberId}#` : "STATEDPREF#";
-  const result = await docClient.send(
-    new QueryCommand({
-      TableName: TABLE_NAME,
-      KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)",
-      ExpressionAttributeValues: { ":pk": `FAMILY#${familyId}`, ":prefix": prefix },
-    })
-  );
-  return (result.Items ?? []) as StatedPreferenceItem[];
+  // Paged: this list is never pruned, so it only ever grows. A family that
+  // keeps using the app for years would otherwise start losing the oldest
+  // things they said — the ones a preference list exists to remember.
+  return queryAll<StatedPreferenceItem>({
+    TableName: TABLE_NAME,
+    KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)",
+    ExpressionAttributeValues: { ":pk": `FAMILY#${familyId}`, ":prefix": prefix },
+  });
 }
 
 async function createStatedPreference(familyId: string, input: StatedPreferenceInput): Promise<StatedPreferenceItem> {

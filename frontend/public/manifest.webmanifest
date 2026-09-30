@@ -1,0 +1,25 @@
+{
+  "name": "YouEnjoyMyFamily",
+  "short_name": "Family",
+  "description": "The family's tasks, schedule, meal plan and grocery list — on the fridge screen or in your pocket.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#7d7f45",
+  "icons": [
+    {
+      "src": "/brand-mark.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/brand-mark.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

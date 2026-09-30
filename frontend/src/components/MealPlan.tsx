@@ -1,0 +1,224 @@
+import { useState, type FormEvent } from "react";
+import type { MealPlanEntry, MealSlot } from "../types";
+
+interface MealPlanProps {
+  entries: MealPlanEntry[];
+  /** The 7 dates currently on screen — owned by Dashboard, which fetches them. */
+  days: string[];
+  weekOffset: number;
+  onWeekOffsetChange: (offset: number) => void;
+  onSave: (date: string, slot: MealSlot, input: { mealName: string; ingredients: string[] }) => Promise<void>;
+  onRemove: (date: string, slot: MealSlot) => Promise<void>;
+  onGenerateGroceryList: () => Promise<{ added: number; skipped: number }>;
+}
+
+const SLOTS: MealSlot[] = ["breakfast", "lunch", "dinner"];
+const SLOT_LABELS: Record<MealSlot, string> = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner" };
+
+function formatDayLabel(isoDate: string): string {
+  const date = new Date(`${isoDate}T00:00:00`);
+  return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+function weekLabel(offset: number, days: string[]): string {
+  if (offset === 0) return "This week";
+  const first = days[0];
+  if (!first) return offset > 0 ? "Next week" : "Last week";
+  const date = new Date(`${first}T00:00:00`);
+  return `Week of ${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+}
+
+// Only what a family member has typed in for their week — no AI-invented
+// meals or ingredients. generateGroceryListFromMealPlan (backend) is the
+// only thing that ever turns these ingredients into cart items.
+export default function MealPlan({
+  entries,
+  days,
+  weekOffset,
+  onWeekOffsetChange,
+  onSave,
+  onRemove,
+  onGenerateGroceryList,
+}: MealPlanProps) {
+  const [editing, setEditing] = useState<{ date: string; slot: MealSlot } | null>(null);
+  const [mealName, setMealName] = useState("");
+  const [ingredientsText, setIngredientsText] = useState("");
+  const [generateResult, setGenerateResult] = useState<string | null>(null);
+  // A kitchen screen gets tapped twice when it doesn't react at once. The
+  // backend won't duplicate lines any more, but a second tap still costs a
+  // round trip and replaces the first answer with a confusing "0 added".
+  const [generating, setGenerating] = useState(false);
+
+  const entryFor = (date: string, slot: MealSlot) =>
+    entries.find((entry) => entry.date === date && entry.slot === slot);
+
+  function startEditing(date: string, slot: MealSlot) {
+    const existing = entryFor(date, slot);
+    setEditing({ date, slot });
+    setMealName(existing?.mealName ?? "");
+    setIngredientsText(existing?.ingredients.join(", ") ?? "");
+  }
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!editing || !mealName.trim()) return;
+    const ingredients = ingredientsText
+      .split(",")
+      .map((ingredient) => ingredient.trim())
+      .filter((ingredient) => ingredient.length > 0);
+    try {
+      await onSave(editing.date, editing.slot, { mealName: mealName.trim(), ingredients });
+    } catch {
+      // Leave the form open and filled in — retyping a meal and its whole
+      // ingredient list because the network blipped is its own small insult.
+      return;
+    }
+    setEditing(null);
+    // The last generate result described a plan that just changed.
+    setGenerateResult(null);
+  }
+
+  async function handleRemove() {
+    if (!editing) return;
+    await onRemove(editing.date, editing.slot);
+    setEditing(null);
+    setGenerateResult(null);
+  }
+
+  async function handleGenerate() {
+    if (generating) return;
+    setGenerating(true);
+    let result;
+    try {
+      result = await onGenerateGroceryList();
+    } catch {
+      setGenerateResult("Couldn't build the grocery list just now — try again in a moment.");
+      return;
+    } finally {
+      setGenerating(false);
+    }
+    setGenerateResult(
+      result.added === 0 && result.skipped === 0
+        ? "No ingredients planned yet."
+        : `Added ${result.added} ingredient${result.added === 1 ? "" : "s"} to the grocery list` +
+            (result.skipped > 0 ? ` (${result.skipped} already on it).` : ".")
+    );
+  }
+
+  return (
+    <div>
+      <p className="text-sm text-olive-600 mb-3">
+        Plan the week's meals — the grocery list builds itself from what's typed in here.
+      </p>
+
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <button
+          type="button"
+          onClick={() => onWeekOffsetChange(weekOffset - 1)}
+          aria-label="Show the previous week"
+          className="rounded-lg bg-olive-50 text-olive-700 px-3 py-2 text-sm hover:bg-olive-100"
+        >
+          ← Previous
+        </button>
+        <span className="text-sm font-semibold text-olive-700">{weekLabel(weekOffset, days)}</span>
+        <button
+          type="button"
+          onClick={() => onWeekOffsetChange(weekOffset + 1)}
+          aria-label="Show the next week"
+          className="rounded-lg bg-olive-50 text-olive-700 px-3 py-2 text-sm hover:bg-olive-100"
+        >
+          Next →
+        </button>
+      </div>
+
+      <div className="space-y-2 mb-4">
+        {days.map((date) => (
+          // Label above the slots on a phone, beside them from `sm` up; the
+          // slots stay a 3-column grid either way so a day's breakfast,
+          // lunch and dinner always line up instead of wrapping raggedly.
+          <div key={date} className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+            <span className="sm:w-24 shrink-0 text-sm font-semibold text-olive-700">{formatDayLabel(date)}</span>
+            <div className="grid grid-cols-3 gap-2 flex-1">
+              {SLOTS.map((slot) => {
+                const entry = entryFor(date, slot);
+                return (
+                  <button
+                    key={slot}
+                    type="button"
+                    aria-label={`${SLOT_LABELS[slot]} on ${formatDayLabel(date)}${entry ? `: ${entry.mealName}` : " — nothing planned"}`}
+                    title={entry ? `${entry.mealName}${entry.ingredients.length ? ` — ${entry.ingredients.join(", ")}` : ""}` : undefined}
+                    onClick={() => startEditing(date, slot)}
+                    className={`rounded-lg px-2 sm:px-3 py-2 text-xs sm:text-sm truncate ${
+                      entry ? "bg-olive-100 text-olive-800" : "bg-olive-50 text-olive-600 italic"
+                    }`}
+                  >
+                    {entry
+                      ? entry.ingredients.length
+                        ? `${entry.mealName} (${entry.ingredients.length})`
+                        : entry.mealName
+                      : `+ ${SLOT_LABELS[slot]}`}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {editing && (
+        <form onSubmit={handleSubmit} className="bg-olive-50 rounded-lg p-4 space-y-2 mb-4">
+          <p className="text-sm font-semibold text-olive-700">
+            {SLOT_LABELS[editing.slot]} — {formatDayLabel(editing.date)}
+          </p>
+          <input
+            type="text"
+            aria-label="Meal name"
+            placeholder="Meal name (e.g. Tacos)"
+            value={mealName}
+            onChange={(e) => setMealName(e.target.value)}
+            className="w-full rounded-lg border border-olive-500 px-3 py-2"
+          />
+          <input
+            type="text"
+            aria-label="Ingredients, comma separated"
+            placeholder="Ingredients, comma separated (e.g. Tortillas, Ground beef, Cheddar)"
+            value={ingredientsText}
+            onChange={(e) => setIngredientsText(e.target.value)}
+            className="w-full rounded-lg border border-olive-500 px-3 py-2"
+          />
+          <div className="flex gap-2">
+            <button type="submit" className="rounded-lg bg-olive-600 text-white px-4 py-2 hover:bg-olive-700">
+              Save
+            </button>
+            {entryFor(editing.date, editing.slot) && (
+              <button type="button" onClick={handleRemove} className="text-sm text-olive-600 underline underline-offset-2">
+                Clear this meal
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setEditing(null)}
+              className="text-sm text-olive-600 underline underline-offset-2"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      <button
+        type="button"
+        onClick={handleGenerate}
+        disabled={generating}
+        className="rounded-lg bg-olive-600 text-white px-4 py-2 hover:bg-olive-700 disabled:bg-olive-300"
+      >
+        {generating
+          ? "Building the list…"
+          : weekOffset === 0
+            ? "Generate grocery list for this week"
+            : "Generate grocery list for this view"}
+      </button>
+      {generateResult && <p className="text-sm text-clay-700 mt-2">{generateResult}</p>}
+    </div>
+  );
+}

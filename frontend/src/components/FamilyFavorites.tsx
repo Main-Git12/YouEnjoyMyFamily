@@ -72,12 +72,12 @@ export default function FamilyFavorites({ preferences, onAdd, onRemove }: Family
           placeholder="Who said it?"
           value={memberId}
           onChange={(e) => setMemberId(e.target.value)}
-          className="flex-1 min-w-[8rem] rounded-lg border border-olive-300 px-3 py-2"
+          className="flex-1 min-w-[8rem] rounded-lg border border-olive-500 px-3 py-2"
         />
         <select
           value={category}
           onChange={(e) => setCategory(e.target.value as StatedPreferenceCategory)}
-          className="rounded-lg border border-olive-300 px-3 py-2"
+          className="rounded-lg border border-olive-500 px-3 py-2"
         >
           {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
             <option key={value} value={value}>
@@ -90,9 +90,9 @@ export default function FamilyFavorites({ preferences, onAdd, onRemove }: Family
           placeholder="What did they say? (e.g. prefers penne over spaghetti)"
           value={statement}
           onChange={(e) => setStatement(e.target.value)}
-          className="flex-[2] min-w-[12rem] rounded-lg border border-olive-300 px-3 py-2"
+          className="flex-[2] min-w-[12rem] rounded-lg border border-olive-500 px-3 py-2"
         />
-        <button type="submit" className="rounded-lg bg-olive-500 text-white px-4 py-2 hover:bg-olive-600">
+        <button type="submit" className="rounded-lg bg-olive-600 text-white px-4 py-2 hover:bg-olive-700">
           Remember this
         </button>
       </form>
