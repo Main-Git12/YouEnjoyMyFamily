@@ -323,3 +323,22 @@ describe("claims the records cannot support", () => {
     expect(streaks[0]?.title).toContain("40 days running");
   });
 });
+
+/**
+ * A missing field must never take the whole wall down. The first version of
+ * the createdAt rule called `.slice()` on it unguarded: the type says it is
+ * always present and the API always sends it, so every test passed — and
+ * the dashboard went to its error boundary the first time a response came
+ * back without it.
+ */
+describe("when the data is not the shape the types promise", () => {
+  it("does not crash on a chore with no creation date, and makes no claim about it", () => {
+    // Built the way a real response arrives — the field simply absent —
+    // rather than set to undefined, which is a different shape.
+    const withField: Record<string, unknown> = { ...task({ dueWindow: "bedtime" }) };
+    delete withField.createdAt;
+    const shapeless = withField as unknown as Task;
+    expect(() => buildInsights(sources({ tasks: [shapeless], completions: [] }))).not.toThrow();
+    expect(buildInsights(sources({ tasks: [shapeless], completions: [] })).filter((i) => i.kind === "slipping")).toEqual([]);
+  });
+});

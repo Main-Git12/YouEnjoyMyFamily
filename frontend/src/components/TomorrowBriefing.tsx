@@ -1,4 +1,6 @@
+import type { ComponentType } from "react";
 import type { TomorrowBrief, TomorrowSignal } from "../lib/tomorrow";
+import { CalendarIcon, PlateIcon, SchoolBagIcon, StopwatchIcon, type IconProps } from "./icons";
 
 interface TomorrowBriefingProps {
   brief: TomorrowBrief | null;
@@ -27,11 +29,11 @@ const OUTLOOK_COPY: Record<string, { label: string; className: string }> = {
   tight: { label: "Looks tight", className: "bg-clay-100 text-clay-900 ring-2 ring-clay-300" },
 };
 
-const MARK: Record<TomorrowSignal["kind"], string> = {
-  calendar: "📅",
-  school: "🎒",
-  meal: "🍽️",
-  morning: "⏱️",
+const MARK: Record<TomorrowSignal["kind"], ComponentType<IconProps>> = {
+  calendar: CalendarIcon,
+  school: SchoolBagIcon,
+  meal: PlateIcon,
+  morning: StopwatchIcon,
 };
 
 export default function TomorrowBriefing({ brief, onOpen }: TomorrowBriefingProps) {
@@ -53,17 +55,17 @@ export default function TomorrowBriefing({ brief, onOpen }: TomorrowBriefingProp
             {outlook.label}
           </span>
           {/* The reasons, never the verdict alone. */}
-          <p className="text-sm text-olive-600 mt-1.5">{brief.outlook.because}.</p>
+          <p className="text-olive-700 mt-2 leading-snug">{brief.outlook.because}.</p>
         </div>
       )}
 
       <ul className="space-y-3">
-        {brief.signals.map((signal) => (
+        {brief.signals.map((signal) => {
+          const Mark = MARK[signal.kind];
+          return (
           <li key={signal.id} className="bg-olive-50 rounded-card px-4 py-3">
             <div className="flex items-start gap-3">
-              <span aria-hidden="true" className="text-xl leading-7 shrink-0">
-                {MARK[signal.kind]}
-              </span>
+              <Mark size={22} className="shrink-0 mt-0.5 text-olive-600" />
               <div className="min-w-0">
                 <p className="text-olive-900 leading-snug">{signal.headline}</p>
                 <p className="text-sm text-olive-600 mt-0.5">{signal.because}</p>
@@ -79,7 +81,8 @@ export default function TomorrowBriefing({ brief, onOpen }: TomorrowBriefingProp
               </div>
             </div>
           </li>
-        ))}
+          );
+        })}
       </ul>
     </div>
   );

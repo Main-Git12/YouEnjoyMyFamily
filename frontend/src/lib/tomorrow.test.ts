@@ -327,3 +327,31 @@ describe("what it will never say", () => {
     }
   });
 });
+
+/**
+ * The panel sits in a column that scrolls on a screen nobody scrolls, so
+ * last means invisible. The learned morning line is the whole point of the
+ * feature and used to be the one that fell off the bottom.
+ */
+describe("the order things are said in", () => {
+  it("leads with what can be packed tonight, then the learned morning", () => {
+    const everything = base({
+      now: at(2026, 9, 30, 20, 0),
+      schedule: [{ scheduleId: "a", date: "2026-10-01", title: "Swimming", startTime: "17:30", endTime: null, memberIds: [] }],
+      profiles: [PARKER],
+      mealPlan: [
+        { date: "2026-09-27", slot: "dinner", mealName: "Chilli", ingredients: [] },
+        { date: "2026-09-28", slot: "dinner", mealName: "Tacos", ingredients: [] },
+        { date: "2026-09-29", slot: "dinner", mealName: "Pasta", ingredients: [] },
+      ],
+      routines: [MORNING],
+      runs: [run([2026, 9, 24], 2), run([2026, 9, 17], 3), run([2026, 9, 10], 1)],
+    });
+    expect(buildTomorrow(everything)?.signals.map((s) => s.kind)).toEqual([
+      "school",
+      "morning",
+      "meal",
+      "calendar",
+    ]);
+  });
+});

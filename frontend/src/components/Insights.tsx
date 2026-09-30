@@ -1,19 +1,21 @@
+import type { ComponentType } from "react";
 import type { Insight } from "../lib/insights";
+import { CalendarIcon, CartIcon, MoonIcon, NoticedIcon, PlateIcon, StreakIcon, type IconProps } from "./icons";
 
 interface InsightsProps {
   insights: Insight[];
   onAct: (insight: Insight) => Promise<void>;
 }
 
-const KIND_MARK: Record<Insight["kind"], string> = {
-  streak: "🔥",
-  slipping: "🤔",
-  busy_day: "📅",
-  meal_rhythm: "🍽️",
-  grocery_due: "🛒",
+const KIND_MARK: Record<Insight["kind"], ComponentType<IconProps>> = {
+  streak: StreakIcon,
+  slipping: NoticedIcon,
+  busy_day: CalendarIcon,
+  meal_rhythm: PlateIcon,
+  grocery_due: CartIcon,
   // Noticed across domains rather than inside one — see lib/awareness.ts.
-  bedtime_and_mornings: "🌙",
-  stacked_day_no_dinner: "📅",
+  bedtime_and_mornings: MoonIcon,
+  stacked_day_no_dinner: CalendarIcon,
 };
 
 /**
@@ -35,12 +37,12 @@ export default function Insights({ insights, onAct }: InsightsProps) {
 
   return (
     <ul className="space-y-3">
-      {insights.map((insight) => (
+      {insights.map((insight) => {
+        const Mark = KIND_MARK[insight.kind];
+        return (
         <li key={insight.id} className="bg-olive-50 rounded-card px-4 py-3">
           <div className="flex items-start gap-3">
-            <span aria-hidden="true" className="text-xl leading-7 shrink-0">
-              {KIND_MARK[insight.kind]}
-            </span>
+            <Mark size={22} className={`shrink-0 mt-0.5 ${insight.kind === "streak" ? "text-clay-500" : "text-olive-600"}`} />
             <div className="min-w-0">
               <p className="text-olive-900">{insight.title}</p>
               <p className="text-sm text-olive-600 mt-0.5">{insight.because}</p>
@@ -56,7 +58,8 @@ export default function Insights({ insights, onAct }: InsightsProps) {
             </div>
           </div>
         </li>
-      ))}
+        );
+      })}
     </ul>
   );
 }

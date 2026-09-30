@@ -88,3 +88,78 @@ describe("GemThreatAlert", () => {
     expect(screen.getByRole("button", { name: threatened.threat.callToAction })).toHaveFocus();
   });
 });
+
+/**
+ * The always-on case. This is a wall display: the scenario can appear with
+ * nobody in the room, and it used to hold the whole screen — tomorrow's
+ * library book, the bedtime list, everything — behind a raccoon until
+ * somebody walked past and tapped.
+ */
+describe("GemThreatAlert on an empty kitchen", () => {
+  it("stands down on its own when nobody answers it", () => {
+    vi.useFakeTimers();
+    try {
+      const onDismiss = vi.fn();
+      render(
+        <GemThreatAlert threatened={threatened} onDefend={async () => {}} onDismiss={onDismiss} standDownAfterMs={90_000} />
+      );
+      expect(onDismiss).not.toHaveBeenCalled();
+      act(() => { vi.advanceTimersByTime(89_000); });
+      expect(onDismiss).not.toHaveBeenCalled();
+      act(() => { vi.advanceTimersByTime(2_000); });
+      expect(onDismiss).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /**
+   * Proved with a stand-down shorter than the celebration, because with the
+   * default 90 seconds against a 2.6-second victory beat the guard can
+   * never fire and a test of it cannot fail. This is the case it exists
+   * for: whatever the two timings are relative to each other, answering the
+   * scenario cancels the stand-down.
+   */
+  it("keeps the victory on screen even when the stand-down is shorter than it", async () => {
+    vi.useFakeTimers();
+    try {
+      const onDismiss = vi.fn();
+      render(
+        <GemThreatAlert threatened={threatened} onDefend={async () => {}} onDismiss={onDismiss} standDownAfterMs={1_000} />
+      );
+      fireEvent.click(screen.getByRole("button", { name: /Chase him off/ }));
+      await act(async () => { await Promise.resolve(); });
+      // Past the stand-down, still inside the celebration.
+      act(() => { vi.advanceTimersByTime(1_500); });
+      expect(onDismiss).not.toHaveBeenCalled();
+      act(() => { vi.advanceTimersByTime(1_500); });
+      expect(onDismiss).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not cut the celebration short once somebody has answered it", async () => {
+    vi.useFakeTimers();
+    try {
+      const onDismiss = vi.fn();
+      render(
+        <GemThreatAlert
+          threatened={threatened}
+          onDefend={async () => {}}
+          onDismiss={onDismiss}
+          standDownAfterMs={90_000}
+        />
+      );
+      fireEvent.click(screen.getByRole("button", { name: /Chase him off/ }));
+      await act(async () => { await Promise.resolve(); });
+      // The stand-down timer is gone; only the victory beat's own 2.6s runs.
+      act(() => { vi.advanceTimersByTime(2_000); });
+      expect(onDismiss).not.toHaveBeenCalled();
+      act(() => { vi.advanceTimersByTime(1_000); });
+      expect(onDismiss).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

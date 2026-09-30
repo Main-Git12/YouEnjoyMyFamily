@@ -15,6 +15,7 @@ function signals(overrides: Partial<PanelSignals> = {}): PanelSignals {
     focusBlocksToday: 0,
     statedPreferenceCount: 0,
     schoolNotesNow: 0,
+    tomorrowSignals: 0,
     ...overrides,
   };
 }

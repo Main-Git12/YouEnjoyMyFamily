@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useDismissableOverlay } from "../lib/useDismissableOverlay";
 import type { ThreatenedChore } from "../lib/gemThreats";
 import ThreatArt from "./threats/ThreatArt";
@@ -9,6 +9,17 @@ interface GemThreatAlertProps {
   threatened: ThreatenedChore;
   onDefend: () => Promise<void>;
   onDismiss: () => void;
+  /**
+   * How long it waits for somebody before standing down on its own.
+   *
+   * This is a kitchen wall, not a laptop. The scenario can appear at half
+   * seven in the evening with nobody in the room, and without this it holds
+   * the entire display — tomorrow's library book, the bedtime list, all of
+   * it — behind a raccoon until a human happens to walk past and tap. The
+   * chore is still flagged in the list underneath either way, so standing
+   * down loses nothing except the interruption.
+   */
+  standDownAfterMs?: number;
 }
 
 /**
@@ -17,13 +28,26 @@ interface GemThreatAlertProps {
  * celebrating once it's seen off — so finishing the chore has a payoff on
  * screen rather than the box simply vanishing.
  */
-export default function GemThreatAlert({ threatened, onDefend, onDismiss }: GemThreatAlertProps) {
+export default function GemThreatAlert({
+  threatened,
+  onDefend,
+  onDismiss,
+  standDownAfterMs = 90_000,
+}: GemThreatAlertProps) {
   const { task, threat, assignee } = threatened;
   const [defeated, setDefeated] = useState(false);
   const [saving, setSaving] = useState(false);
   // While the victory is playing there's nothing left to answer, so Escape
   // just closes it early rather than being ignored.
   const containerRef = useDismissableOverlay<HTMLDivElement>(onDismiss);
+
+  // Cleared the moment anyone engages: once "Chase him off" is pressed the
+  // celebration has its own timing and must not be cut short.
+  useEffect(() => {
+    if (saving || defeated) return;
+    const timer = setTimeout(onDismiss, standDownAfterMs);
+    return () => clearTimeout(timer);
+  }, [saving, defeated, onDismiss, standDownAfterMs]);
 
   async function handleDefend() {
     setSaving(true);

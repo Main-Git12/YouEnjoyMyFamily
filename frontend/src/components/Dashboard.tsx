@@ -27,6 +27,9 @@ import CastleOverlay from "./CastleOverlay";
 import { planPanels, drawerLabel, type PanelId } from "../lib/dashboardLayout";
 import SchoolDay from "./SchoolDay";
 import SchoolSetup from "./SchoolSetup";
+import TomorrowBriefing from "./TomorrowBriefing";
+import { buildTomorrow } from "../lib/tomorrow";
+import { createKeepAwake, type KeepAwakeStatus } from "../lib/keepAwake";
 import { horizonFor, prepRecordFor, schoolDayNotes, specialsOn, type SchoolDayNote } from "../lib/schoolDay";
 import type { CardSize } from "./FamilyCard";
 import { currentWindow } from "../lib/timeOfDay";
@@ -155,6 +158,16 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   /** Whose own screen is open, if any. */
   const [childOnScreen, setChildOnScreen] = useState<string | null>(null);
+  /**
+   * Holding the Echo Show's screen open.
+   *
+   * Silk puts itself away when idle and the device goes back to its home
+   * screen — Amazon's own answer is that this cannot be turned off. The
+   * keeper is built once and started from a tap, because the audio half of
+   * it is not allowed to begin without one. See lib/keepAwake.ts.
+   */
+  const keepAwake = useRef(createKeepAwake());
+  const [awake, setAwake] = useState<KeepAwakeStatus>(() => keepAwake.current.status());
 
   // Recomputed every render rather than memoized, so an always-on kitchen
   // display rolls over to the new day at midnight on its own.
@@ -720,6 +733,22 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
    * reading — which an earlier version of this lost by rendering the two
    * groups as separate lists.
    */
+  /**
+   * Tomorrow, read tonight. Built entirely from what is already on screen
+   * elsewhere — the calendar, the school sheet, the meal plan and the
+   * mornings this weekday has actually had. Null for most of the day and on
+   * most evenings, which is what keeps it worth reading.
+   */
+  const tomorrow = buildTomorrow({
+    now: clock,
+    schedule,
+    profiles: schoolProfiles,
+    prep: schoolPrep,
+    mealPlan,
+    routines,
+    runs: routineRuns,
+  });
+
   const panelSignals = {
     now: clock,
     choresLeft: choresLeftToday,
@@ -731,6 +760,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
     focusBlocksToday: focusBlocks.filter((block) => block.date === today).length,
     statedPreferenceCount: preferences.length,
     schoolNotesNow: schoolDayNotes(schoolProfiles, clock, schoolPrep).length,
+    tomorrowSignals: tomorrow?.signals.length ?? 0,
   };
   const panelPlan = planPanels(panelSignals);
 
@@ -1260,6 +1290,24 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
         />
       ),
     },
+    tomorrow: {
+      title: tomorrow ? `Tomorrow — ${tomorrow.weekdayLabel}` : "Tomorrow",
+      // No subtitle: the panel itself shows the outlook as a chip with its
+      // reasons underneath, and a heading that also says "looks tight" makes
+      // the screen say the same thing three times in four inches.
+      subtitle: undefined,
+      body: (
+        <TomorrowBriefing
+          brief={tomorrow}
+          onOpen={(panel) => {
+            // Opens the panel the question points at. The briefing proposes;
+            // the family decides on the panel that owns the change.
+            if (panel === "kitchen") setDrawerOpen(true);
+            if (panel === "morning" || panel === "school") setDrawerOpen(true);
+          }}
+        />
+      ),
+    },
     "school-setup": {
       title: "The specials sheet",
       subtitle: schoolProfiles.length
@@ -1301,6 +1349,23 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
           </div>
         </div>
         <div className="flex items-center gap-3 shrink-0">
+          {/* Offered, not assumed: on a phone this is pointless, and on the
+              wall it needs one deliberate tap before the browser will allow
+              it at all. Once it is holding it stops asking. */}
+          {awake.state !== "unsupported" && (
+            <button
+              type="button"
+              onClick={() => void keepAwake.current.start().then(setAwake)}
+              aria-label={
+                awake.state === "holding"
+                  ? "This screen is being kept on"
+                  : "Keep this screen on"
+              }
+              className="text-sm text-olive-600 underline underline-offset-2 py-2 min-h-[44px]"
+            >
+              {awake.state === "holding" ? "Screen stays on" : "Keep screen on"}
+            </button>
+          )}
           <button
             type="button"
             onClick={handleManualRefresh}

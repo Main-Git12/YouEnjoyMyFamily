@@ -263,6 +263,20 @@ export function buildTomorrow(sources: TomorrowSources): TomorrowBrief | null {
 
   if (!signals.length) return null;
 
+  /**
+   * Ordered by what someone can do about it tonight, not by the order the
+   * facts happened to be gathered in.
+   *
+   * This matters more than it sounds. The panel lives in a column that
+   * scrolls, on a screen nobody scrolls, so whatever is last is effectively
+   * not there. Gathering order put the calendar first and the learned
+   * morning last — which meant the one genuinely anticipatory line in the
+   * app, the one built from this weekday's own finished mornings, was the
+   * line that fell off the bottom.
+   */
+  const ACTIONABILITY: Record<SignalKind, number> = { school: 0, morning: 1, meal: 2, calendar: 3 };
+  signals.sort((a, b) => ACTIONABILITY[a.kind] - ACTIONABILITY[b.kind]);
+
   // --- the overall read ----------------------------------------------------
   // Deliberately a small, legible rule rather than a score: a number nobody
   // can argue with is a number nobody should trust. `because` names the same

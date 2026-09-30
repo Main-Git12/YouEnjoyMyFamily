@@ -186,7 +186,18 @@ function slippingInsights({ tasks, completions, today }: InsightSources): Insigh
  */
 function expectedDays(task: Task, windowStart: string, today: string): number {
   let days = 0;
-  const existedFrom = task.createdAt.slice(0, 10);
+  // Guarded rather than trusted, even though the type says it is always
+  // there and the API has always sent it. A first version of this called
+  // `.slice()` on it directly, and the whole dashboard went to the error
+  // boundary the moment a response arrived without the field — a blank
+  // kitchen wall, from one absent string, in code whose entire job is to
+  // decide whether there is enough evidence to say anything.
+  //
+  // No creation date means no way to know which days this chore existed
+  // for, and the honest answer to that is silence: zero expected days makes
+  // the caller skip it.
+  const existedFrom = typeof task.createdAt === "string" ? task.createdAt.slice(0, 10) : null;
+  if (!existedFrom) return 0;
   const from = existedFrom > windowStart ? existedFrom : windowStart;
   const cursor = new Date(`${from}T12:00:00`);
   const end = new Date(`${today}T12:00:00`);
