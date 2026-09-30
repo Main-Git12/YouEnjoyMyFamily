@@ -9,6 +9,8 @@ import {
   GetGemCastleIntentHandler,
   GetPrizeProgressIntentHandler,
   GetMealPlanIntentHandler,
+  GetSchoolDayIntentHandler,
+  answerSchoolDay,
   GenerateGroceryListIntentHandler,
   GetGroceryListIntentHandler,
   AddGroceryItemIntentHandler,
@@ -25,6 +27,11 @@ import {
   describeChore,
   gemsByChild,
   describePrizeProgress,
+  schoolHorizon,
+  weekdayOfIsoDate,
+  specialOnDate,
+  describeSchoolDay,
+  describeLunch,
 } from "./index";
 import { makeHandlerInput, intentRequest, type FakeResponse } from "./testSupport";
 
@@ -763,4 +770,243 @@ test("GetTasksIntentHandler asks about the family's own day, not the Lambda's", 
   assert.ok(urls[0]?.includes("date=2026-09-23"), `expected the family's date, got ${urls[0]}`);
   mock.timers.reset();
   process.env.YOUENJOYMYFAMILY_TIME_ZONE = "UTC";
+});
+
+// --- School, asked out loud ---------------------------------------------
+
+const parkersSheet = {
+  memberId: "Parker",
+  schoolName: "Violet Elementary",
+  specials: [
+    { dayOfWeek: 4, subject: "Library", prepNote: "Library book goes back" },
+    { dayOfWeek: 2, subject: "Music", prepNote: null },
+  ],
+};
+
+// 2026-10-01 is a Thursday; 2026-09-29 a Tuesday.
+const THURSDAY = "2026-10-01";
+const TUESDAY = "2026-09-29";
+/** 8am in Ohio on that Thursday. */
+const THURSDAY_MORNING = new Date("2026-10-01T12:00:00Z");
+
+test("weekdayOfIsoDate reads the day off the date, not the server's timezone", () => {
+  assert.equal(weekdayOfIsoDate(THURSDAY), 4);
+  assert.equal(weekdayOfIsoDate(TUESDAY), 2);
+});
+
+test("the school question is about today in the morning and tomorrow in the evening", () => {
+  // The same boundary the screen uses: before five it's about today, after
+  // it's about the bag that has to be packed tonight.
+  process.env.YOUENJOYMYFAMILY_TIME_ZONE = "America/New_York";
+  try {
+    const morning = schoolHorizon(new Date("2026-10-01T12:00:00Z")); // 8am in Ohio
+    assert.equal(morning.horizon, "today");
+    assert.equal(morning.date, THURSDAY);
+
+    const evening = schoolHorizon(new Date("2026-10-02T01:00:00Z")); // 9pm on the 1st
+    assert.equal(evening.horizon, "tomorrow");
+    assert.equal(evening.date, "2026-10-02");
+  } finally {
+    delete process.env.YOUENJOYMYFAMILY_TIME_ZONE;
+  }
+});
+
+test("specialOnDate finds the rotation entry for that weekday, and nothing on a day without one", () => {
+  assert.equal(specialOnDate(parkersSheet, THURSDAY)?.subject, "Library");
+  assert.equal(specialOnDate(parkersSheet, "2026-10-03"), null); // a Saturday
+});
+
+test("describeSchoolDay says what has to be brought, in the school's own words", () => {
+  const special = specialOnDate(parkersSheet, THURSDAY);
+  const spoken = describeSchoolDay(parkersSheet, special, "today", null);
+
+  assert.match(spoken, /Today is Library/);
+  assert.match(spoken, /Library book goes back/);
+});
+
+test("describeSchoolDay never says anyone forgot anything", () => {
+  // Nobody can see inside a schoolbag. An unticked box means not ticked
+  // off, and saying "Parker forgot his library book" out loud in a kitchen
+  // on the strength of a checkbox is the thing this app exists not to do.
+  const special = specialOnDate(parkersSheet, THURSDAY);
+  const spoken = describeSchoolDay(parkersSheet, special, "today", null);
+
+  assert.match(spoken, /not ticked off/);
+  assert.doesNotMatch(spoken, /forgot|forgotten|didn't|failed|again|always|never remembers/i);
+  // And the subject is the day, not the child.
+  assert.doesNotMatch(spoken, /\bParker\b/);
+});
+
+test("describeSchoolDay says so once it has been ticked off", () => {
+  const special = specialOnDate(parkersSheet, THURSDAY);
+  const spoken = describeSchoolDay(parkersSheet, special, "tomorrow", {
+    memberId: "Parker",
+    date: THURSDAY,
+    packedAt: "2026-09-30T20:00:00Z",
+  });
+
+  assert.match(spoken, /Tomorrow is Library/);
+  assert.match(spoken, /already ticked off/);
+});
+
+test("describeSchoolDay doesn't invent a job for a day that has none", () => {
+  const special = specialOnDate(parkersSheet, TUESDAY);
+  const spoken = describeSchoolDay(parkersSheet, special, "today", null);
+
+  assert.match(spoken, /Today is Music/);
+  assert.match(spoken, /nothing to bring/);
+  assert.doesNotMatch(spoken, /ticked off/);
+});
+
+test("describeSchoolDay is honest about a weekday with no special at all", () => {
+  const spoken = describeSchoolDay(parkersSheet, null, "today", null);
+  assert.match(spoken, /no special on Parker's sheet/);
+});
+
+test("describeLunch reads the entree, not the whole menu", () => {
+  // Five headings deep is a voice response nobody listens to twice. The
+  // screen keeps the whole thing.
+  const spoken = describeLunch({
+    date: THURSDAY,
+    groups: [
+      { heading: "Lunch Entree", items: ["Chicken nuggets", "Dinner roll"] },
+      { heading: "Vegetables", items: ["Green beans"] },
+      { heading: "Milk", items: ["1% white", "Fat free chocolate"] },
+    ],
+  });
+
+  assert.equal(spoken, "Lunch is Chicken nuggets, Dinner roll.");
+  assert.doesNotMatch(spoken ?? "", /Green beans|chocolate/);
+});
+
+test("describeLunch says nothing at all for a day the school published nothing for", () => {
+  assert.equal(describeLunch(undefined), null);
+  assert.equal(describeLunch({ date: THURSDAY, groups: [] }), null);
+  // A heading with no items under it is not a lunch.
+  assert.equal(describeLunch({ date: THURSDAY, groups: [{ heading: "Lunch Entree", items: [] }] }), null);
+});
+
+test("GetSchoolDayIntentHandler only handles its own intent", () => {
+  assert.equal(GetSchoolDayIntentHandler.canHandle(makeHandlerInput(intentRequest("GetSchoolDayIntent"))), true);
+  assert.equal(GetSchoolDayIntentHandler.canHandle(makeHandlerInput(intentRequest("GetTasksIntent"))), false);
+});
+
+test("GetSchoolDayIntentHandler answers with the special, the job and the lunch", async () => {
+  process.env.YOUENJOYMYFAMILY_API_BASE_URL = "https://api.test";
+  process.env.YOUENJOYMYFAMILY_TIME_ZONE = "America/New_York";
+  mock.method(globalThis, "fetch", async (url: string) => {
+    if (url.includes("/school-profiles")) return new Response(JSON.stringify([parkersSheet]), { status: 200 });
+    if (url.includes("/school-prep")) return new Response(JSON.stringify([]), { status: 200 });
+    if (url.includes("/school-menu")) {
+      return new Response(
+        JSON.stringify({
+          days: [{ date: THURSDAY, groups: [{ heading: "Lunch Entree", items: ["Chicken nuggets"] }] }],
+        }),
+        { status: 200 }
+      );
+    }
+    return new Response("not found", { status: 404 });
+  });
+
+  try {
+    const handlerInput = makeHandlerInput(intentRequest("GetSchoolDayIntent"));
+    // 8am in Ohio on the Thursday. Passed in, not mocked: stubbing Date.now
+    // does not move `new Date()`, so a clock-mocked test silently runs
+    // against whatever hour it happens to be run at.
+    const response = (await answerSchoolDay(handlerInput, THURSDAY_MORNING)) as FakeResponse;
+    const spoken = speechOf(response);
+
+    assert.match(spoken, /Library/);
+    assert.match(spoken, /Library book goes back/);
+    assert.match(spoken, /Chicken nuggets/);
+  } finally {
+    delete process.env.YOUENJOYMYFAMILY_API_BASE_URL;
+    delete process.env.YOUENJOYMYFAMILY_TIME_ZONE;
+  }
+});
+
+test("GetSchoolDayIntentHandler says what to do when no sheet has been typed in", async () => {
+  process.env.YOUENJOYMYFAMILY_API_BASE_URL = "https://api.test";
+  mock.method(globalThis, "fetch", async () => new Response(JSON.stringify([]), { status: 200 }));
+
+  try {
+    const response = (await GetSchoolDayIntentHandler.handle(
+      makeHandlerInput(intentRequest("GetSchoolDayIntent"))
+    )) as FakeResponse;
+
+    assert.match(speechOf(response), /hasn't been typed in yet|family screen/i);
+  } finally {
+    delete process.env.YOUENJOYMYFAMILY_API_BASE_URL;
+  }
+});
+
+test("GetSchoolDayIntentHandler still answers when the school publishes no menu", async () => {
+  // A school with no published menu is an ordinary case, not a failure —
+  // the specials answer stands on its own.
+  process.env.YOUENJOYMYFAMILY_API_BASE_URL = "https://api.test";
+  process.env.YOUENJOYMYFAMILY_TIME_ZONE = "America/New_York";
+  mock.method(globalThis, "fetch", async (url: string) => {
+    if (url.includes("/school-profiles")) return new Response(JSON.stringify([parkersSheet]), { status: 200 });
+    if (url.includes("/school-prep")) return new Response(JSON.stringify([]), { status: 200 });
+    return new Response("no menu configured", { status: 404 });
+  });
+
+  try {
+    const response = (await answerSchoolDay(
+      makeHandlerInput(intentRequest("GetSchoolDayIntent")),
+      THURSDAY_MORNING
+    )) as FakeResponse;
+
+    assert.match(speechOf(response), /Library/);
+    assert.doesNotMatch(speechOf(response), /couldn't check/i);
+  } finally {
+    delete process.env.YOUENJOYMYFAMILY_API_BASE_URL;
+    delete process.env.YOUENJOYMYFAMILY_TIME_ZONE;
+  }
+});
+
+test("GetSchoolDayIntentHandler doesn't read three schools' lunches out loud", async () => {
+  process.env.YOUENJOYMYFAMILY_API_BASE_URL = "https://api.test";
+  process.env.YOUENJOYMYFAMILY_TIME_ZONE = "America/New_York";
+  let menuCalls = 0;
+  mock.method(globalThis, "fetch", async (url: string) => {
+    if (url.includes("/school-profiles")) {
+      return new Response(
+        JSON.stringify([parkersSheet, { ...parkersSheet, memberId: "Isla", schoolName: "Ridgeview Junior High" }]),
+        { status: 200 }
+      );
+    }
+    if (url.includes("/school-prep")) return new Response(JSON.stringify([]), { status: 200 });
+    menuCalls += 1;
+    return new Response(JSON.stringify({ days: [] }), { status: 200 });
+  });
+
+  try {
+    const response = (await answerSchoolDay(
+      makeHandlerInput(intentRequest("GetSchoolDayIntent")),
+      THURSDAY_MORNING
+    )) as FakeResponse;
+
+    assert.equal(menuCalls, 0);
+    // Both children still get their own line.
+    assert.match(speechOf(response), /Library/);
+  } finally {
+    delete process.env.YOUENJOYMYFAMILY_API_BASE_URL;
+    delete process.env.YOUENJOYMYFAMILY_TIME_ZONE;
+  }
+});
+
+test("GetSchoolDayIntentHandler says it couldn't check rather than inventing a day", async () => {
+  process.env.YOUENJOYMYFAMILY_API_BASE_URL = "https://api.test";
+  mock.method(globalThis, "fetch", async () => new Response("error", { status: 500 }));
+
+  try {
+    const response = (await GetSchoolDayIntentHandler.handle(
+      makeHandlerInput(intentRequest("GetSchoolDayIntent"))
+    )) as FakeResponse;
+
+    assert.match(speechOf(response), /couldn't check the school sheet/i);
+  } finally {
+    delete process.env.YOUENJOYMYFAMILY_API_BASE_URL;
+  }
 });

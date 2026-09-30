@@ -320,6 +320,124 @@ function renderGemCastle(
   });
 }
 
+// ---------------------------------------------------------------------------
+// School: the sheet on the fridge, asked out loud
+//
+// This is the part of the app that most wants to be a voice question. It is
+// asked with hands in a lunchbox at 07:20, or at bedtime with the lights
+// already off — the two moments when nobody is going to walk over to a
+// screen. Mirrors what schoolProfiles.ts, schoolMenu.ts and schoolPrep.ts
+// return, only the fields read here, per this repo's "no shared code across
+// subprojects" convention.
+
+interface SchoolSpecialEntry {
+  /** 0 = Sunday, matching Date.prototype.getDay. */
+  dayOfWeek: number;
+  subject: string;
+  /** What has to happen the night before, in the school's own words. */
+  prepNote: string | null;
+}
+
+interface SchoolProfileEntry {
+  memberId: string;
+  schoolName: string;
+  teacher?: string | null;
+  specials: SchoolSpecialEntry[];
+}
+
+interface SchoolPrepEntry {
+  memberId: string;
+  date: string;
+  packedAt?: string | null;
+}
+
+interface SchoolMenuGroupEntry {
+  heading: string | null;
+  items: string[];
+}
+
+interface SchoolMenuDayEntry {
+  date: string;
+  groups: SchoolMenuGroupEntry[];
+}
+
+interface SchoolMenuResponse {
+  days: SchoolMenuDayEntry[];
+}
+
+/**
+ * When the evening takes over and the question becomes tomorrow's.
+ *
+ * The same boundary the screen uses (frontend/src/lib/schoolDay.ts, itself
+ * the end of the after-school window) rather than a second cutoff invented
+ * for voice — a house has one evening, not one per surface. Ask before five
+ * and the answer is about today; ask after and it is about the bag that has
+ * to be packed tonight.
+ */
+export const SCHOOL_EVENING_BEGINS_AT_MINUTE = 17 * 60;
+
+export type SchoolHorizon = "today" | "tomorrow";
+
+export function schoolHorizon(now: Date = new Date()): { horizon: SchoolHorizon; date: string } {
+  const today = familyToday(now);
+  if (familyMinutesIntoDay(now) < SCHOOL_EVENING_BEGINS_AT_MINUTE) return { horizon: "today", date: today };
+  return { horizon: "tomorrow", date: addDaysToIsoDate(today, 1) };
+}
+
+/** The weekday of a date-only string, via UTC so no timezone shifts the day. */
+export function weekdayOfIsoDate(isoDate: string): number {
+  const [year, month, day] = isoDate.split("-");
+  return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))).getUTCDay();
+}
+
+export function specialOnDate(profile: SchoolProfileEntry, isoDate: string): SchoolSpecialEntry | null {
+  const weekday = weekdayOfIsoDate(isoDate);
+  return profile.specials.find((special) => special.dayOfWeek === weekday) ?? null;
+}
+
+/**
+ * What a school day sounds like out loud.
+ *
+ * Two rules carried over from the screen, unchanged, and they matter more
+ * here than they do there because a spoken sentence cannot be skim-read.
+ *
+ * The subject is the day and the subject — "Thursday is Library, and the
+ * book goes back" — never the child carrying the bag. And an unticked prep
+ * note means *not ticked off*, never "forgotten": nobody can see inside a
+ * schoolbag, and the book may well already be in it. Saying "Parker forgot
+ * his library book" out loud in a kitchen, on the strength of a checkbox,
+ * is the thing this app exists not to do.
+ */
+export function describeSchoolDay(
+  profile: SchoolProfileEntry,
+  special: SchoolSpecialEntry | null,
+  horizon: SchoolHorizon,
+  prep: SchoolPrepEntry | null
+): string {
+  const when = horizon === "today" ? "Today" : "Tomorrow";
+  if (!special) return `${when} has no special on ${profile.memberId}'s sheet.`;
+
+  const opening = `${when} is ${special.subject}`;
+  if (!special.prepNote) return `${opening}, and there's nothing to bring.`;
+
+  if (prep?.packedAt) return `${opening}. ${special.prepNote} — that's already ticked off.`;
+  return `${opening}. ${special.prepNote} — not ticked off yet.`;
+}
+
+/**
+ * The published lunch menu for one day, as the school grouped it.
+ *
+ * Only the first group is spoken. The full menu is five or six headings
+ * deep — entree, vegetable, fruit, milk, condiments — and a voice response
+ * that reads all of it is one nobody listens to twice. The screen keeps the
+ * whole thing; out loud, the entree is the answer to "what's for lunch".
+ */
+export function describeLunch(day: SchoolMenuDayEntry | undefined): string | null {
+  const group = day?.groups.find((candidate) => candidate.items.length);
+  if (!group) return null;
+  return `Lunch is ${group.items.join(", ")}.`;
+}
+
 async function fetchJson<T>(path: string): Promise<T> {
   if (!API_BASE_URL) throw new Error("YOUENJOYMYFAMILY_API_BASE_URL is not configured");
   const response = await fetch(`${API_BASE_URL}${path}`, { headers: authHeaders() });
@@ -695,6 +813,85 @@ export const GetPrizeProgressIntentHandler: Alexa.RequestHandler = {
   },
 };
 
+/**
+ * Exported separately from the handler so tests can stand at a particular
+ * hour — the answer is a different day before and after five, and `now` is
+ * the only way to say which. The same reason the backend exports
+ * `runCalendarSync` rather than taking an injectable in a handler's own
+ * parameter list: the Alexa SDK calls `handle(handlerInput)` and nothing
+ * else, so a second parameter there would only ever be the default.
+ *
+ * Mocking the clock instead does not work and fails quietly: `Date.now` is
+ * not what `new Date()` reads, so a test that stubs it runs against the
+ * real hour and passes or fails depending on when it is run.
+ */
+export async function answerSchoolDay(
+  handlerInput: Alexa.HandlerInput,
+  now: Date = new Date()
+): Promise<Response> {
+  {
+    try {
+      const { horizon, date } = schoolHorizon(now);
+      const profiles = await fetchJson<SchoolProfileEntry[]>(`/families/${FAMILY_ID}/school-profiles`);
+      if (!profiles.length) {
+        return handlerInput.responseBuilder
+          .speak("Nobody's school sheet has been typed in yet. You can add it on the family screen.")
+          .getResponse();
+      }
+
+      // Asked for per child rather than in one call because prep is keyed by
+      // child and date, and a family with two at different schools has two
+      // different answers to the same question.
+      const lines: string[] = [];
+      for (const profile of profiles) {
+        const special = specialOnDate(profile, date);
+        const prep = special?.prepNote
+          ? (
+              await fetchJson<SchoolPrepEntry[]>(
+                `/families/${FAMILY_ID}/school-prep?start=${date}&end=${date}`
+              )
+            ).find((entry) => entry.memberId === profile.memberId) ?? null
+          : null;
+        lines.push(describeSchoolDay(profile, special, horizon, prep));
+      }
+
+      // The lunch menu is one child's or nobody's: reading three schools'
+      // entrees out loud is not an answer to "what's for lunch".
+      let lunch: string | null = null;
+      const first = profiles[0];
+      if (profiles.length === 1 && first) {
+        try {
+          const menu = await fetchJson<SchoolMenuResponse>(
+            `/families/${FAMILY_ID}/school-menu?memberId=${encodeURIComponent(first.memberId)}&start=${date}&end=${date}`
+          );
+          lunch = describeLunch(menu.days.find((day) => day.date === date));
+        } catch {
+          // A school that publishes no menu is an ordinary case, not a
+          // failure: the specials answer above still stands on its own.
+          lunch = null;
+        }
+      }
+
+      const spoken = [...lines, ...(lunch ? [lunch] : [])];
+      renderDashboard(handlerInput, horizon === "today" ? "School today" : "School tomorrow", spoken);
+      return handlerInput.responseBuilder.speak(spoken.join(" ")).getResponse();
+    } catch (err) {
+      console.error(err);
+      return handlerInput.responseBuilder.speak("I couldn't check the school sheet right now.").getResponse();
+    }
+  }
+}
+
+export const GetSchoolDayIntentHandler: Alexa.RequestHandler = {
+  canHandle(handlerInput) {
+    return (
+      Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
+      Alexa.getIntentName(handlerInput.requestEnvelope) === "GetSchoolDayIntent"
+    );
+  },
+  handle: (handlerInput) => answerSchoolDay(handlerInput),
+};
+
 export const HelpIntentHandler: Alexa.RequestHandler = {
   canHandle(handlerInput) {
     return (
@@ -704,7 +901,7 @@ export const HelpIntentHandler: Alexa.RequestHandler = {
   },
   handle(handlerInput): Response {
     const speakOutput =
-      "You can ask what's on today's schedule, what chores are left, add a chore, say you finished a chore to battle for gems, ask how close someone is to their prize, ask how the gem castle is growing, check today's meal plan, build the grocery list from this week's meals, add something to the grocery list, or ask what's on it.";
+      "You can ask what's on today's schedule, what chores are left, add a chore, say you finished a chore to battle for gems, ask how close someone is to their prize, ask how the gem castle is growing, check today's meal plan, build the grocery list from this week's meals, add something to the grocery list, ask what's on it, or ask what's on at school and what needs to go in the bag.";
     return handlerInput.responseBuilder.speak(speakOutput).reprompt(speakOutput).getResponse();
   },
 };
@@ -751,6 +948,7 @@ export const handler = Alexa.SkillBuilders.custom()
     GetGemCastleIntentHandler,
     GetPrizeProgressIntentHandler,
     GetMealPlanIntentHandler,
+    GetSchoolDayIntentHandler,
     GenerateGroceryListIntentHandler,
     GetGroceryListIntentHandler,
     AddGroceryItemIntentHandler,

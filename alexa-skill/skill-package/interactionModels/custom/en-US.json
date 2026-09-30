@@ -156,6 +156,21 @@
             "we're out of {itemDescription}",
             "buy {itemDescription}"
           ]
+        },
+        {
+          "name": "GetSchoolDayIntent",
+          "slots": [],
+          "samples": [
+            "what's on at school",
+            "what is on at school",
+            "what's the school special",
+            "what do we need for school",
+            "what needs to go in the school bag",
+            "what's in the bag for school",
+            "about school",
+            "what's for school lunch",
+            "what's the school day"
+          ]
         }
       ]
     }
