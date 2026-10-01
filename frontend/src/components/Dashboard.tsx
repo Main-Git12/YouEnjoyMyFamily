@@ -14,6 +14,8 @@ import MealPlan from "./MealPlan";
 import { toLocalIsoDate, weekFromOffset } from "../lib/dates";
 import { knownMembers, assignableNames, childrenOnly } from "../lib/members";
 import { eveningRoom, eveningStandbys } from "../lib/eveningRoom";
+import { somethingTogether } from "../lib/roomToBreathe";
+import FreeEvening from "./FreeEvening";
 import { greeting } from "../lib/timeOfDay";
 import { buildInsights, INSIGHT_WINDOW_DAYS, type Insight } from "../lib/insights";
 import { buildAwareness } from "../lib/awareness";
@@ -782,6 +784,10 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   // know how long anything takes to cook.
   const weekRoom = eveningRoom(schedule, weekDays);
   const weekStandbys = eveningStandbys(mealPlan, schedule, today);
+  // An empty evening in the week ahead, paired with something a person in
+  // this house has said out loud that they like. Null far more often than
+  // not, and silent when it is.
+  const freeEveningIdea = somethingTogether(schedule, weekDays, today, preferences, roster.members);
   // And the far narrower list that the gem economy is actually for.
   const children = childrenOnly(roster, inferredMembers);
 
@@ -1255,10 +1261,18 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
     schedule: {
       title: "Today's schedule",
       body: (
-        <Calendar
-          entries={schedule.filter((entry) => entry.date === today)}
-          school={specialsOn(schoolProfiles, today)}
-        />
+        <>
+          <Calendar
+            entries={schedule.filter((entry) => entry.date === today)}
+            school={specialsOn(schoolProfiles, today)}
+          />
+          {/* The one line here that isn't about load. Renders nothing at all
+              unless there is both an empty evening and something somebody
+              actually said — which is most weeks. */}
+          <div className="mt-3">
+            <FreeEvening idea={freeEveningIdea} />
+          </div>
+        </>
       ),
     },
     insights: {
