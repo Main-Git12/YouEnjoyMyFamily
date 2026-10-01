@@ -12,7 +12,7 @@ import GemThreatAlert from "./GemThreatAlert";
 import PrizeGoal from "./PrizeGoal";
 import MealPlan from "./MealPlan";
 import { toLocalIsoDate, weekFromOffset } from "../lib/dates";
-import { knownMembers } from "../lib/members";
+import { knownMembers, assignableNames, childrenOnly } from "../lib/members";
 import { greeting } from "../lib/timeOfDay";
 import { buildInsights, INSIGHT_WINDOW_DAYS, type Insight } from "../lib/insights";
 import { buildAwareness } from "../lib/awareness";
@@ -771,7 +771,12 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
 
   // Gathered from what the family has already entered, not a registry of
   // children the app keeps on its own.
-  const members = knownMembers({ tasks, completions, goals: rewardGoals, balances: gemBalances });
+  const inferredMembers = knownMembers({ tasks, completions, goals: rewardGoals, balances: gemBalances });
+  // Anyone a job can be handed to — adults included, since adults own most
+  // of them. The roster's spelling wins over a name typed onto a chore.
+  const members = assignableNames(roster, inferredMembers);
+  // And the far narrower list that the gem economy is actually for.
+  const children = childrenOnly(roster, inferredMembers);
 
   const choresLeftToday = tasks.filter((task) => task.status !== "done").length;
 
@@ -1221,9 +1226,9 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
               a label saying whose it is, and making every one of those a
               button turns ticking a chore into a game of hitting the
               right half of a row. */}
-          {members.length > 0 && (
+          {children.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-olive-100">
-              {members.map((name) => (
+              {children.map((name) => (
                 <button
                   key={name}
                   type="button"

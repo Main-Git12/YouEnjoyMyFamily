@@ -297,6 +297,31 @@ describe("Dashboard", () => {
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 
+  it("doesn't offer an adult a way into the children's gem screen", async () => {
+    // The roster's one job. Before it existed, every name on a chore got a
+    // chip through to gems, a prize and a castle — including a grandmother's.
+    vi.mocked(api.getHousehold).mockResolvedValue({
+      members: [
+        { memberId: "sheliah", displayName: "Sheliah", role: "adult", note: null },
+        { memberId: "parker", displayName: "Parker", role: "child", note: null },
+      ],
+      jobs: [],
+    });
+    vi.mocked(api.listTasks).mockResolvedValue([
+      { taskId: "t1", title: "The school run", assignedTo: "Sheliah", dueDate: null, gemValue: 0, dueWindow: "morning", date: "2026-09-23", recurrence: "weekdays", completedOn: null, status: "pending", gemsAwarded: 0, createdAt: "2020-01-01T00:00:00.000Z" },
+      { taskId: "t2", title: "Feed the cat", assignedTo: "Parker", dueDate: null, gemValue: 5, dueWindow: "morning", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0, createdAt: "2020-01-01T00:00:00.000Z" },
+    ]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+
+    render(<Dashboard />);
+
+    await waitFor(() => expect(screen.getByLabelText("Parker's gems and chores")).toBeInTheDocument());
+    expect(screen.queryByLabelText("Sheliah's gems and chores")).not.toBeInTheDocument();
+    // She is still on the chore, and still shown against it.
+    expect(screen.getAllByText("The school run").length).toBeGreaterThan(0);
+  });
+
   it("adds a chore from the library with the gem value the family already uses", async () => {
     vi.mocked(api.listTasks).mockResolvedValue([]);
     vi.mocked(api.listSchedules).mockResolvedValue([]);
