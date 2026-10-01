@@ -5,11 +5,11 @@
         "en-US": {
           "name": "YouEnjoyMyFamily",
           "summary": "Family tasks, schedule, and grocery cart, hands-free.",
-          "description": "YouEnjoyMyFamily brings your family's tasks, schedule, and grocery cart to your Echo Show. Ask what's on today's schedule, add a task, or check the grocery cart — with a calm, olive-toned visual card on screen.",
+          "description": "YouEnjoyMyFamily brings your family's chores, schedule, school sheet and grocery cart to your Echo Show. Say \"Alexa, open You Enjoy My Family\" and the full family screen opens on the device \u2014 no browser, no bookmark. You can also just ask: what's on today's schedule, what's on at school, what chores are left, or add something to the list.",
           "examplePhrases": [
             "Alexa, open You Enjoy My Family",
-            "Alexa, ask You Enjoy My Family what's on today's schedule",
-            "Alexa, tell You Enjoy My Family to add pack soccer bag to the tasks"
+            "Alexa, ask You Enjoy My Family what's on at school",
+            "Alexa, ask You Enjoy My Family what chores are left"
           ]
         }
       }
@@ -20,7 +20,12 @@
           "sourceDir": "lambda"
         },
         "interfaces": [
-          { "type": "ALEXA_PRESENTATION_APL" }
+          {
+            "type": "ALEXA_PRESENTATION_APL"
+          },
+          {
+            "type": "ALEXA_PRESENTATION_HTML"
+          }
         ]
       }
     },

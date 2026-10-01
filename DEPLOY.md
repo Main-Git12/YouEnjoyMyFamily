@@ -201,6 +201,10 @@ display — "what's on at school", "what's left on the list" — that is
 what the Alexa skill in step 7 is for, and on that device it is the more
 reliable of the two.
 
+**There is a second route, and it is better — read step 7a before
+settling for the bookmark.** The skill can put this exact app on the
+screen by voice, with no browser and no bookmark at all.
+
 Every screen re-reads the family's data every 30 seconds and whenever it
 becomes visible, so an edit on a phone shows up in the kitchen without
 anyone reloading.
@@ -279,6 +283,95 @@ pinned to the home screen.
 
 ---
 
+## 7a. The family screen, opened by voice (optional, read the caveat)
+
+Amazon has an interface — `Alexa.Presentation.HTML` — that lets a skill
+hand the device a URL and have the device run it full-screen inside the
+skill session. With it, **"Alexa, open You Enjoy My Family"** puts this
+app on the kitchen wall. No Silk, no bookmark, no four-tap ritual.
+
+### The caveat, first
+
+Amazon's own documentation says this, verbatim:
+
+> Your HTML app must be a game. Other types of apps can't use the Alexa
+> Web API for Games.
+
+That is a flat statement about app type, not only a certification note.
+In practice:
+
+- **On your own Echo Show it will almost certainly work.** Amazon's
+  documented requirements for using the interface are exactly two —
+  declare `ALEXA_PRESENTATION_HTML` in the manifest, and host the app on
+  HTTPS with a valid certificate. Publication status, skill stage and
+  certification are never mentioned as gates, and the docs assume you run
+  the thing on a real device while developing it. Nothing checks at
+  runtime whether a web app is a game. But Amazon does not state in
+  writing that a development-stage skill may use it, so this is inference
+  from what the documentation requires, not a promise it makes.
+- **It would fail certification** if you ever submitted the skill to the
+  public skill store. You have no reason to — this is one household.
+- **Amazon could change it.** You are using the interface outside its
+  stated purpose, so treat it as a convenience that might stop working,
+  not as the foundation. The Silk route in step 5 still works and is the
+  fallback.
+
+Decide that for yourself. The feature is **off until you set a URL**, so
+nothing here is enabled by accident.
+
+### Turning it on
+
+Set these on the skill's Lambda, alongside the variables in step 7:
+
+| Variable | Value |
+|---|---|
+| `YOUENJOYMYFAMILY_WEB_APP_URL` | the same `<FrontendUrl>` from step 4 |
+| `YOUENJOYMYFAMILY_WEB_APP_AUTOLINK` | `true` to hand the screen its key automatically (see below) |
+
+Then redeploy the skill (`ask deploy`) — the manifest change that
+declares the interface ships with it.
+
+### About `AUTOLINK`
+
+The Alexa runtime **disables browser local storage** and wipes cookies at
+the end of every skill session. There is no persistence on the device at
+all, which means the usual "type the key once and it remembers" does not
+work there — the screen would ask again every single time.
+
+With `YOUENJOYMYFAMILY_WEB_APP_AUTOLINK=true` the skill passes the family
+id *and* the API key to the page at launch, and the screen is ready to
+use immediately. Without it, only the family id is passed and the screen
+still asks for the key — every session, which in practice means the
+feature is not usable.
+
+So the honest trade: **leave it off and this is a demo; turn it on and
+it is a wall display.** Turning it on means the key travels from the
+Lambda through Amazon's service to the device, which is one hop more than
+a person typing it into that same device. It is your key and your
+household — but it is a credential, so the app will not send it unless
+you say so, and `true` is the only value that counts.
+
+If the key ever needs cutting off, that is Setup → This family's key on
+any linked screen (step 5).
+
+### What to expect on the device
+
+- **It times out.** Amazon caps the no-interaction lifetime at five
+  minutes, and the skill asks for the maximum. The screen then goes back
+  to Alexa's home view and somebody says "Alexa, open You Enjoy My
+  Family" again. This is **not** an always-on display — nothing available
+  on an Echo Show is.
+- **Asking the skill a question while the screen is up is fine.** It
+  answers out loud and leaves the screen alone. (Any non-HTML directive
+  would close the web app, so the skill deliberately stops drawing its
+  APL cards while the app is on screen.)
+- **"Alexa, exit" or "Alexa, go home" closes it**, as does the skill
+  ending the session.
+- Everything must be HTTPS with a valid certificate — the page, and
+  every image, font and API call it makes. Mixed content simply fails.
+
+---
+
 ## Later deploys
 
 ```bash
@@ -316,7 +409,10 @@ Expect low single-digit dollars a month. Set a billing alarm anyway.
 | `AccessDenied` in a Lambda log | A handler lost its DynamoDB policy; `npm run verify:template` names it |
 | The app loads but is stuck "Loading your family's day" | `VITE_API_BASE_URL` was wrong at build time — it's baked in, so rebuild |
 | Old version keeps loading | The CloudFront invalidation hasn't finished, or `index.html` was cached |
-| The Echo Show has gone back to Alexa's home view | Silk closed itself after a spell of idle. Say "Alexa, open Silk" and pick the bookmark; Amazon offers no setting to stop this |
+| The Echo Show has gone back to Alexa's home view | Silk closed itself after a spell of idle. Say "Alexa, open Silk" and pick the bookmark; Amazon offers no setting to stop this. On the voice route (step 7a) the cap is five minutes and the fix is to say the invocation name again |
+| "Alexa, open You Enjoy My Family" talks but shows nothing | `YOUENJOYMYFAMILY_WEB_APP_URL` isn't set on the skill's Lambda, or the device isn't an Echo Show |
+| The voice-opened screen keeps asking for the family key | `YOUENJOYMYFAMILY_WEB_APP_AUTOLINK` isn't `true`. Alexa's runtime has no storage, so without it the screen cannot remember anything between sessions |
+| "I couldn't reach the family screen" | The skill got an HTTP error loading `YOUENJOYMYFAMILY_WEB_APP_URL` — wrong address, or the certificate isn't valid |
 | "Keep screen on" does nothing | The browser only grants a wake lock over HTTPS, and how much of it Silk honours is untested on a real device |
 | The morning plan says "your estimate" everywhere | Normal for the first fortnight — every learned duration comes from your own finished runs, and it says so rather than guessing |
 | Nothing appears from Google Calendar | Expected: the sync runs but there is no way to connect a calendar yet (step 0) |

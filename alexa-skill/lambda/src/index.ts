@@ -1,5 +1,15 @@
 import * as Alexa from "ask-sdk-core";
 import type { Response } from "ask-sdk-model";
+import {
+  supportsWebApp,
+  webAppSettings,
+  startWebAppDirective,
+  speechForWebAppMessage,
+  explainRuntimeError,
+  markWebAppRunning,
+  webAppIsOnScreen,
+  type WebAppMessage,
+} from "./webApp";
 
 // JSON lives outside tsconfig's rootDir, so a TS `import` would fail; require() sidesteps that.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -286,6 +296,11 @@ function supportsApl(handlerInput: Alexa.HandlerInput): boolean {
 
 function renderDashboard(handlerInput: Alexa.HandlerInput, heading: string, items: string[]): void {
   if (!supportsApl(handlerInput)) return;
+  // Amazon's rule: any directive from an interface other than
+  // Alexa.Presentation.HTML closes a running web app. Drawing a summary card
+  // over the top of the live family screen would be a strictly worse answer
+  // to every question — the screen already shows all of this, in full.
+  if (webAppIsOnScreen(handlerInput)) return;
 
   handlerInput.responseBuilder.addDirective({
     type: "Alexa.Presentation.APL.RenderDocument",
@@ -296,6 +311,7 @@ function renderDashboard(handlerInput: Alexa.HandlerInput, heading: string, item
 
 function renderChoreBattle(handlerInput: Alexa.HandlerInput, memberName: string, taskTitle: string, gems: number): void {
   if (!supportsApl(handlerInput)) return;
+  if (webAppIsOnScreen(handlerInput)) return;
 
   handlerInput.responseBuilder.addDirective({
     type: "Alexa.Presentation.APL.RenderDocument",
@@ -312,6 +328,7 @@ function renderGemCastle(
   progressLabel: string
 ): void {
   if (!supportsApl(handlerInput)) return;
+  if (webAppIsOnScreen(handlerInput)) return;
 
   handlerInput.responseBuilder.addDirective({
     type: "Alexa.Presentation.APL.RenderDocument",
@@ -445,14 +462,76 @@ async function fetchJson<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+/**
+ * Opening the skill. On a screen that can run one, this puts the actual app
+ * on the wall rather than a card describing it.
+ *
+ * The three cases are genuinely different and are kept apart rather than
+ * collapsed into one message. A device that can run the web app gets it. A
+ * device with a screen but no web runtime gets the APL card, as before. A
+ * device with no screen at all gets words, which is all it can use.
+ */
 export const LaunchRequestHandler: Alexa.RequestHandler = {
   canHandle(handlerInput) {
     return Alexa.getRequestType(handlerInput.requestEnvelope) === "LaunchRequest";
   },
   handle(handlerInput): Response {
+    const settings = webAppSettings();
+
+    if (settings.url && supportsWebApp(handlerInput)) {
+      handlerInput.responseBuilder.addDirective(startWebAppDirective(settings));
+      markWebAppRunning(handlerInput);
+      // No reprompt, and shouldEndSession deliberately left unset. Amazon
+      // distinguishes the two: `false` speaks and then opens the microphone
+      // for a few seconds, `undefined` speaks without opening it, and both
+      // keep the session (and so the web app) alive. A kitchen wall is
+      // looked at, not answered, so opening the mic only buys a "sorry, I
+      // didn't catch that" a few seconds later. Setting it `true` would
+      // close the web app outright.
+      return handlerInput.responseBuilder.speak("Here's your family screen.").getResponse();
+    }
+
     const speakOutput = "Welcome to You Enjoy My Family. You can ask what's on today's schedule, or what the tasks are.";
     renderDashboard(handlerInput, "YouEnjoyMyFamily", ["Ask me about today's schedule or tasks"]);
     return handlerInput.responseBuilder.speak(speakOutput).reprompt(speakOutput).getResponse();
+  },
+};
+
+/**
+ * The web app talking back.
+ *
+ * Only ever answers the small set of messages `speechForWebAppMessage`
+ * recognises. Anything else is ignored silently rather than echoed: a
+ * channel where any string from a browser becomes Alexa's voice in somebody's
+ * kitchen is fine right up until it isn't.
+ */
+export const WebAppMessageHandler: Alexa.RequestHandler = {
+  canHandle(handlerInput) {
+    return Alexa.getRequestType(handlerInput.requestEnvelope) === "Alexa.Presentation.HTML.Message";
+  },
+  handle(handlerInput): Response {
+    const request = handlerInput.requestEnvelope.request as { message?: WebAppMessage };
+    const speech = speechForWebAppMessage(request.message);
+    if (!speech) return handlerInput.responseBuilder.getResponse();
+    return handlerInput.responseBuilder.speak(speech).getResponse();
+  },
+};
+
+/**
+ * The web app failing to start.
+ *
+ * Says which of the four things went wrong, because they have four different
+ * fixes and "I couldn't open the family screen" sends somebody to the wrong
+ * one most of the time.
+ */
+export const WebAppRuntimeErrorHandler: Alexa.RequestHandler = {
+  canHandle(handlerInput) {
+    return Alexa.getRequestType(handlerInput.requestEnvelope) === "Alexa.Presentation.HTML.RuntimeError";
+  },
+  handle(handlerInput): Response {
+    const request = handlerInput.requestEnvelope.request as { reason?: string; message?: string };
+    console.error("web app runtime error", { reason: request.reason, message: request.message });
+    return handlerInput.responseBuilder.speak(explainRuntimeError(request.reason)).getResponse();
   },
 };
 
@@ -941,6 +1020,8 @@ export const ErrorHandler: Alexa.ErrorHandler = {
 export const handler = Alexa.SkillBuilders.custom()
   .addRequestHandlers(
     LaunchRequestHandler,
+    WebAppMessageHandler,
+    WebAppRuntimeErrorHandler,
     GetScheduleIntentHandler,
     GetTasksIntentHandler,
     AddTaskIntentHandler,

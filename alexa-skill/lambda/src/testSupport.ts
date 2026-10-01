@@ -57,7 +57,20 @@ export function makeHandlerInput(
   request: IntentRequest | { type: "LaunchRequest" } | { type: "SessionEndedRequest" },
   { supportsApl = false }: { supportsApl?: boolean } = {}
 ): Alexa.HandlerInput {
+  // A real attributesManager, not a stub that returns undefined: session
+  // attributes are how the skill knows its own web app is on the screen, and
+  // a fake that forgets them would let every APL test pass while the live
+  // skill tore the family screen down on the next question.
+  let sessionAttributes: Record<string, unknown> = {};
+  const attributesManager = {
+    getSessionAttributes: () => sessionAttributes,
+    setSessionAttributes: (next: Record<string, unknown>) => {
+      sessionAttributes = next;
+    },
+  };
+
   const fake = {
+    attributesManager,
     requestEnvelope: {
       version: "1.0",
       request,
