@@ -29,6 +29,23 @@ export const ALEXA_CLIENT_LIBRARY = "https://cdn.html.games.alexa.a2z.com/alexa-
 /** The runtime version this app is written against, as a string — not a number. */
 export const ALEXA_CLIENT_VERSION = "1.1";
 
+/**
+ * How long the whole handover gets before the screen stops waiting.
+ *
+ * Nothing in this exchange is under our control: a script fetched from
+ * Amazon's CDN, and a promise resolved by a runtime we cannot see. Both can
+ * simply never settle — a script tag whose onload and onerror both go
+ * missing when the network black-holes, a `create()` that hangs. Without a
+ * bound, the screen sits on "Opening your family screen…" until somebody
+ * power-cycles the device, which on a wall is indistinguishable from the app
+ * being broken.
+ *
+ * Eight seconds: long enough for a cold CDN fetch on a device that is not
+ * fast, short enough that a family watching the wall sees it give up and
+ * offer them something to do.
+ */
+export const ALEXA_HANDSHAKE_TIMEOUT_MS = 8000;
+
 /** What the skill puts in the Start directive's `data`. See alexa-skill/lambda/src/webApp.ts. */
 export interface AlexaStartupData {
   familyId?: string;
@@ -76,6 +93,45 @@ export interface LinkFromAlexaOptions {
   getClient?: () => AlexaClient | undefined;
   onLink?: (familyId: string, apiKey: string) => void;
   onFamilyId?: (familyId: string) => void;
+  timeoutMs?: number;
+}
+
+/**
+ * Resolves to "unavailable" if `work` has not settled in time. Never rejects.
+ *
+ * `start` is called with an "is this still wanted?" predicate rather than
+ * being raced directly, because a promise cannot be cancelled. The handover
+ * keeps running after the deadline — nothing can stop it — so the thing that
+ * has to stop is its *effect*: a late answer must not reach in and link the
+ * screen once the app has already given up and gone back to asking. Without
+ * that, the family sees a form while the device is quietly already linked,
+ * and typing a different family's key into it becomes a race.
+ */
+function withDeadline(
+  start: (stillWanted: () => boolean) => Promise<AlexaLinkOutcome>,
+  timeoutMs: number
+): Promise<AlexaLinkOutcome> {
+  return new Promise((resolve) => {
+    // Resolving a promise twice is already a no-op, so this flag is not
+    // guarding the resolution — it exists solely to answer `stillWanted`,
+    // which is the thing that actually has to change behaviour.
+    let settled = false;
+    const finish = (outcome: AlexaLinkOutcome) => {
+      settled = true;
+      resolve(outcome);
+    };
+
+    const timer = setTimeout(() => finish("unavailable"), timeoutMs);
+    void start(() => !settled)
+      .then((outcome) => {
+        clearTimeout(timer);
+        finish(outcome);
+      })
+      .catch(() => {
+        clearTimeout(timer);
+        finish("unavailable");
+      });
+  });
 }
 
 /**
@@ -93,28 +149,37 @@ export async function linkFromAlexa(options: LinkFromAlexaOptions = {}): Promise
     getClient = () => (window as unknown as { Alexa?: AlexaClient }).Alexa,
     onLink = linkDevice,
     onFamilyId = rememberFamilyId,
+    timeoutMs = ALEXA_HANDSHAKE_TIMEOUT_MS,
   } = options;
 
   if (!isAlexaSurface()) return "unavailable";
 
-  try {
-    if (!getClient()) await load(ALEXA_CLIENT_LIBRARY);
-    const client = getClient();
-    if (!client) return "unavailable";
+  return withDeadline(handshake, timeoutMs);
 
-    const { message } = await client.create({ version: ALEXA_CLIENT_VERSION });
-    const familyId = message?.familyId?.trim();
-    if (!familyId) return "unavailable";
+  async function handshake(stillWanted: () => boolean): Promise<AlexaLinkOutcome> {
+    try {
+      if (!getClient()) await load(ALEXA_CLIENT_LIBRARY);
+      const client = getClient();
+      if (!client) return "unavailable";
 
-    const apiKey = message?.apiKey?.trim();
-    if (apiKey) {
-      onLink(familyId, apiKey);
-      return "linked";
+      const { message } = await client.create({ version: ALEXA_CLIENT_VERSION });
+      // Checked here rather than only at the top: everything above this line
+      // is awaited, so the deadline may well have passed while we waited.
+      if (!stillWanted()) return "unavailable";
+
+      const familyId = message?.familyId?.trim();
+      if (!familyId) return "unavailable";
+
+      const apiKey = message?.apiKey?.trim();
+      if (apiKey) {
+        onLink(familyId, apiKey);
+        return "linked";
+      }
+
+      onFamilyId(familyId);
+      return "partial";
+    } catch {
+      return "unavailable";
     }
-
-    onFamilyId(familyId);
-    return "partial";
-  } catch {
-    return "unavailable";
   }
 }

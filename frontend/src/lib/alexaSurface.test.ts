@@ -151,3 +151,74 @@ describe("linkFromAlexa", () => {
     expect(ALEXA_CLIENT_LIBRARY).toContain("alexa-html.js");
   });
 });
+
+describe("when the handover never finishes", () => {
+  const onEchoShow = () => window.history.replaceState({}, "", "/?surface=echo-show");
+
+  it("gives up rather than leaving the screen waiting forever", async () => {
+    // Nothing in this exchange is ours: a script from Amazon's CDN and a
+    // promise resolved by a runtime we can't see. Either can simply never
+    // settle, and a wall screen stuck on "Opening your family screen…" is
+    // indistinguishable from a broken app.
+    onEchoShow();
+
+    const outcome = await linkFromAlexa({
+      load: async () => {},
+      getClient: () => ({ create: () => new Promise(() => {}) }),
+      timeoutMs: 20,
+    });
+
+    expect(outcome).toBe("unavailable");
+  });
+
+  it("gives up when the library itself never loads", async () => {
+    onEchoShow();
+
+    const outcome = await linkFromAlexa({
+      load: () => new Promise(() => {}),
+      getClient: () => undefined,
+      timeoutMs: 20,
+    });
+
+    expect(outcome).toBe("unavailable");
+  });
+
+  it("doesn't link a screen on a handover that arrives after the deadline", async () => {
+    // The late answer must not reach in and link the device behind the
+    // screen's back once it has already moved on.
+    onEchoShow();
+    const onLink = vi.fn();
+    let settle: (value: { message: AlexaStartupData }) => void = () => {};
+
+    const outcome = await linkFromAlexa({
+      load: async () => {},
+      getClient: () => ({ create: () => new Promise((resolve) => (settle = resolve)) }),
+      onLink,
+      timeoutMs: 20,
+    });
+    expect(outcome).toBe("unavailable");
+
+    settle({ message: { familyId: "fam_late", apiKey: "fk_late" } });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    expect(onLink).not.toHaveBeenCalled();
+  });
+
+  it("still answers in time when the handover is merely slow", async () => {
+    onEchoShow();
+
+    const outcome = await linkFromAlexa({
+      load: async () => {},
+      getClient: () => ({
+        create: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          return { message: { familyId: "fam_1", apiKey: "fk" } };
+        },
+      }),
+      onLink: vi.fn(),
+      timeoutMs: 200,
+    });
+
+    expect(outcome).toBe("linked");
+  });
+});
