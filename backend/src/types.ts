@@ -837,3 +837,107 @@ export interface WeatherHourItem {
   weather: import("./lib/weather").WeatherAt | null;
   fetchedAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// The household: who is in it, and who carries what
+//
+// Two entities that exist for one reason. A house where three generations
+// live is not a bigger version of a house with two parents and a child, and
+// the app was quietly assuming it was: there was no roster at all, and the
+// only way to put a grandmother into it was to type her name onto a chore,
+// which handed her a gem balance, a prize goal and a place in a children's
+// game. That is not an oversight to paper over with a flag — it is the
+// difference between an app that includes someone and one that miscasts
+// them.
+
+export const HOUSEHOLD_ROLES = ["adult", "child"] as const;
+export type HouseholdRole = (typeof HOUSEHOLD_ROLES)[number];
+
+export const HouseholdMemberInput = z.object({
+  /** What the family calls them. Shown everywhere; never normalised away. */
+  displayName: z.string().min(1).max(60),
+  role: z.enum(HOUSEHOLD_ROLES),
+  /**
+   * Anything the family wants on the record — "picks Parker up on Tuesdays",
+   * "Wednesday is her bridge night". Free text on purpose: the app has no
+   * business offering a dropdown of what an older relative might be.
+   */
+  note: z.string().max(240).nullable().optional(),
+});
+export type HouseholdMemberInput = z.infer<typeof HouseholdMemberInput>;
+
+/**
+ * One person in the house.
+ *
+ * `role` decides one thing only, and decides it everywhere: gems, prizes,
+ * the castle and the monster game are a children's motivation system, and an
+ * adult is not in it. An adult can own as many chores as anyone — more,
+ * usually — and none of them pay.
+ */
+export interface HouseholdMemberItem {
+  PK: string;
+  SK: string;
+  entityType: "HOUSEHOLD_MEMBER";
+  familyId: string;
+  memberId: string;
+  displayName: string;
+  role: HouseholdRole;
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Who is responsible for a standing job — not a chore ticked off on a day,
+ * but one of the ongoing things that keep a house running.
+ *
+ * This exists because of the single most useful finding about household
+ * labour: the heavy half is not the doing, it is the *noticing and
+ * arranging* — realising the prescription is nearly out, that the form is
+ * due Friday, that somebody has to be at the school at two. It is invisible
+ * precisely because it leaves no trace when it goes right, and the people
+ * carrying it are reliably undercounted by everyone including themselves.
+ *
+ * The honest response is not to try to measure it. On a screen in a kitchen
+ * that nobody logs in to, the app cannot tell who typed what, and inventing
+ * a number for something this charged would be worse than silence. What the
+ * app can do is what the research actually recommends: put the whole list
+ * where everyone can see it, say out loud which jobs nobody has taken, and
+ * let the family decide rather than default.
+ *
+ * So nothing here is inferred. Every row was typed in by somebody, and the
+ * app's only contribution is to keep the list visible and to count it.
+ */
+export const JOB_KINDS = ["doing", "arranging"] as const;
+export type JobKind = (typeof JOB_KINDS)[number];
+
+export const HouseholdJobInput = z.object({
+  title: z.string().min(1).max(120),
+  /**
+   * "doing" is work that is visible when it happens — cooking, driving,
+   * laundry. "arranging" is the work that is only visible when it *doesn't*
+   * happen: booking, remembering, noticing, chasing. Kept apart because a
+   * roster that looks even on the doing can be badly lopsided on the
+   * arranging, and that is the split families report as the one that
+   * actually causes resentment.
+   */
+  kind: z.enum(JOB_KINDS),
+  /** Null means nobody has taken it — which is a thing worth saying out loud. */
+  ownerId: z.string().min(1).max(60).nullable().optional(),
+  note: z.string().max(240).nullable().optional(),
+});
+export type HouseholdJobInput = z.infer<typeof HouseholdJobInput>;
+
+export interface HouseholdJobItem {
+  PK: string;
+  SK: string;
+  entityType: "HOUSEHOLD_JOB";
+  familyId: string;
+  jobId: string;
+  title: string;
+  kind: JobKind;
+  ownerId: string | null;
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+}

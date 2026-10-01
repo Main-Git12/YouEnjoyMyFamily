@@ -301,3 +301,48 @@ export interface WeatherReading {
   fetchedAt: string | null;
   label: string | null;
 }
+
+// --- The household: who is in it, and who carries what ---------------------
+
+export type HouseholdRole = "adult" | "child";
+
+/**
+ * One person in the house.
+ *
+ * `role` decides exactly one thing and decides it everywhere: gems, prizes,
+ * the castle and the monster game are a children's motivation system, and an
+ * adult is not in it. An adult can own any number of chores; none of them
+ * pay. Before this existed the only way to add a grandparent was to type her
+ * name onto a chore, which handed her a gem balance and a place in a game
+ * built for a seven-year-old.
+ */
+export interface HouseholdMember {
+  memberId: string;
+  displayName: string;
+  role: HouseholdRole;
+  note: string | null;
+}
+
+/**
+ * "doing" is work that is visible while it happens — cooking, driving,
+ * laundry. "arranging" is work that is only visible when it *doesn't*
+ * happen: booking, remembering, noticing, chasing. They are kept apart
+ * because a roster that looks even on the doing is often badly lopsided on
+ * the arranging, and that is the half families report as the one that
+ * actually causes resentment.
+ */
+export type JobKind = "doing" | "arranging";
+
+export interface HouseholdJob {
+  jobId: string;
+  title: string;
+  kind: JobKind;
+  /** Null means nobody has taken it — which is worth saying out loud. */
+  ownerId: string | null;
+  note: string | null;
+}
+
+export interface Household {
+  members: HouseholdMember[];
+  jobs: HouseholdJob[];
+}

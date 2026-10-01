@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, ApiError } from "../lib/api";
-import type { Task, TaskCompletion, ScheduleEntry, StatedPreference, StatedPreferenceCategory, MealPlanEntry, MealSlot, CartItem, RewardGoal, GemBalance, DueWindow, Routine, RoutineRun, RoutineStep, FocusBlock, SchoolProfile, SchoolMenu, SchoolPrep } from "../types";
+import type { Task, TaskCompletion, ScheduleEntry, StatedPreference, StatedPreferenceCategory, MealPlanEntry, MealSlot, CartItem, RewardGoal, GemBalance, DueWindow, Routine, RoutineRun, RoutineStep, FocusBlock, SchoolProfile, SchoolMenu, SchoolPrep, Household as Roster } from "../types";
 import { chooseThreatenedChore, type ThreatenedChore } from "../lib/gemThreats";
 import FamilyCard from "./FamilyCard";
 import TaskList from "./TaskList";
@@ -30,6 +30,7 @@ import SchoolSetup from "./SchoolSetup";
 import TomorrowBriefing from "./TomorrowBriefing";
 import HouseholdLocation from "./HouseholdLocation";
 import ReplaceKey from "./ReplaceKey";
+import TheHousehold from "./TheHousehold";
 import { buildTomorrow } from "../lib/tomorrow";
 import { createKeepAwake, type KeepAwakeStatus } from "../lib/keepAwake";
 import type { WeatherReading, HouseholdLocation as Location } from "../types";
@@ -163,6 +164,12 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   const [clock, setClock] = useState(() => new Date());
   const [focusBlocks, setFocusBlocks] = useState<FocusBlock[]>([]);
   const [schoolProfiles, setSchoolProfiles] = useState<SchoolProfile[]>([]);
+  /**
+   * Who is in the house and who carries what. Named `roster` rather than
+   * `household` because `household` is already the location on this screen,
+   * and two different things under one name is how a bug gets written.
+   */
+  const [roster, setRoster] = useState<Roster>({ members: [], jobs: [] });
   /** Keyed by memberId. A child whose school publishes no menu isn't in here. */
   const [schoolMenus, setSchoolMenus] = useState<Record<string, SchoolMenu>>({});
   /** What the school asked for and somebody has said is done. */
@@ -402,6 +409,12 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
       .getFamilySettings(familyId)
       .then((settings) => {
         if (!superseded) setHousehold(settings.location);
+      })
+      .catch(() => undefined);
+    void api
+      .getHousehold(familyId)
+      .then((loaded) => {
+        if (!superseded) setRoster(loaded);
       })
       .catch(() => undefined);
     void fetchSchool()
@@ -1403,6 +1416,33 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
           <section>
             <h3 className="font-display text-lg text-olive-800 mb-2">The specials sheet</h3>
             <SchoolSetup members={members} profiles={schoolProfiles} onSave={handleSaveSchoolProfile} />
+          </section>
+          <section>
+            <TheHousehold
+              household={roster}
+              onSaveMember={async (memberId, member) => {
+                const saved = await guardedWrite(() => api.saveHouseholdMember(familyId, memberId, member));
+                setRoster((prev) => ({
+                  ...prev,
+                  members: [...prev.members.filter((row) => row.memberId !== saved.memberId), saved],
+                }));
+              }}
+              onRemoveMember={async (memberId) => {
+                await guardedWrite(() => api.removeHouseholdMember(familyId, memberId));
+                setRoster((prev) => ({ ...prev, members: prev.members.filter((row) => row.memberId !== memberId) }));
+              }}
+              onSaveJob={async (jobId, job) => {
+                const saved = await guardedWrite(() => api.saveHouseholdJob(familyId, jobId, job));
+                setRoster((prev) => ({
+                  ...prev,
+                  jobs: [...prev.jobs.filter((row) => row.jobId !== saved.jobId), saved],
+                }));
+              }}
+              onRemoveJob={async (jobId) => {
+                await guardedWrite(() => api.removeHouseholdJob(familyId, jobId));
+                setRoster((prev) => ({ ...prev, jobs: prev.jobs.filter((row) => row.jobId !== jobId) }));
+              }}
+            />
           </section>
           <section>
             <h3 className="font-display text-lg text-olive-800 mb-2">This family's key</h3>

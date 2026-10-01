@@ -9,7 +9,8 @@ items returned from a `Query` without a second read.
 | Entity            | PK                    | SK                          | GSI1PK                | GSI1SK                    |
 |--------------------|-----------------------|-----------------------------|------------------------|----------------------------|
 | Family             | `FAMILY#<familyId>`   | `METADATA`                  | —                       | —                          |
-| Family member      | `FAMILY#<familyId>`   | `MEMBER#<memberId>`         | `MEMBER#<memberId>`    | `FAMILY#<familyId>`        |
+| Household member   | `FAMILY#<familyId>`   | `MEMBER#<memberId>`         | —                       | —                          |
+| Standing job        | `FAMILY#<familyId>`   | `HOUSEJOB#<jobId>`          | —                       | —                          |
 | Member preferences | `FAMILY#<familyId>`   | `PREFS#<memberId>`          | —                       | —                          |
 | Stated preference  | `FAMILY#<familyId>`   | `STATEDPREF#<memberId>#<id>`| —                       | —                          |
 | Task (definition)  | `FAMILY#<familyId>`   | `TASK#<taskId>`             | `TASK#<taskId>`        | `DUE#<isoDate>`            |
@@ -119,6 +120,13 @@ matches every key starting with those seven letters; `begins_with(SK,
 "ROUTINE#")` matches only keys with the separator there. Listing a family's
 three routines with the bare prefix would return all of them plus every
 morning since the app was installed. Query a prefix with its separator.
+
+The household rows follow the same rule by construction. They are `MEMBER#`
+and `HOUSEJOB#`, deliberately not `HOUSEHOLD#` and `HOUSEHOLDJOB#`: the
+obvious pairing would again put one prefix one character from matching the
+other, and two prefixes that share no leading run of letters cannot collide
+however the query is written. There is a test asserting it against the key
+builders rather than against this paragraph.
 
 Nothing about a routine is inferred. The steps, their order, the expected
 minutes and the deadline are all typed in by a parent. The only thing the
@@ -269,6 +277,25 @@ for something that does not exist yet.
 > the highest code point, so appending it puts the bound above every real
 > key for that date. The handlers do this; a new range query that forgets
 > it will look correct in every test that doesn't ask for the final day.
+
+> **On the household rows.** This table carried a `Family member` row with a
+> GSI long before anything wrote one — a planned entity that was never built,
+> which is why the only way to put a person into the app was to type their
+> name onto a chore. That is now implemented, at the sort key this table
+> already specified rather than at a parallel one. The GSI is dropped: it
+> would have found a member across families, and this is one deployment per
+> household, so it would have been an index with nothing to answer.
+>
+> `role` (`adult` | `child`) decides exactly one thing, and decides it
+> everywhere: gems, prizes, the castle and the monster game are a children's
+> motivation system. An adult can own any number of chores and none of them
+> pay. Without this, adding a grandparent to the house meant handing her a
+> gem balance and a place in a game built for a seven-year-old.
+
+- List who is in the household: `Query PK = FAMILY#<familyId>, SK begins_with MEMBER#`. One row per person, carrying a `role` of `adult` or `child`.
+- Add or correct one person: `GetItem`/`PutItem PK = FAMILY#<familyId>, SK = MEMBER#<memberId>` — upsert, keeping `createdAt`, because correcting a spelling is not adding a second person.
+- List the standing jobs and who has taken each: `Query PK = FAMILY#<familyId>, SK begins_with HOUSEJOB#`. `ownerId` is nullable and the null is the point: a job nobody has taken is the one row on that list asking the family for something.
+- Set or hand back one job: `GetItem`/`PutItem PK = FAMILY#<familyId>, SK = HOUSEJOB#<jobId>`. An absent `ownerId` leaves the owner alone; an explicit `null` hands the job back to nobody.
 
 - List what got done over a date range: `Query PK = FAMILY#<familyId>, SK between COMPLETION#<start> and COMPLETION#<end>#\uffff`.
 - List a family's schedule for a date range: `Query PK = FAMILY#<familyId>, SK between SCHEDULE#<start> and SCHEDULE#<end>#\uffff`. Paged to the end. Moving an entry to another day is one `TransactWriteItems` — Put the new `SCHEDULE#<newDate>#<id>` row with `attribute_not_exists(PK)`, Delete the old one with `attribute_exists(PK)` — so it can never end up on both days; a cancelled transaction (another screen moved it first) is a 409. A same-day edit is a Put conditioned on `attribute_exists(PK)`, so it can't resurrect a deleted entry.

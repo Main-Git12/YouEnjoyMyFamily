@@ -1,4 +1,4 @@
-import type { Task, TaskCompletion, ScheduleEntry, CartItem, StatedPreference, MealPlanEntry, MealSlot, RewardGoal, GemBalance, GemBalanceReport, Routine, RoutineRun, RoutineStep, FocusBlock, SchoolProfile, SchoolMenu, SchoolPrep, FamilySettings, HouseholdLocation, WeatherReading } from "../types";
+import type { Task, TaskCompletion, ScheduleEntry, CartItem, StatedPreference, MealPlanEntry, MealSlot, RewardGoal, GemBalance, GemBalanceReport, Routine, RoutineRun, RoutineStep, FocusBlock, SchoolProfile, SchoolMenu, SchoolPrep, FamilySettings, HouseholdLocation, WeatherReading, Household, HouseholdMember, HouseholdJob } from "../types";
 
 import { getFamilyApiKey } from "./familyKey";
 
@@ -267,4 +267,32 @@ export const api = {
 
   recordFocusBlock: (familyId: string, block: Omit<FocusBlock, "blockId" | "actualMinutes">) =>
     request<FocusBlock>(`/families/${familyId}/focus-blocks`, { method: "POST", body: JSON.stringify(block) }),
+
+  getHousehold: (familyId: string) => request<Household>(`/families/${familyId}/household`),
+
+  saveHouseholdMember: (familyId: string, memberId: string, member: Omit<HouseholdMember, "memberId">) =>
+    request<HouseholdMember>(`/families/${familyId}/household/members/${encodeURIComponent(memberId)}`, {
+      method: "PUT",
+      body: JSON.stringify(member),
+    }),
+
+  removeHouseholdMember: (familyId: string, memberId: string) =>
+    request<{ deleted: string }>(`/families/${familyId}/household/members/${encodeURIComponent(memberId)}`, {
+      method: "DELETE",
+    }),
+
+  /**
+   * `ownerId: null` hands a job back to nobody, which is a different thing
+   * from leaving the field out — so it is always sent explicitly.
+   */
+  saveHouseholdJob: (familyId: string, jobId: string, job: Omit<HouseholdJob, "jobId">) =>
+    request<HouseholdJob>(`/families/${familyId}/household/jobs/${encodeURIComponent(jobId)}`, {
+      method: "PUT",
+      body: JSON.stringify(job),
+    }),
+
+  removeHouseholdJob: (familyId: string, jobId: string) =>
+    request<{ deleted: string }>(`/families/${familyId}/household/jobs/${encodeURIComponent(jobId)}`, {
+      method: "DELETE",
+    }),
 };

@@ -267,6 +267,55 @@ Resources:
             Path: /families/{familyId}/routines/{routineId}/runs
             Method: PUT
 
+  # The household roster (who is here, and whether the gem economy applies
+  # to them) and the standing jobs that keep the house running.
+  HouseholdFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node20"
+        Sourcemap: true
+        EntryPoints: [src/handlers/household.ts]
+    Properties:
+      Handler: src/handlers/household.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref YouEnjoyMyFamilyTable
+      Events:
+        List:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/household
+            Method: GET
+        SaveMember:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/household/members/{memberId}
+            Method: PUT
+        DeleteMember:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/household/members/{memberId}
+            Method: DELETE
+        SaveJob:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/household/jobs/{jobId}
+            Method: PUT
+        DeleteJob:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref YouEnjoyMyFamilyHttpApi
+            Path: /families/{familyId}/household/jobs/{jobId}
+            Method: DELETE
+
   SchoolProfilesFunction:
     Type: AWS::Serverless::Function
     Metadata:
