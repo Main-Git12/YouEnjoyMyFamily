@@ -13,6 +13,7 @@ import PrizeGoal from "./PrizeGoal";
 import MealPlan from "./MealPlan";
 import { toLocalIsoDate, weekFromOffset } from "../lib/dates";
 import { knownMembers, assignableNames, childrenOnly } from "../lib/members";
+import { eveningRoom, eveningStandbys } from "../lib/eveningRoom";
 import { greeting } from "../lib/timeOfDay";
 import { buildInsights, INSIGHT_WINDOW_DAYS, type Insight } from "../lib/insights";
 import { buildAwareness } from "../lib/awareness";
@@ -775,6 +776,12 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   // Anyone a job can be handed to — adults included, since adults own most
   // of them. The roster's spelling wins over a name typed onto a chore.
   const members = assignableNames(roster, inferredMembers);
+  // What is already on the calendar between school and dinner for the week
+  // on screen, and what this family has itself reached for on evenings like
+  // that before. Both are read from their own records; neither claims to
+  // know how long anything takes to cook.
+  const weekRoom = eveningRoom(schedule, weekDays);
+  const weekStandbys = eveningStandbys(mealPlan, schedule, today);
   // And the far narrower list that the gem economy is actually for.
   const children = childrenOnly(roster, inferredMembers);
 
@@ -1286,6 +1293,8 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
                 onSave={handleSaveMealPlanEntry}
                 onRemove={handleRemoveMealPlanEntry}
                 onGenerateGroceryList={handleGenerateGroceryList}
+                eveningRoom={weekRoom}
+                standbys={weekStandbys}
               />
               <DraftWeek draft={weekDraft} onAccept={handleAcceptDraft} />
             </>

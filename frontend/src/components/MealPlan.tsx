@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import type { MealPlanEntry, MealSlot } from "../types";
+import type { EveningRoom, EveningStandby } from "../lib/eveningRoom";
 
 interface MealPlanProps {
   entries: MealPlanEntry[];
@@ -10,6 +11,15 @@ interface MealPlanProps {
   onSave: (date: string, slot: MealSlot, input: { mealName: string; ingredients: string[] }) => Promise<void>;
   onRemove: (date: string, slot: MealSlot) => Promise<void>;
   onGenerateGroceryList: () => Promise<{ added: number; skipped: number }>;
+  /**
+   * What is already on the calendar between school and dinner, per day.
+   * Shown while the family is choosing, because the meal is rarely what
+   * went wrong on a Wednesday — the evening was, and it was already on the
+   * calendar when the plan was made.
+   */
+  eveningRoom?: EveningRoom[];
+  /** Dinners this family has itself put on evenings that already had something on. */
+  standbys?: EveningStandby[];
 }
 
 const SLOTS: MealSlot[] = ["breakfast", "lunch", "dinner"];
@@ -39,11 +49,16 @@ export default function MealPlan({
   onSave,
   onRemove,
   onGenerateGroceryList,
+  eveningRoom = [],
+  standbys = [],
 }: MealPlanProps) {
   const [editing, setEditing] = useState<{ date: string; slot: MealSlot } | null>(null);
   const [mealName, setMealName] = useState("");
   const [ingredientsText, setIngredientsText] = useState("");
   const [generateResult, setGenerateResult] = useState<string | null>(null);
+
+  const roomFor = (date: string): string | null =>
+    eveningRoom.find((room) => room.date === date)?.because ?? null;
 
   const entryFor = (date: string, slot: MealSlot) =>
     entries.find((entry) => entry.date === date && entry.slot === slot);
@@ -123,13 +138,34 @@ export default function MealPlan({
         </button>
       </div>
 
+      {standbys.length > 0 && (
+        <p className="text-xs text-olive-600 mb-3">
+          On full evenings you've reached for{" "}
+          {standbys.slice(0, 3).map((standby, index) => (
+            <span key={standby.mealName}>
+              {index > 0 ? ", " : ""}
+              <span className="text-olive-800">{standby.mealName}</span> ({standby.times}×)
+            </span>
+          ))}
+          .
+        </p>
+      )}
+
       <div className="space-y-2 mb-4">
         {days.map((date) => (
           // Label above the slots on a phone, beside them from `sm` up; the
           // slots stay a 3-column grid either way so a day's breakfast,
           // lunch and dinner always line up instead of wrapping raggedly.
-          <div key={date} className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-            <span className="sm:w-24 shrink-0 text-sm font-semibold text-olive-700">{formatDayLabel(date)}</span>
+          <div key={date} className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-2">
+            <span className="sm:w-24 shrink-0 text-sm font-semibold text-olive-700">
+              {formatDayLabel(date)}
+              {/* The calendar's own words, not a judgement about the evening:
+                  the family can see what it is and decide for themselves
+                  whether it leaves room to cook. */}
+              {roomFor(date) && (
+                <span className="block text-xs font-normal normal-case text-clay-700">{roomFor(date)}</span>
+              )}
+            </span>
             <div className="grid grid-cols-3 gap-2 flex-1">
               {SLOTS.map((slot) => {
                 const entry = entryFor(date, slot);

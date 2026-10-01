@@ -158,3 +158,75 @@ describe("formatDayLabel parity", () => {
     expect(screen.getByText(formatDayLabel(TODAY))).toBeInTheDocument();
   });
 });
+
+describe("what the evening already has on it", () => {
+  const days = ["2026-10-07", "2026-10-08"];
+  const baseProps = {
+    entries: [],
+    days,
+    weekOffset: 0,
+    onWeekOffsetChange: () => {},
+    onSave: async () => {},
+    onRemove: async () => {},
+    onGenerateGroceryList: async () => ({ added: 0, skipped: 0 }),
+  };
+
+  it("shows the calendar's own words beside the day being planned", () => {
+    // The meal is rarely what went wrong on a Wednesday. The evening was,
+    // and it was already on the calendar when the plan was made.
+    render(
+      <MealPlan
+        {...baseProps}
+        eveningRoom={[
+          { date: "2026-10-07", inTheWay: [], because: "Swim at 16:45, Soccer at 17:30" },
+          { date: "2026-10-08", inTheWay: [], because: null },
+        ]}
+      />
+    );
+
+    expect(screen.getByText("Swim at 16:45, Soccer at 17:30")).toBeInTheDocument();
+  });
+
+  it("says nothing at all about a day with room in it", () => {
+    const { container } = render(
+      <MealPlan {...baseProps} eveningRoom={[{ date: "2026-10-08", inTheWay: [], because: null }]} />
+    );
+
+    expect(container.textContent).not.toMatch(/busy|no time|tight|rushed|can't cook/i);
+  });
+
+  it("offers back what this family itself reached for, with the count", () => {
+    render(
+      <MealPlan
+        {...baseProps}
+        standbys={[
+          { mealName: "Pasta bake", times: 4, because: "Planned on 4 evenings that already had something on." },
+        ]}
+      />
+    );
+
+    expect(screen.getByText("Pasta bake")).toBeInTheDocument();
+    expect(screen.getByText(/4×/)).toBeInTheDocument();
+  });
+
+  it("never calls a meal quick, or an evening a problem", () => {
+    const { container } = render(
+      <MealPlan
+        {...baseProps}
+        eveningRoom={[{ date: "2026-10-07", inTheWay: [], because: "Soccer at 17:30" }]}
+        standbys={[{ mealName: "Pasta bake", times: 4, because: "Planned on 4 evenings." }]}
+      />
+    );
+
+    // The app has no idea how long anything takes to make in this kitchen.
+    // Word boundaries on purpose — "Breakfast" contains "fast", and a
+    // banned-phrasing guard that fires on its own slot labels is a guard
+    // somebody deletes rather than fixes.
+    expect(container.textContent).not.toMatch(/\b(quick|easy|fast|simple|speedy)\b|\b\d+ min/i);
+  });
+
+  it("works for a household with nothing on the calendar at all", () => {
+    render(<MealPlan {...baseProps} />);
+    expect(screen.getAllByText(/Breakfast/).length).toBeGreaterThan(0);
+  });
+});
