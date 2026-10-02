@@ -225,3 +225,108 @@ test("every route needs the family key", async () => {
   const result = await handler(makeEvent({ method: "GET", pathParameters: { familyId: "fam_1" } }));
   assert.equal(result.statusCode, 401);
 });
+
+test("a carer is stored with the days they come and when they arrive", async () => {
+  // Not family, not a guest: somebody who runs part of another person's day
+  // on set days. Ryan is in Mondays and Fridays.
+  ddbMock.on(GetCommand).resolves({ Item: undefined });
+  ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      path: "/families/fam_1/household/members/ryan",
+      pathParameters: { familyId: "fam_1", memberId: "ryan" },
+      headers,
+      body: JSON.stringify({ displayName: "Ryan", role: "carer", daysOfWeek: [5, 1], startsAt: "10:00", endsAt: "12:00" }),
+    })
+  );
+
+  assert.equal(result.statusCode, 200);
+  const written = ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item;
+  assert.equal(written?.role, "carer");
+  // Sorted on write, so the week renders in order.
+  assert.deepEqual(written?.daysOfWeek, [1, 5]);
+  assert.equal(written?.startsAt, "10:00");
+  // The end of the shift is the half that matters: it is the only thing an
+  // actual finishing time can be compared against.
+  assert.equal(written?.endsAt, "12:00");
+});
+
+test("a rota listing the same day twice is stored once", async () => {
+  // Otherwise "is Kimmie in today" answers correctly and the week shows
+  // Tuesday twice.
+  ddbMock.on(GetCommand).resolves({ Item: undefined });
+  ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  await handler(
+    makeEvent({
+      method: "PUT",
+      path: "/families/fam_1/household/members/kimmie",
+      pathParameters: { familyId: "fam_1", memberId: "kimmie" },
+      headers,
+      body: JSON.stringify({ displayName: "Kimmie", role: "carer", daysOfWeek: [2, 3, 2, 4] }),
+    })
+  );
+
+  assert.deepEqual(ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item?.daysOfWeek, [2, 3, 4]);
+});
+
+test("somebody who simply lives here carries no rota at all", async () => {
+  ddbMock.on(GetCommand).resolves({ Item: undefined });
+  ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  await handler(
+    makeEvent({
+      method: "PUT",
+      path: "/families/fam_1/household/members/sheliah",
+      pathParameters: { familyId: "fam_1", memberId: "sheliah" },
+      headers,
+      body: JSON.stringify({ displayName: "Sheliah", role: "adult" }),
+    })
+  );
+
+  const written = ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item;
+  assert.equal(written?.daysOfWeek, null);
+  assert.equal(written?.startsAt, null);
+  assert.equal(written?.endsAt, null);
+});
+
+test("a rota is not reserved for carers", async () => {
+  // An adult who is only here some days — a co-parent across two houses —
+  // is a real household, and dropping the field for them would be the app
+  // deciding which families count.
+  ddbMock.on(GetCommand).resolves({ Item: undefined });
+  ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  await handler(
+    makeEvent({
+      method: "PUT",
+      path: "/families/fam_1/household/members/sam",
+      pathParameters: { familyId: "fam_1", memberId: "sam" },
+      headers,
+      body: JSON.stringify({ displayName: "Sam", role: "adult", daysOfWeek: [1, 2, 3] }),
+    })
+  );
+
+  assert.deepEqual(ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item?.daysOfWeek, [1, 2, 3]);
+});
+
+test("a shift time that isn't a time is refused", async () => {
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+  const result = await handler(
+    makeEvent({
+      method: "PUT",
+      path: "/families/fam_1/household/members/ryan",
+      pathParameters: { familyId: "fam_1", memberId: "ryan" },
+      headers,
+      body: JSON.stringify({ displayName: "Ryan", role: "carer", startsAt: "10am" }),
+    })
+  );
+
+  assert.equal(result.statusCode, 400);
+});

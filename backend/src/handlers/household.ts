@@ -92,6 +92,17 @@ async function saveMember(
     displayName: input.displayName.trim(),
     role: input.role,
     note: input.note?.trim() || null,
+    // Sorted and de-duplicated on write, the same as RoutineInput.daysOfWeek
+    // and the school specials: a rota listing Tuesday twice answers "is
+    // Kimmie in today" correctly and renders the week wrong.
+    //
+    // Deliberately not tied to `role`. A carer on a rota is the case this
+    // was built for, but an adult who is only here some days — a co-parent
+    // across two houses — is a real household too, and silently dropping
+    // the field for them would be the app deciding which families count.
+    daysOfWeek: input.daysOfWeek ? [...new Set(input.daysOfWeek)].sort((a, b) => a - b) : null,
+    startsAt: input.startsAt ?? null,
+    endsAt: input.endsAt ?? null,
     createdAt: current?.createdAt ?? now,
     updatedAt: now,
   };

@@ -50,6 +50,11 @@ function toStoredSteps(steps: RoutineStepInput[]): RoutineStep[] {
     title: step.title,
     targetMinutes: step.targetMinutes,
     memberId: step.memberId ?? null,
+    // A pause is a whole fact or none of one: a reason or a cover with no
+    // date would never lift, and would sit on the routine for good.
+    pausedUntil: step.pausedUntil ?? null,
+    pausedReason: step.pausedUntil ? step.pausedReason?.trim() || null : null,
+    coveredBy: step.pausedUntil ? step.coveredBy ?? null : null,
   }));
 }
 

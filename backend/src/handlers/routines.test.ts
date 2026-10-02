@@ -370,3 +370,83 @@ test("a run key can never be picked up by the query that lists definitions", () 
     "without the separator the prefix matches run rows, which is the actual hazard"
   );
 });
+
+test("a step somebody can't do for a while is paused, not deleted", async () => {
+  // Lunch still has to happen. Deleting the step loses the job and its
+  // learned duration; leaving it alone means a plan that quietly assumes
+  // somebody will do something they can't.
+  ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  const result = await handler(
+    makeEvent({
+      method: "POST",
+      pathParameters: { familyId: "fam_1" },
+      headers,
+      body: JSON.stringify({
+        name: "Sheliah's morning",
+        kind: "care",
+        anchorTime: "09:00",
+        daysOfWeek: [2, 3, 4],
+        steps: [
+          { title: "Make lunch", targetMinutes: 20, pausedUntil: "2026-10-30", pausedReason: "hand cast", coveredBy: "Andrew" },
+        ],
+      }),
+    })
+  );
+
+  assert.equal(result.statusCode, 201);
+  const [step] = ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item?.steps ?? [];
+  assert.equal(step.pausedUntil, "2026-10-30");
+  assert.equal(step.pausedReason, "hand cast");
+  assert.equal(step.coveredBy, "Andrew");
+});
+
+test("a pause with no date is not a pause at all", async () => {
+  // A reason or a cover with no end date would never lift, and would sit
+  // on the routine for good.
+  ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  await handler(
+    makeEvent({
+      method: "POST",
+      pathParameters: { familyId: "fam_1" },
+      headers,
+      body: JSON.stringify({
+        name: "Sheliah's morning",
+        kind: "care",
+        anchorTime: "09:00",
+        daysOfWeek: [2],
+        steps: [{ title: "Make lunch", targetMinutes: 20, pausedReason: "hand cast", coveredBy: "Andrew" }],
+      }),
+    })
+  );
+
+  const [step] = ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item?.steps ?? [];
+  assert.equal(step.pausedUntil, null);
+  assert.equal(step.pausedReason, null);
+  assert.equal(step.coveredBy, null);
+});
+
+test("a care routine is a routine like any other, and stores its own kind", async () => {
+  ddbMock.on(PutCommand).resolves({});
+  const headers = mockFamilyAuth(ddbMock, "fam_1");
+
+  await handler(
+    makeEvent({
+      method: "POST",
+      pathParameters: { familyId: "fam_1" },
+      headers,
+      body: JSON.stringify({
+        name: "Sheliah's morning",
+        kind: "care",
+        anchorTime: "09:00",
+        daysOfWeek: [2, 3, 4],
+        steps: [{ title: "Shower", targetMinutes: 25 }],
+      }),
+    })
+  );
+
+  assert.equal(ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item?.kind, "care");
+});

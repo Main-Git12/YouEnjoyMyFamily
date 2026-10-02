@@ -14,7 +14,7 @@ interface MorningRoutineProps {
   tasks: Task[];
   members: string[];
   /** Which routine this card is for — the copy and the defaults follow it. */
-  kind: RoutineKind;
+  kind: DeadlineRoutineKind;
   onSave: (routine: { name: string; anchorTime: string; daysOfWeek: number[]; steps: DraftStep[] }) => Promise<void>;
   onSetActive: (active: boolean) => Promise<void>;
   onStartNow: () => void;
@@ -24,11 +24,19 @@ const WEEKDAYS = [1, 2, 3, 4, 5];
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /**
+ * The kinds this component drives. `care` is deliberately not one of them:
+ * a carer's shift is anchored to when it starts, not to a deadline, so it
+ * has its own planner and its own panel. Excluding it here means adding a
+ * fourth kind can never silently fall through to copy written about a bus.
+ */
+export type DeadlineRoutineKind = Exclude<RoutineKind, "care">;
+
+/**
  * Both routines are the same engine pointed at a different deadline —
  * lights out is as real a fixed time as the bus, and a bedtime that slips
  * is where a lot of bad mornings actually start. Only the words differ.
  */
-const COPY: Record<RoutineKind, { name: string; deadline: string; setUp: string; blurb: string; defaultTime: string; seedFromChores: boolean }> = {
+const COPY: Record<DeadlineRoutineKind, { name: string; deadline: string; setUp: string; blurb: string; defaultTime: string; seedFromChores: boolean }> = {
   morning: {
     name: "School morning",
     deadline: "Has to be out the door by",

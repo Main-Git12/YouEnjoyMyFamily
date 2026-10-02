@@ -475,7 +475,22 @@ export interface MealPlanEntryItem {
  * that is either positive or negative, and a number is something a
  * six-year-old can argue with and a parent doesn't have to keep saying.
  */
-export const ROUTINE_KINDS = ["morning", "bedtime", "custom"] as const;
+/**
+ * `care` breaks the rule in the paragraph above, and it is the only kind
+ * that does. A carer's shift is anchored to when they *arrive*, not to a
+ * deadline — there is no bus. Planning it backwards would mean inventing a
+ * finishing time nobody has, which is exactly the sort of made-up number
+ * the rest of this codebase refuses to produce. So a care routine's
+ * `anchorTime` is a start, and it is laid out forwards from there by its
+ * own planner (frontend/src/lib/carePlan.ts) rather than by planRoutine.
+ *
+ * What it does share is the half that matters: step durations learned as
+ * the median of finished runs, each one saying whether it was measured and
+ * from how many. How long a shower takes is a fact about the person being
+ * helped, not about who is helping, so one care routine is shared across
+ * every carer on the rota and the learning pools where it belongs.
+ */
+export const ROUTINE_KINDS = ["morning", "bedtime", "custom", "care"] as const;
 export type RoutineKind = (typeof ROUTINE_KINDS)[number];
 
 /** `HH:MM`, 24-hour. The one clock format stored anywhere in this API. */
@@ -492,6 +507,27 @@ export const RoutineStepInput = z.object({
   targetMinutes: z.number().int().min(1).max(120),
   /** Whose step it is. Null means whoever's nearest. */
   memberId: MemberName.nullable().optional(),
+  /**
+   * A step the usual person cannot do for a while, and the date they expect
+   * to be able to again.
+   *
+   * Built for the ordinary case that breaks a care routine: somebody is in
+   * a cast for four weeks and cannot cook. The step does not stop being
+   * necessary — lunch still has to happen — so deleting it loses the job
+   * and loses its learned duration, and leaving it alone means a plan that
+   * quietly assumes somebody will do something they can't.
+   *
+   * Pausing says both things at once: this still matters, and it is not
+   * theirs this month. The subject is the *step*, deliberately. "Making
+   * lunch is paused until 30 October" is a fact about the routine;
+   * "Kimmie can't use her hand" is a medical note about a person, on a
+   * screen in somebody else's kitchen, and this app does not keep those.
+   */
+  pausedUntil: IsoDate.nullable().optional(),
+  /** Why, in the family's own words. Shown so nobody has to remember. */
+  pausedReason: z.string().max(140).nullable().optional(),
+  /** Who is doing it in the meantime. Null means nobody has picked it up. */
+  coveredBy: MemberName.nullable().optional(),
 });
 export type RoutineStepInput = z.infer<typeof RoutineStepInput>;
 
@@ -522,6 +558,10 @@ export interface RoutineStep {
   title: string;
   targetMinutes: number;
   memberId: string | null;
+  /** Set while the usual person can't do this one. See RoutineStepInput. */
+  pausedUntil?: string | null;
+  pausedReason?: string | null;
+  coveredBy?: string | null;
 }
 
 export interface RoutineItem {
@@ -850,7 +890,15 @@ export interface WeatherHourItem {
 // difference between an app that includes someone and one that miscasts
 // them.
 
-export const HOUSEHOLD_ROLES = ["adult", "child"] as const;
+/**
+ * `carer` is a paid aide who comes in on set days — not family, and not
+ * a guest either. They need a place in the app because they run part of
+ * somebody's day, but they are not in the household's gem economy, they
+ * are not part of how the adults split the house between them, and they
+ * are here on a rota rather than all the time. One role, carrying all
+ * three of those facts, beats bolting flags onto "adult".
+ */
+export const HOUSEHOLD_ROLES = ["adult", "child", "carer"] as const;
 export type HouseholdRole = (typeof HOUSEHOLD_ROLES)[number];
 
 export const HouseholdMemberInput = z.object({
@@ -863,6 +911,20 @@ export const HouseholdMemberInput = z.object({
    * business offering a dropdown of what an older relative might be.
    */
   note: z.string().max(240).nullable().optional(),
+  /**
+   * Which days this person is here, for somebody who comes on a rota.
+   * 0 = Sunday, matching RoutineInput.daysOfWeek. Absent for anyone who
+   * simply lives here — a household member is not "scheduled".
+   */
+  daysOfWeek: z.array(z.number().int().min(0).max(6)).min(1).max(7).nullable().optional(),
+  /**
+   * The hours of the shift, `HH:MM`. Both ends, because a shift is a window
+   * and the end of it is the half that matters: "Ryan is here Mondays" and
+   * "Ryan is here 10 till 12 on Mondays" are different agreements, and only
+   * the second one can be compared against what actually happened.
+   */
+  startsAt: ClockTime.nullable().optional(),
+  endsAt: ClockTime.nullable().optional(),
 });
 export type HouseholdMemberInput = z.infer<typeof HouseholdMemberInput>;
 
@@ -883,6 +945,11 @@ export interface HouseholdMemberItem {
   displayName: string;
   role: HouseholdRole;
   note: string | null;
+  /** The days a carer comes. Null for anyone who lives here. */
+  daysOfWeek: number[] | null;
+  /** The shift's hours, `HH:MM`. Null for anyone who lives here. */
+  startsAt: string | null;
+  endsAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

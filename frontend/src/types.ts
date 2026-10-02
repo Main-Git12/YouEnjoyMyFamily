@@ -129,7 +129,13 @@ export interface StatedPreference {
  * A routine — an ordered set of steps planned backwards from the moment it
  * has to be finished. See backend/models/schema.md; the anchor is the point.
  */
-export type RoutineKind = "morning" | "bedtime" | "custom";
+/**
+ * `care` is the one kind anchored to when it *starts* rather than when it
+ * has to be finished — a carer's shift begins when they arrive, and there
+ * is no bus. It is laid out by lib/carePlan.ts, not by planRoutine, and
+ * shares only the half that matters: durations learned from finished runs.
+ */
+export type RoutineKind = "morning" | "bedtime" | "custom" | "care";
 
 export interface RoutineStep {
   stepId: string;
@@ -137,6 +143,16 @@ export interface RoutineStep {
   /** What the family reckons it takes. Only ever a seed — see lib/routinePlan.ts. */
   targetMinutes: number;
   memberId: string | null;
+  /**
+   * Set while the usual person can't do this one — somebody in a cast for a
+   * month, say. The step still matters, so it is paused rather than deleted:
+   * deleting loses the job and its learned duration. The subject is the
+   * step, never the person.
+   */
+  pausedUntil?: string | null;
+  pausedReason?: string | null;
+  /** Who is doing it in the meantime. Null means nobody has picked it up. */
+  coveredBy?: string | null;
 }
 
 export interface Routine {
@@ -304,7 +320,7 @@ export interface WeatherReading {
 
 // --- The household: who is in it, and who carries what ---------------------
 
-export type HouseholdRole = "adult" | "child";
+export type HouseholdRole = "adult" | "child" | "carer";
 
 /**
  * One person in the house.
@@ -321,6 +337,11 @@ export interface HouseholdMember {
   displayName: string;
   role: HouseholdRole;
   note: string | null;
+  /** The days somebody on a rota is here. 0 = Sunday. Null for anyone who lives here. */
+  daysOfWeek?: number[] | null;
+  /** The shift's hours, `HH:MM`. Both ends: the end is the half worth comparing against. */
+  startsAt?: string | null;
+  endsAt?: string | null;
 }
 
 /**

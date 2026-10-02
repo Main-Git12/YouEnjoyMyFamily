@@ -10,7 +10,7 @@ interface TheHouseholdProps {
   onRemoveJob: (jobId: string) => Promise<void>;
 }
 
-const ROLE_LABELS: Record<HouseholdRole, string> = { adult: "Adult", child: "Child" };
+const ROLE_LABELS: Record<HouseholdRole, string> = { adult: "Adult", child: "Child", carer: "Carer" };
 const KIND_LABELS: Record<JobKind, string> = { doing: "hands-on", arranging: "noticing & booking" };
 
 /** A stable id from a name or title, so the same job typed twice is one row. */
