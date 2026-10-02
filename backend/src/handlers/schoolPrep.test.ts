@@ -83,7 +83,7 @@ test("GET with a range uses it", async () => {
  * data rather than as an error.
  */
 test("none of the three SCHOOL sort-key prefixes is a prefix of another", () => {
-  const keys = ["SCHOOL#Parker", "SCHOOLMENU#117559#2026-10", "SCHOOLPREP#2026-10-01#Parker"];
+  const keys = ["SCHOOL#Parker", "SCHOOLMENU#40002#2026-10", "SCHOOLPREP#2026-10-01#Parker"];
   const prefixes = ["SCHOOL#", "SCHOOLMENU#", "SCHOOLPREP#"];
   for (const prefix of prefixes) {
     const matched = keys.filter((key) => key.startsWith(prefix));

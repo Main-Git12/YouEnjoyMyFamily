@@ -3,12 +3,12 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import SchoolSetup from "./SchoolSetup";
 import type { SchoolProfile } from "../types";
 
-const VIOLET_MENU = { provider: "myschoolmenus" as const, organizationId: 2230, siteId: 13754, menuId: 117559 };
+const VIOLET_MENU = { provider: "myschoolmenus" as const, organizationId: 40000, siteId: 40001, menuId: 40002 };
 
 const PARKER: SchoolProfile = {
   memberId: "Parker",
-  schoolName: "Violet Elementary",
-  teacher: "Miss Hineline",
+  schoolName: "Maple Street Elementary",
+  teacher: "Mr Alder",
   gradeLabel: null,
   specials: [
     { dayOfWeek: 1, subject: "Art", prepNote: null },
@@ -28,8 +28,8 @@ const save = () => vi.fn<SaveFn>().mockResolvedValue(undefined);
 describe("SchoolSetup", () => {
   it("fills the form from the sheet already saved", () => {
     render(<SchoolSetup members={["Parker"]} profiles={[PARKER]} onSave={save()} />);
-    expect(screen.getByDisplayValue("Violet Elementary")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Miss Hineline")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Maple Street Elementary")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Mr Alder")).toBeInTheDocument();
     expect(screen.getByLabelText("Monday special")).toHaveValue("Art");
     expect(screen.getByLabelText("Thursday special")).toHaveValue("Library");
     expect(screen.getByLabelText("Thursday — what to bring")).toHaveValue(
@@ -71,17 +71,17 @@ describe("SchoolSetup", () => {
     const onSave = save();
     render(<SchoolSetup members={["Parker"]} profiles={[PARKER]} onSave={onSave} />);
 
-    fireEvent.change(screen.getByDisplayValue("Miss Hineline"), { target: { value: "Mrs Hineline" } });
+    fireEvent.change(screen.getByDisplayValue("Mr Alder"), { target: { value: "Mrs Alder" } });
     fireEvent.click(screen.getByRole("button", { name: "Save the sheet" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave.mock.calls[0]![1].menuSource).toEqual(VIOLET_MENU);
-    expect(onSave.mock.calls[0]![1].teacher).toBe("Mrs Hineline");
+    expect(onSave.mock.calls[0]![1].teacher).toBe("Mrs Alder");
   });
 
   it("says the menu is already set up, so nobody goes looking for a field for it", () => {
     render(<SchoolSetup members={["Parker"]} profiles={[PARKER]} onSave={save()} />);
-    expect(screen.getByText(/Lunch menu already set up for Violet Elementary/)).toBeInTheDocument();
+    expect(screen.getByText(/Lunch menu already set up for Maple Street Elementary/)).toBeInTheDocument();
   });
 
   it("treats a blank day as a day with no special, not as an error", async () => {

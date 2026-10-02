@@ -1396,8 +1396,8 @@ describe("Dashboard", () => {
 
     const PARKER = {
       memberId: "Parker",
-      schoolName: "Violet Elementary",
-      teacher: "Miss Hineline",
+      schoolName: "Maple Street Elementary",
+      teacher: "Mr Alder",
       gradeLabel: null,
       specials: [
         { dayOfWeek: 1, subject: "Art", prepNote: null },
@@ -1406,7 +1406,7 @@ describe("Dashboard", () => {
         { dayOfWeek: 4, subject: "Library", prepNote: "Have your student bring in their library book to return." },
         { dayOfWeek: 5, subject: "Music", prepNote: null },
       ],
-      menuSource: { provider: "myschoolmenus" as const, organizationId: 2230, siteId: 13754, menuId: 117559 },
+      menuSource: { provider: "myschoolmenus" as const, organizationId: 40000, siteId: 40001, menuId: 40002 },
     };
 
     it("asks for a menu only for the children whose school publishes one", async () => {
@@ -1414,8 +1414,8 @@ describe("Dashboard", () => {
       vi.mocked(api.listSchoolProfiles).mockResolvedValue([PARKER, noMenu]);
       vi.mocked(api.getSchoolMenu).mockResolvedValue({
         memberId: "Parker",
-        schoolName: "Violet Elementary",
-        menuId: 117559,
+        schoolName: "Maple Street Elementary",
+        menuId: 40002,
         days: [],
         stale: false,
         fetchedAt: null,
@@ -1449,8 +1449,8 @@ describe("Dashboard", () => {
         if (memberId === "Rowan") throw new Error("404");
         return {
           memberId: "Parker",
-          schoolName: "Violet Elementary",
-          menuId: 117559,
+          schoolName: "Maple Street Elementary",
+          menuId: 40002,
           days: [],
           stale: false,
           fetchedAt: null,
@@ -1497,8 +1497,8 @@ describe("Dashboard", () => {
 
     const PARKER = {
       memberId: "Parker",
-      schoolName: "Violet Elementary",
-      teacher: "Miss Hineline",
+      schoolName: "Maple Street Elementary",
+      teacher: "Mr Alder",
       gradeLabel: null,
       specials: [{ dayOfWeek: 4, subject: "Library", prepNote: "Bring the library book back." }],
       menuSource: null,

@@ -169,7 +169,7 @@ export async function weatherAt(
 const GEOCODING_BASE = "https://geocoding-api.open-meteo.com/v1/search";
 
 export interface Place {
-  /** What to show in the list: "Pickerington, Ohio, US". */
+  /** What to show in the list: "Springfield, Ohio, US". */
   label: string;
   latitude: number;
   longitude: number;
@@ -177,7 +177,7 @@ export interface Place {
 }
 
 /**
- * Towns matching a name, so a parent types "Pickerington" instead of a
+ * Towns matching a name, so a parent types their town instead of a
  * latitude.
  *
  * Asking a family for coordinates would be a small act of contempt, and a

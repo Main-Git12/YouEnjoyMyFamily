@@ -18,7 +18,7 @@ const BRIEF: TomorrowBrief = {
       id: "school:Parker",
       kind: "school",
       headline: "Library for Parker — bring the library book back.",
-      because: "From Miss Hineline's specials schedule for Violet Elementary.",
+      because: "From Mr Alder's specials schedule for Maple Street Elementary.",
       question: { label: "Tick it off", panel: "school" },
     },
   ],

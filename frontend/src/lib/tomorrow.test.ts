@@ -25,8 +25,8 @@ const run = (date: [number, number, number], lateMinutes: number): RoutineRun =>
 
 const PARKER: SchoolProfile = {
   memberId: "Parker",
-  schoolName: "Violet Elementary",
-  teacher: "Miss Hineline",
+  schoolName: "Maple Street Elementary",
+  teacher: "Mr Alder",
   gradeLabel: null,
   specials: [{ dayOfWeek: 4, subject: "Library", prepNote: "Have your student bring in their library book to return." }],
   menuSource: null,
@@ -109,7 +109,7 @@ describe("what it notices about tomorrow", () => {
     expect(school?.headline).toBe(
       "Library for Parker — Have your student bring in their library book to return."
     );
-    expect(school?.because).toContain("Miss Hineline");
+    expect(school?.because).toContain("Mr Alder");
   });
 
   it("mentions an unplanned dinner only once the family plans dinners", () => {
@@ -366,7 +366,7 @@ describe("what the weather will be doing at the door", () => {
     atTime: "07:52",
     stale: false,
     fetchedAt: "2026-09-30T18:00:00.000Z",
-    label: "Pickerington",
+    label: "Springfield",
     weather: {
       time: "2026-10-01T07:00",
       temperatureF: 62,
@@ -414,7 +414,7 @@ describe("what the weather will be doing at the door", () => {
   it("names the hour and the place it is a forecast for", () => {
     const brief = buildTomorrow(base({ profiles: [PARKER], weather: reading({ temperatureF: 30, feelsLikeF: 22 }) }));
     expect(brief?.signals.find((s) => s.kind === "weather")?.because).toBe(
-      "Forecast for Pickerington at the time the morning has to be finished."
+      "Forecast for Springfield at the time the morning has to be finished."
     );
   });
 

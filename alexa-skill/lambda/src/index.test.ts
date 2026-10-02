@@ -776,7 +776,7 @@ test("GetTasksIntentHandler asks about the family's own day, not the Lambda's", 
 
 const parkersSheet = {
   memberId: "Parker",
-  schoolName: "Violet Elementary",
+  schoolName: "Maple Street Elementary",
   specials: [
     { dayOfWeek: 4, subject: "Library", prepNote: "Library book goes back" },
     { dayOfWeek: 2, subject: "Music", prepNote: null },

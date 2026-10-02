@@ -129,14 +129,14 @@ test("no temperature at all means no answer", async () => {
 
 const geocoded = {
   results: [
-    { name: "Pickerington", admin1: "Ohio", country_code: "US", latitude: 39.884231, longitude: -82.753512, timezone: "America/New_York" },
-    { name: "Pickerington Ponds", admin1: "Ohio", country_code: "US", latitude: 39.88145, longitude: -82.7974, timezone: "America/New_York" },
+    { name: "Springfield", admin1: "Ohio", country_code: "US", latitude: 39.884231, longitude: -82.753512, timezone: "America/New_York" },
+    { name: "Springfield Ponds", admin1: "Ohio", country_code: "US", latitude: 39.88145, longitude: -82.7974, timezone: "America/New_York" },
   ],
 };
 
 test("finds a town by name and brings its timezone with it", async () => {
-  const places = await searchPlaces("Pickerington", stub(geocoded));
-  assert.equal(places[0]?.label, "Pickerington, Ohio, US");
+  const places = await searchPlaces("Springfield", stub(geocoded));
+  assert.equal(places[0]?.label, "Springfield, Ohio, US");
   assert.equal(places[0]?.timeZone, "America/New_York");
   // Rounded here too, so a precise coordinate never even reaches the family's record.
   assert.equal(places[0]?.latitude, 39.88);
@@ -174,6 +174,6 @@ test("a row missing what a place needs is skipped rather than half-built", async
 });
 
 test("an upstream failure on the place lookup is an error, not an empty list", async () => {
-  await assert.rejects(() => searchPlaces("Pickerington", stub({}, { ok: false, status: 500 })), WeatherFetchError);
-  await assert.rejects(() => searchPlaces("Pickerington", stub("<html>")), WeatherFetchError);
+  await assert.rejects(() => searchPlaces("Springfield", stub({}, { ok: false, status: 500 })), WeatherFetchError);
+  await assert.rejects(() => searchPlaces("Springfield", stub("<html>")), WeatherFetchError);
 });

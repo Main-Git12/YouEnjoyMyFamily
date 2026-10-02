@@ -81,7 +81,7 @@ export default function HouseholdLocation({ location, onSearch, onSave }: Househ
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Town or city — e.g. Pickerington"
+            placeholder="Town or city"
             className="w-full rounded-card border-2 border-olive-100 px-3 py-2 min-h-[44px]"
           />
         </label>

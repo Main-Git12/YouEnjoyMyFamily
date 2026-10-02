@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fetchMenuMonth, monthsBetween, monthOf, MenuFetchError, type MenuFetch } from "./schoolMenu";
 
-const VIOLET = { provider: "myschoolmenus" as const, organizationId: 2230, siteId: 13754, menuId: 117559 };
+const VIOLET = { provider: "myschoolmenus" as const, organizationId: 40000, siteId: 40001, menuId: 40002 };
 
 /** Builds the provider's shape: JSON whose `setting` is itself a JSON string. */
 const day = (date: string, display: unknown[]): unknown => ({
@@ -143,7 +143,7 @@ test("the request goes to the menu named by the three ids, and nowhere else", as
   await fetchMenuMonth(VIOLET, "2026-09", fetchImpl);
 
   assert.deepEqual(urls, [
-    "https://menus.healthepro.com/api/organizations/2230/menus/117559/year/2026/month/9/date_overwrites",
+    "https://menus.healthepro.com/api/organizations/40000/menus/40002/year/2026/month/9/date_overwrites",
   ]);
 });
 

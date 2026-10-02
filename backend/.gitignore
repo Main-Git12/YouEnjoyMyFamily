@@ -1,0 +1,5 @@
+
+# A filled-in seed names a real school, a real teacher and a real
+# child's week. That belongs in the deployed table, not in a repository.
+# Keep the .example; ignore anything actually filled in.
+seeds/*.json

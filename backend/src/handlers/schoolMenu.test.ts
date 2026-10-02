@@ -33,23 +33,23 @@ function makeEvent(
 }
 
 const PROFILE_KEY = { PK: "FAMILY#fam_1", SK: "SCHOOL#Parker" };
-const OCTOBER_KEY = { PK: "FAMILY#fam_1", SK: "SCHOOLMENU#117559#2026-10" };
-const SEPTEMBER_KEY = { PK: "FAMILY#fam_1", SK: "SCHOOLMENU#117559#2026-09" };
+const OCTOBER_KEY = { PK: "FAMILY#fam_1", SK: "SCHOOLMENU#40002#2026-10" };
+const SEPTEMBER_KEY = { PK: "FAMILY#fam_1", SK: "SCHOOLMENU#40002#2026-09" };
 
-const profile = (menuSource: unknown = { provider: "myschoolmenus", organizationId: 2230, siteId: 13754, menuId: 117559 }): Partial<SchoolProfileItem> => ({
+const profile = (menuSource: unknown = { provider: "myschoolmenus", organizationId: 40000, siteId: 40001, menuId: 40002 }): Partial<SchoolProfileItem> => ({
   ...PROFILE_KEY,
   entityType: "SCHOOL_PROFILE",
   memberId: "Parker",
-  schoolName: "Violet Elementary",
+  schoolName: "Maple Street Elementary",
   specials: [],
   menuSource: menuSource as SchoolProfileItem["menuSource"],
 });
 
 const cachedMonth = (month: string, dates: string[], ageMs: number): Partial<SchoolMenuMonthItem> => ({
   PK: "FAMILY#fam_1",
-  SK: `SCHOOLMENU#117559#${month}`,
+  SK: `SCHOOLMENU#40002#${month}`,
   entityType: "SCHOOL_MENU_MONTH",
-  menuId: 117559,
+  menuId: 40002,
   month,
   days: dates.map((date) => ({ date, groups: [{ heading: "Lunch Entree", items: [`Lunch for ${date}`] }] })),
   fetchedAt: new Date(Date.now() - ageMs).toISOString(),
@@ -116,7 +116,7 @@ test("a cache older than the TTL is refreshed and written back", async () => {
   assert.equal(menu?.stale, false);
   assert.deepEqual(menu?.days.map((d) => d.date), ["2026-10-01", "2026-10-02"]);
   const written = ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item as SchoolMenuMonthItem;
-  assert.equal(written.SK, "SCHOOLMENU#117559#2026-10");
+  assert.equal(written.SK, "SCHOOLMENU#40002#2026-10");
   assert.equal(written.days.length, 2);
 });
 

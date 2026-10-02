@@ -31,7 +31,7 @@ function makeEvent(
   } as APIGatewayProxyEventV2;
 }
 
-/** Miss Hineline's sheet, as it is written on the paper on the fridge. */
+/** Mr Alder's sheet, as it is written on the paper on the fridge. */
 const SPECIALS = [
   { dayOfWeek: 1, subject: "Art" },
   { dayOfWeek: 2, subject: "Gym", prepNote: "Have students wear closed toed shoes or bring in a pair to change into." },
@@ -40,7 +40,7 @@ const SPECIALS = [
   { dayOfWeek: 5, subject: "Music" },
 ];
 
-const VIOLET_MENU = { provider: "myschoolmenus", organizationId: 2230, siteId: 13754, menuId: 117559 };
+const VIOLET_MENU = { provider: "myschoolmenus", organizationId: 40000, siteId: 40001, menuId: 40002 };
 
 test("GET without familyId returns 400", async () => {
   const result = await handler(makeEvent({ method: "GET", pathParameters: {} }));
@@ -53,7 +53,7 @@ test("rejects a request with no Authorization header", async () => {
 });
 
 test("GET lists profiles under the SCHOOL# prefix, which does not catch the cached menus", async () => {
-  ddbMock.on(QueryCommand).resolves({ Items: [{ memberId: "Parker", schoolName: "Violet Elementary" }] });
+  ddbMock.on(QueryCommand).resolves({ Items: [{ memberId: "Parker", schoolName: "Maple Street Elementary" }] });
   const headers = mockFamilyAuth(ddbMock, "fam_1");
 
   const result = await handler(makeEvent({ method: "GET", pathParameters: { familyId: "fam_1" }, headers }));
@@ -64,7 +64,7 @@ test("GET lists profiles under the SCHOOL# prefix, which does not catch the cach
   // The trailing `#` is load-bearing: cached menus are `SCHOOLMENU#...`, and
   // a prefix of "SCHOOL" without it would list a year of lunches as if they
   // were children.
-  assert.ok(!"SCHOOLMENU#117559#2026-10".startsWith(String(prefix)));
+  assert.ok(!"SCHOOLMENU#40002#2026-10".startsWith(String(prefix)));
 });
 
 test("PUT stores the rotation and keeps the school's own wording for the prep notes", async () => {
@@ -80,8 +80,8 @@ test("PUT stores the rotation and keeps the school's own wording for the prep no
       pathParameters: { familyId: "fam_1", memberId: "Parker" },
       headers,
       body: JSON.stringify({
-        schoolName: "Violet Elementary",
-        teacher: "Miss Hineline",
+        schoolName: "Maple Street Elementary",
+        teacher: "Mr Alder",
         specials: SPECIALS,
         menuSource: VIOLET_MENU,
       }),
@@ -92,7 +92,7 @@ test("PUT stores the rotation and keeps the school's own wording for the prep no
   const item = ddbMock.commandCalls(PutCommand)[0]?.args[0].input.Item as SchoolProfileItem;
   assert.equal(item.SK, "SCHOOL#Parker");
   assert.equal(item.entityType, "SCHOOL_PROFILE");
-  assert.equal(item.teacher, "Miss Hineline");
+  assert.equal(item.teacher, "Mr Alder");
   assert.equal(item.specials[3]?.subject, "Library");
   assert.equal(item.specials[3]?.prepNote, "Have your student bring in their library book to return.");
   // Days with no small print keep an explicit null, not an empty string.
@@ -111,7 +111,7 @@ test("PUT sorts the rotation by weekday and keeps one entry per day", async () =
       pathParameters: { familyId: "fam_1", memberId: "Parker" },
       headers,
       body: JSON.stringify({
-        schoolName: "Violet Elementary",
+        schoolName: "Maple Street Elementary",
         specials: [
           { dayOfWeek: 5, subject: "Music" },
           { dayOfWeek: 1, subject: "Gym" },
@@ -146,7 +146,7 @@ test("PUT is an upsert: editing the sheet keeps the original createdAt", async (
       method: "PUT",
       pathParameters: { familyId: "fam_1", memberId: "Parker" },
       headers,
-      body: JSON.stringify({ schoolName: "Violet Elementary", specials: SPECIALS }),
+      body: JSON.stringify({ schoolName: "Maple Street Elementary", specials: SPECIALS }),
     })
   );
 
@@ -163,7 +163,7 @@ test("a rotation with a day outside 0-6, or an empty subject, is refused", async
         method: "PUT",
         pathParameters: { familyId: "fam_1", memberId: "Parker" },
         headers,
-        body: JSON.stringify({ schoolName: "Violet Elementary", specials }),
+        body: JSON.stringify({ schoolName: "Maple Street Elementary", specials }),
       })
     );
     assert.equal(result.statusCode, 400);
@@ -178,7 +178,7 @@ test("a menuSource naming its own URL is refused — only the three ids are acce
       pathParameters: { familyId: "fam_1", memberId: "Parker" },
       headers,
       body: JSON.stringify({
-        schoolName: "Violet Elementary",
+        schoolName: "Maple Street Elementary",
         specials: SPECIALS,
         menuSource: { provider: "http://169.254.169.254/latest/meta-data/", organizationId: 1, siteId: 1, menuId: 1 },
       }),

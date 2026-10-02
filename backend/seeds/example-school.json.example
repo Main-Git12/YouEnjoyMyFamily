@@ -1,0 +1,33 @@
+{
+  "_comment": [
+    "Copy this to a file of your own (backend/seeds/*.json is gitignored) and",
+    "fill it in from the sheet your school sent home.",
+    "",
+    "organizationId / siteId / menuId identify a published menu inside a",
+    "provider. Find yours by opening your school's menu on the provider's own",
+    "site and reading them out of the URL. They are not secret, but they do",
+    "name a specific building, so keep the filled-in file out of git — which",
+    "is why seeds/*.json is ignored.",
+    "",
+    "dayOfWeek is 0 = Sunday, matching Date.prototype.getDay.",
+    "prepNote is the small print: what has to go in the bag the night before.",
+    "Write it in the school's own words so a parent recognises the sentence."
+  ],
+  "memberId": "child-1",
+  "schoolName": "Example Elementary",
+  "teacher": null,
+  "gradeLabel": null,
+  "specials": [
+    { "dayOfWeek": 1, "subject": "Art", "prepNote": null },
+    { "dayOfWeek": 2, "subject": "Gym", "prepNote": "Shoes to change into." },
+    { "dayOfWeek": 3, "subject": "Technology", "prepNote": "Laptop, charged." },
+    { "dayOfWeek": 4, "subject": "Library", "prepNote": "Library book goes back." },
+    { "dayOfWeek": 5, "subject": "Music", "prepNote": null }
+  ],
+  "menuSource": {
+    "provider": "myschoolmenus",
+    "organizationId": 0,
+    "siteId": 0,
+    "menuId": 0
+  }
+}

@@ -13,11 +13,11 @@ import {
 import type { SchoolMenu, SchoolProfile } from "../types";
 import { WINDOW_CLOSES_AT_MINUTE } from "./timeOfDay";
 
-/** Miss Hineline's sheet, word for word off the paper on the fridge. */
+/** Mr Alder's sheet, word for word off the paper on the fridge. */
 const PARKER: SchoolProfile = {
   memberId: "Parker",
-  schoolName: "Violet Elementary",
-  teacher: "Miss Hineline",
+  schoolName: "Maple Street Elementary",
+  teacher: "Mr Alder",
   gradeLabel: null,
   specials: [
     { dayOfWeek: 1, subject: "Art", prepNote: null },
@@ -30,7 +30,7 @@ const PARKER: SchoolProfile = {
     { dayOfWeek: 4, subject: "Library", prepNote: "Have your student bring in their library book to return." },
     { dayOfWeek: 5, subject: "Music", prepNote: null },
   ],
-  menuSource: { provider: "myschoolmenus", organizationId: 2230, siteId: 13754, menuId: 117559 },
+  menuSource: { provider: "myschoolmenus", organizationId: 40000, siteId: 40001, menuId: 40002 },
 };
 
 // 2026-09-30 is a Wednesday; 2026-10-01 a Thursday; 2026-10-02 a Friday.
@@ -113,9 +113,9 @@ describe("what has to be in the bag", () => {
 
   it("names the sheet it came from so a parent can check it", () => {
     const notes = packingNotes([PARKER], at("2026-09-30", 20, 0));
-    expect(notes[0]?.because).toBe("From Miss Hineline's specials schedule for Violet Elementary.");
+    expect(notes[0]?.because).toBe("From Mr Alder's specials schedule for Maple Street Elementary.");
     const noTeacher = packingNotes([{ ...PARKER, teacher: null }], at("2026-09-30", 20, 0));
-    expect(noTeacher[0]?.because).toBe("From the specials schedule for Violet Elementary.");
+    expect(noTeacher[0]?.because).toBe("From the specials schedule for Maple Street Elementary.");
   });
 });
 
@@ -155,8 +155,8 @@ describe("what it will not say", () => {
 describe("the lunch menu", () => {
   const menu: SchoolMenu = {
     memberId: "Parker",
-    schoolName: "Violet Elementary",
-    menuId: 117559,
+    schoolName: "Maple Street Elementary",
+    menuId: 40002,
     days: [
       { date: "2026-10-01", groups: [{ heading: "Lunch Entree", items: ["Walking Taco"] }] },
       { date: "2026-10-02", groups: [{ heading: "Lunch Entree", items: ["Breaded Chicken Patty w/ Bun"] }] },
@@ -174,15 +174,15 @@ describe("the lunch menu", () => {
 
   it("says plainly when it is showing a saved copy rather than a fresh one", () => {
     const now = new Date("2026-10-01T12:00:00.000Z");
-    expect(menuSource(menu, now)).toBe("Violet Elementary's published lunch menu.");
+    expect(menuSource(menu, now)).toBe("Maple Street Elementary's published lunch menu.");
     expect(menuSource({ ...menu, stale: true }, now)).toBe(
-      "Violet Elementary's published lunch menu, from a copy saved 6 hours ago."
+      "Maple Street Elementary's published lunch menu, from a copy saved 6 hours ago."
     );
     expect(menuSource({ ...menu, stale: true, fetchedAt: "2026-09-27T12:00:00.000Z" }, now)).toBe(
-      "Violet Elementary's published lunch menu, from a copy saved 4 days ago."
+      "Maple Street Elementary's published lunch menu, from a copy saved 4 days ago."
     );
     expect(menuSource({ ...menu, stale: true, fetchedAt: null }, now)).toBe(
-      "Violet Elementary's published lunch menu — couldn't be loaded."
+      "Maple Street Elementary's published lunch menu — couldn't be loaded."
     );
     expect(menuSource(null, now)).toBeNull();
   });

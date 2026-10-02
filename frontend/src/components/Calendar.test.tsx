@@ -46,11 +46,11 @@ describe("Calendar", () => {
 describe("Calendar — the school's specials", () => {
   const LIBRARY = {
     memberId: "Parker",
-    schoolName: "Violet Elementary",
+    schoolName: "Maple Street Elementary",
     date: "2026-10-01",
     subject: "Library",
     prepNote: "Have your student bring in their library book to return.",
-    because: "From Miss Hineline's specials schedule for Violet Elementary.",
+    because: "From Mr Alder's specials schedule for Maple Street Elementary.",
   };
 
   it("shows the subject, whose it is, and what has to be brought", () => {
@@ -64,7 +64,7 @@ describe("Calendar — the school's specials", () => {
   it("names the sheet it came from, so nobody thinks they typed it", () => {
     render(<Calendar entries={[]} school={[LIBRARY]} />);
     expect(
-      screen.getByText("From Miss Hineline's specials schedule for Violet Elementary.")
+      screen.getByText("From Mr Alder's specials schedule for Maple Street Elementary.")
     ).toBeInTheDocument();
   });
 

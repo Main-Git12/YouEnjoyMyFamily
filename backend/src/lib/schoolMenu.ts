@@ -3,11 +3,16 @@ import type { SchoolMenuDay, SchoolMenuGroup, SchoolMenuSourceInput } from "../t
 /**
  * Reads a school's published lunch menu.
  *
- * Districts here publish through MySchoolMenus (Health-e Pro), which serves
+ * Many districts publish through MySchoolMenus (Health-e Pro), which serves
  * a month at a time over a public, unauthenticated JSON API — no key, no
- * account, nothing to keep out of the bundle. Pickerington Local Schools is
- * organisation 2230; Violet Elementary is site 13754; the elementary lunch
- * menu is 117559 and is shared by every elementary building in the district.
+ * account, nothing to keep out of the bundle. A menu is identified by three
+ * integers (organisation, site, menu), which a family reads out of their own
+ * school's menu URL; one lunch menu is often shared across every elementary
+ * building in a district.
+ *
+ * Deliberately no real ids in this file. They name a specific building, and
+ * a building plus a child's name is most of what somebody would need to
+ * approach that child convincingly. They live in the deployed table.
  *
  * Only the base URL lives here. Which menu to read comes from the family's
  * own `SchoolProfile`, as three integers rather than a URL, so nothing a

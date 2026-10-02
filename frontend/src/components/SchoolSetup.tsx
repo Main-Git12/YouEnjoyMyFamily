@@ -113,7 +113,7 @@ export default function SchoolSetup({ members, profiles, onSave }: SchoolSetupPr
               setDraft((prev) => ({ ...prev, schoolName: event.target.value }));
               setSaved(false);
             }}
-            placeholder="Violet Elementary"
+            placeholder="Which school"
             className="w-full rounded-card border-2 border-olive-100 px-3 py-2"
           />
         </label>
@@ -125,7 +125,7 @@ export default function SchoolSetup({ members, profiles, onSave }: SchoolSetupPr
               setDraft((prev) => ({ ...prev, teacher: event.target.value }));
               setSaved(false);
             }}
-            placeholder="Miss Hineline"
+            placeholder="Their teacher"
             className="w-full rounded-card border-2 border-olive-100 px-3 py-2"
           />
         </label>

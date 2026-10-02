@@ -5,21 +5,21 @@ import type { SchoolMenu, SchoolPrep, SchoolProfile } from "../types";
 
 const PARKER: SchoolProfile = {
   memberId: "Parker",
-  schoolName: "Violet Elementary",
-  teacher: "Miss Hineline",
+  schoolName: "Maple Street Elementary",
+  teacher: "Mr Alder",
   gradeLabel: null,
   specials: [
     { dayOfWeek: 1, subject: "Art", prepNote: null },
     { dayOfWeek: 3, subject: "Technology", prepNote: "Make sure computers are fulled charged." },
     { dayOfWeek: 4, subject: "Library", prepNote: "Have your student bring in their library book to return." },
   ],
-  menuSource: { provider: "myschoolmenus", organizationId: 2230, siteId: 13754, menuId: 117559 },
+  menuSource: { provider: "myschoolmenus", organizationId: 40000, siteId: 40001, menuId: 40002 },
 };
 
 const MENU: SchoolMenu = {
   memberId: "Parker",
-  schoolName: "Violet Elementary",
-  menuId: 117559,
+  schoolName: "Maple Street Elementary",
+  menuId: 40002,
   days: [
     {
       date: "2026-10-01",
@@ -66,7 +66,7 @@ describe("SchoolDay", () => {
   it("says where it came from, every time", () => {
     render(<SchoolDay profiles={[PARKER]} menus={{}} now={at("2026-09-30", 20)} />);
     expect(
-      screen.getByText("From Miss Hineline's specials schedule for Violet Elementary.")
+      screen.getByText("From Mr Alder's specials schedule for Maple Street Elementary.")
     ).toBeInTheDocument();
   });
 
