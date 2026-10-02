@@ -6,6 +6,25 @@ on:
   pull_request:
 
 jobs:
+
+  # Runs before anything else: a leak is not something a passing test suite
+  # will ever tell you about, and this repository has published a child's
+  # school once already.
+  private-data:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # The denylist half only runs if the repo owner supplies their terms
+      # as a secret. Without it the structural check still runs.
+      - name: Write the private-terms denylist, if one is configured
+        if: ${{ secrets.PRIVATE_TERMS != '' }}
+        run: printf '%s\n' "$PRIVATE_TERMS" > .private-terms
+        env:
+          PRIVATE_TERMS: ${{ secrets.PRIVATE_TERMS }}
+      - run: npm run verify:private
   backend:
     runs-on: ubuntu-latest
     defaults:

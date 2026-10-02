@@ -29,3 +29,7 @@ yarn-error.log*
 samconfig.toml
 .aws-sam/
 cdk.out/
+
+# A household's own "never commit these" list. Gitignored on purpose: a
+# denylist that spells the terms out inside the repository defeats itself.
+.private-terms

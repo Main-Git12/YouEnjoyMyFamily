@@ -1,0 +1,7 @@
+{
+  "name": "youenjoymyfamily",
+  "private": true,
+  "scripts": {
+    "verify:private": "node scripts/check-private-data.mjs"
+  }
+}
