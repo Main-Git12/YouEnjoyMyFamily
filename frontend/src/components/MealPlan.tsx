@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import type { MealPlanEntry, MealSlot } from "../types";
 import type { EveningRoom, EveningStandby } from "../lib/eveningRoom";
+import { swapOptions, ingredientsFor, STANDING_OPTIONS } from "../lib/mealSwap";
 
 interface MealPlanProps {
   entries: MealPlanEntry[];
@@ -20,6 +21,18 @@ interface MealPlanProps {
   eveningRoom?: EveningRoom[];
   /** Dinners this family has itself put on evenings that already had something on. */
   standbys?: EveningStandby[];
+  /**
+   * Everything the family has planned or eaten, not just the week on
+   * screen. A swap suggestion built from one week of history would offer
+   * back the three dinners already in front of you.
+   */
+  history?: MealPlanEntry[];
+  /**
+   * Today, so "not had since" only ever talks about days that happened.
+   * Passed in rather than read from the clock so the week on screen and
+   * the suggestions under it can't disagree about what day it is.
+   */
+  today: string;
 }
 
 const SLOTS: MealSlot[] = ["breakfast", "lunch", "dinner"];
@@ -51,7 +64,12 @@ export default function MealPlan({
   onGenerateGroceryList,
   eveningRoom = [],
   standbys = [],
+  history,
+  today,
 }: MealPlanProps) {
+  // Falls back to the week on screen, so the component still works on its
+  // own; Dashboard passes the lot.
+  const allEntries = history ?? entries;
   const [editing, setEditing] = useState<{ date: string; slot: MealSlot } | null>(null);
   const [mealName, setMealName] = useState("");
   const [ingredientsText, setIngredientsText] = useState("");
@@ -214,6 +232,55 @@ export default function MealPlan({
             onChange={(e) => setIngredientsText(e.target.value)}
             className="w-full rounded-lg border border-olive-500 px-3 py-2"
           />
+
+          {/* Swapping a dinner meant deleting it and typing another, which
+              is the moment a Sunday plan stops being worth making. Every
+              option is a meal this family has cooked, with the reason it
+              is being offered, and tapping one brings back the ingredients
+              it needed last time — retyping those is the actual work. */}
+          {editing.slot === "dinner" && (
+            <div className="space-y-1">
+              <p className="text-xs uppercase tracking-wide text-olive-600">Or one of these</p>
+              <div className="flex flex-wrap gap-2">
+                {swapOptions({
+                  entries: allEntries,
+                  date: editing.date,
+                  currentName: mealName,
+                  today,
+                }).map((option) => (
+                  <button
+                    key={option.mealName}
+                    type="button"
+                    title={option.because}
+                    onClick={() => {
+                      setMealName(option.mealName);
+                      setIngredientsText(ingredientsFor(allEntries, option.mealName).join(", "));
+                    }}
+                    className="rounded-lg bg-olive-100 px-3 py-2 text-left text-sm text-olive-800 hover:bg-olive-200"
+                  >
+                    {option.mealName}
+                    {/* The working, not just the answer. A suggestion you
+                        can check beats a confident one you can't. */}
+                    <span className="block text-xs font-normal text-olive-600">{option.because}</span>
+                  </button>
+                ))}
+                {STANDING_OPTIONS.map((option) => (
+                  <button
+                    key={option.mealName}
+                    type="button"
+                    onClick={() => {
+                      setMealName(option.mealName);
+                      setIngredientsText("");
+                    }}
+                    className="rounded-lg border border-olive-300 px-3 py-2 text-left text-sm text-olive-800 hover:bg-olive-50"
+                  >
+                    {option.mealName}
+                    <span className="block text-xs font-normal text-olive-600">{option.because}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="flex gap-2">
             <button type="submit" className="rounded-lg bg-olive-600 text-white px-4 py-2 hover:bg-olive-700">
               Save

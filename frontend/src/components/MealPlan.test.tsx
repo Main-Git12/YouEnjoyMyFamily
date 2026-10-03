@@ -18,6 +18,7 @@ function mealPlanProps(overrides: Partial<MealPlanProps> = {}): MealPlanProps {
     onSave: vi.fn(),
     onRemove: vi.fn(),
     onGenerateGroceryList: vi.fn(),
+    today: TODAY,
     ...overrides,
   };
 }
@@ -159,6 +160,90 @@ describe("formatDayLabel parity", () => {
   });
 });
 
+describe("swapping a dinner", () => {
+  const history: MealPlanEntry[] = [
+    { date: "2026-08-03", slot: "dinner", mealName: "Chilli", ingredients: ["1 kg mince", "2 cans kidney beans"] },
+    { date: "2026-09-07", slot: "dinner", mealName: "Pasta bake", ingredients: ["Penne", "Passata"] },
+  ];
+  const days = ["2026-10-07", "2026-10-08"];
+  const swapProps = (overrides: Partial<MealPlanProps> = {}): MealPlanProps => ({
+    entries: [],
+    days,
+    weekOffset: 0,
+    onWeekOffsetChange: vi.fn(),
+    onSave: vi.fn(),
+    onRemove: vi.fn(),
+    onGenerateGroceryList: vi.fn(),
+    history,
+    today: "2026-10-07",
+    ...overrides,
+  });
+
+  const openDinnerOn = (label: string) =>
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(`Dinner on ${label}`) }));
+
+  it("offers meals from the family's own history, with the reason", () => {
+    render(<MealPlan {...swapProps()} />);
+    openDinnerOn("Wed, Oct 7");
+
+    expect(screen.getByRole("button", { name: /Chilli/ })).toBeInTheDocument();
+    expect(screen.getByText("Not had since Aug 3.")).toBeInTheDocument();
+  });
+
+  it("brings the ingredients back with the meal, so nobody retypes them", async () => {
+    // This is the actual work in a Sunday planning session, and the app
+    // has the list from last time.
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<MealPlan {...swapProps({ onSave })} />);
+    openDinnerOn("Wed, Oct 7");
+
+    fireEvent.click(screen.getByRole("button", { name: /Chilli/ }));
+    expect(screen.getByLabelText(/Ingredients/)).toHaveValue("1 kg mince, 2 cans kidney beans");
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave).toHaveBeenCalledWith("2026-10-07", "dinner", {
+      mealName: "Chilli",
+      ingredients: ["1 kg mince", "2 cans kidney beans"],
+    });
+  });
+
+  it("can name a night without inventing a meal, and shops for nothing", async () => {
+    // A Sunday plan with two blanks in it is a plan somebody abandons,
+    // and the blanks are usually leftovers and going out.
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<MealPlan {...swapProps({ onSave })} />);
+    openDinnerOn("Wed, Oct 7");
+
+    fireEvent.click(screen.getByRole("button", { name: /Leftovers/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave).toHaveBeenCalledWith("2026-10-07", "dinner", { mealName: "Leftovers", ingredients: [] });
+  });
+
+  it("doesn't offer swaps for breakfast or lunch", () => {
+    render(<MealPlan {...swapProps()} />);
+    fireEvent.click(screen.getByRole("button", { name: /Breakfast on Wed, Oct 7/ }));
+    expect(screen.queryByText("Or one of these")).not.toBeInTheDocument();
+  });
+
+  it("won't offer back what's already on that night", () => {
+    render(
+      <MealPlan
+        {...swapProps({
+          entries: [{ date: "2026-10-07", slot: "dinner", mealName: "Chilli", ingredients: [] }],
+          history: [...history, { date: "2026-10-07", slot: "dinner", mealName: "Chilli", ingredients: [] }],
+        })}
+      />
+    );
+    openDinnerOn("Wed, Oct 7");
+    // Pasta bake is the only thing left to offer.
+    expect(screen.getByText("Not had since Sep 7.")).toBeInTheDocument();
+    expect(screen.queryByText(/Not had since Aug 3/)).not.toBeInTheDocument();
+  });
+});
+
 describe("what the evening already has on it", () => {
   const days = ["2026-10-07", "2026-10-08"];
   const baseProps = {
@@ -169,6 +254,7 @@ describe("what the evening already has on it", () => {
     onSave: async () => {},
     onRemove: async () => {},
     onGenerateGroceryList: async () => ({ added: 0, skipped: 0 }),
+    today: "2026-10-07",
   };
 
   it("shows the calendar's own words beside the day being planned", () => {

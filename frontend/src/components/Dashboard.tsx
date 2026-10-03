@@ -1359,6 +1359,8 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
                 onGenerateGroceryList={handleGenerateGroceryList}
                 eveningRoom={weekRoom}
                 standbys={weekStandbys}
+                history={mealPlan}
+                today={today}
               />
               <DraftWeek draft={weekDraft} onAccept={handleAcceptDraft} />
             </>

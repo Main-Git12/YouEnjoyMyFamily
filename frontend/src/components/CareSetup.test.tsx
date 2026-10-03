@@ -81,10 +81,11 @@ describe("CareSetup", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save the shift" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalled());
-    const [step] = onSave.mock.calls[0][0].steps;
-    expect(step.title).toBe("Breakfast");
-    expect(step.pausedUntil).toBe("2026-11-02");
-    expect(step.pausedReason).toBe("Hand in a cast");
+    const saved = onSave.mock.calls[0]?.[0] as { steps: Record<string, unknown>[] };
+    const step = saved.steps[0];
+    expect(step?.title).toBe("Breakfast");
+    expect(step?.pausedUntil).toBe("2026-11-02");
+    expect(step?.pausedReason).toBe("Hand in a cast");
   });
 
   it("offers cover from the adults, never from a child", () => {
@@ -120,9 +121,10 @@ describe("CareSetup", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save the shift" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalled());
-    const [step] = onSave.mock.calls[0][0].steps;
-    expect(step.pausedUntil).toBeNull();
-    expect(step.coveredBy).toBeNull();
+    const saved = onSave.mock.calls[0]?.[0] as { steps: Record<string, unknown>[] };
+    const step = saved.steps[0];
+    expect(step?.pausedUntil).toBeNull();
+    expect(step?.coveredBy).toBeNull();
   });
 
   it("refuses to save a shift with nothing in it", async () => {
