@@ -61,6 +61,7 @@ import { planRoutine, appliesOn, isRoutineDue, type PlannedStep } from "../lib/r
 import { planCareShift, overlapWithMorning } from "../lib/carePlan";
 import { readShiftLog } from "../lib/shiftLog";
 import CareShift from "./CareShift";
+import CareSetup from "./CareSetup";
 import FocusDay from "./FocusDay";
 import FocusSession from "./FocusSession";
 import { suggestBlockLength } from "../lib/focusRhythm";
@@ -1547,6 +1548,14 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
                 await guardedWrite(() => api.removeHouseholdJob(familyId, jobId));
                 setRoster((prev) => ({ ...prev, jobs: prev.jobs.filter((row) => row.jobId !== jobId) }));
               }}
+            />
+          </section>
+          <section>
+            <h3 className="font-display text-lg text-olive-800 mb-2">The care shift</h3>
+            <CareSetup
+              routine={careRoutine}
+              members={roster.members}
+              onSave={(input) => handleSaveRoutine(input, "care")}
             />
           </section>
           <section>
