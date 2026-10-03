@@ -112,6 +112,104 @@ describe("Dashboard", () => {
     vi.resetAllMocks();
   });
 
+  // --- The care shift ----------------------------------------------------
+  //
+  // Built, tested, and for a while not reachable from anywhere on the
+  // screen. These tests are the ones that would have said so.
+
+  /** A Wednesday, so Kimmie is on and the shift is mid-morning. */
+  const WEDNESDAY = new Date(2026, 9, 7, 11, 0);
+
+  function careRoutine() {
+    return {
+      routineId: "r-care",
+      kind: "care" as const,
+      name: "Sheliah's day",
+      anchorTime: "09:00",
+      daysOfWeek: [1, 2, 3, 4, 5],
+      active: true,
+      steps: [
+        { stepId: "s1", title: "Coffee", targetMinutes: 5, memberId: null },
+        { stepId: "s2", title: "Breakfast", targetMinutes: 20, memberId: null },
+        { stepId: "s3", title: "Shower", targetMinutes: 30, memberId: null },
+      ],
+    };
+  }
+
+  const kimmie = {
+    memberId: "kimmie",
+    displayName: "Kimmie",
+    role: "carer" as const,
+    note: null,
+    daysOfWeek: [2, 3, 4],
+    startsAt: "09:00",
+    endsAt: "13:00",
+  };
+
+  async function renderWithCare(overrides: { members?: typeof kimmie[] } = {}) {
+    vi.setSystemTime(WEDNESDAY);
+    vi.mocked(api.listTasks).mockResolvedValue([]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+    vi.mocked(api.listRoutines).mockResolvedValue([careRoutine()]);
+    vi.mocked(api.getHousehold).mockResolvedValue({
+      members: overrides.members ?? [kimmie],
+      jobs: [],
+    });
+    render(<Dashboard />);
+    await waitFor(() => expect(api.getHousehold).toHaveBeenCalled());
+  }
+
+  it("puts today's care shift on the screen, with who is on and when", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    await renderWithCare();
+    await openPanel(/Today's shift/);
+
+    await screen.findByRole("heading", { name: /Today's shift/ });
+    // The hours as agreed with that person, from the rota — not the
+    // routine's own anchor, which is only the fallback. Kimmie is 9–1 and
+    // the routine's own anchor is 09:00, so the end time is the tell.
+    // Kimmie is 9–1 and the routine's own anchor is 09:00, so the end
+    // time is what tells the rota from the fallback.
+    expect(screen.getAllByText(/Kimmie · 9:00\s*(AM)?\s*–\s*1:00/).length).toBeGreaterThan(0);
+    expect(await screen.findByText("Coffee")).toBeInTheDocument();
+    expect(screen.getByText("Shower")).toBeInTheDocument();
+  });
+
+  it("marks every care step as an estimate until it has been timed", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    await renderWithCare();
+    await openPanel(/Today's shift/);
+
+    // A plan nobody can check is a plan that can only be obeyed, and this
+    // one is handed to somebody who wasn't in the room when it was written.
+    const estimates = await screen.findAllByText(/still an estimate/);
+    expect(estimates.length).toBe(3);
+  });
+
+  it("says plainly when nobody is down to come in", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    await renderWithCare({ members: [] });
+    await openPanel(/Today's shift/);
+
+    // The steps still lay out from the routine's own anchor; what's absent
+    // is a named person, and the panel says so rather than inventing one.
+    await screen.findByRole("heading", { name: /Today's shift/ });
+    expect(screen.getByText(/nobody down for today/)).toBeInTheDocument();
+  });
+
+  it("never says anything about the person the care is for", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    await renderWithCare();
+    await openPanel(/Today's shift/);
+    await screen.findByText("Coffee");
+
+    // This panel is read off a kitchen wall by a paid worker, and the
+    // person it is about walks past it too.
+    const banned = /\b(frail|decline|confus|unable|struggl|patient|poor|difficult|incontinen)\b/i;
+    expect(document.body.textContent ?? "").not.toMatch(banned);
+  });
+
   it("renders fetched tasks and schedule entries", async () => {
     vi.mocked(api.listTasks).mockResolvedValue([
       { taskId: "t1", title: "Pack soccer bag", assignedTo: null, dueDate: null, gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 , createdAt: "2020-01-01T00:00:00.000Z"},

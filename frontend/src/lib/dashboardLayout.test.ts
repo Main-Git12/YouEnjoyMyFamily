@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { planPanels, drawerLabel, ALL_PANELS, type PanelSignals } from "./dashboardLayout";
+import { planPanels, drawerLabel, ALL_PANELS, PREFERENCE_BY_WINDOW, type PanelSignals } from "./dashboardLayout";
 
 const at = (hour: number, minute = 0) => new Date(2026, 8, 25, hour, minute);
 
@@ -16,6 +16,7 @@ function signals(overrides: Partial<PanelSignals> = {}): PanelSignals {
     statedPreferenceCount: 0,
     schoolNotesNow: 0,
     tomorrowSignals: 0,
+    careStepsToday: 0,
     ...overrides,
   };
 }
@@ -27,6 +28,34 @@ describe("planPanels", () => {
     expect(placed.length).toBe(ALL_PANELS.length);
     expect(new Set(placed).size).toBe(ALL_PANELS.length);
     for (const panel of ALL_PANELS) expect(placed).toContain(panel);
+  });
+
+  it("every part of the day has an opinion about every panel", () => {
+    // A panel missing from a window's list doesn't break anything — it
+    // just silently ranks last for ever, which is how a new panel gets
+    // built and then never seen.
+    for (const [window, preference] of Object.entries(PREFERENCE_BY_WINDOW)) {
+      for (const panel of ALL_PANELS) {
+        if (panel === "chores") continue; // always the lead, never ranked
+        expect(preference, `${window} has no opinion about "${panel}"`).toContain(panel);
+      }
+    }
+  });
+
+  it("puts the care shift in the rail on a day somebody is coming in", () => {
+    // Nine to five covers both carers' hours; that is when this is the
+    // panel somebody actually needs to read. Everything else here has
+    // something in it too, so the rail is genuinely contested — otherwise
+    // the panel wins by default and this proves nothing.
+    const busy = { now: at(11), scheduleEntriesToday: 2, focusBlocksToday: 1, outstandingCartItems: 4, insightCount: 2 };
+    expect(planPanels(signals({ ...busy, careStepsToday: 6 })).rail).toContain("care");
+    expect(planPanels(signals({ ...busy, careStepsToday: 0 })).rail).not.toContain("care");
+  });
+
+  it("keeps the care shift out of the way on a day nobody is rostered", () => {
+    const plan = planPanels(signals({ now: at(11), careStepsToday: 0, scheduleEntriesToday: 2, insightCount: 2, outstandingCartItems: 3 }));
+    expect(plan.rail).not.toContain("care");
+    expect(plan.drawer).toContain("care");
   });
 
   it("always leads with the chores, whatever the hour", () => {

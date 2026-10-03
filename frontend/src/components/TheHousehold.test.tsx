@@ -55,8 +55,64 @@ describe("TheHousehold", () => {
         displayName: "Sheliah",
         role: "adult",
         note: "Picks Parker up on Tuesdays",
+        // Nulled rather than left off: somebody who lives here does not
+        // have blank hours, they have no hours.
+        daysOfWeek: null,
+        startsAt: null,
+        endsAt: null,
       })
     );
+  });
+
+  it("has somewhere to put a carer at all", () => {
+    // Without this option there was no way to add Ryan or Kimmie, which
+    // made the whole care rota unreachable from the app.
+    render(<TheHousehold household={base({ members: [] })} {...props} />);
+    const roles = within(screen.getByLabelText(/In the house as/)).getAllByRole("option");
+    expect(roles.map((option) => option.textContent)).toEqual(["Adult", "Child", "Carer"]);
+  });
+
+  it("asks a carer for their days and hours, and nobody else", async () => {
+    const onSaveMember = vi.fn(noop);
+    render(<TheHousehold household={base({ members: [] })} {...props} onSaveMember={onSaveMember} />);
+
+    // Nothing to fill in until the answer would mean something.
+    expect(screen.queryByRole("button", { name: "Mon" })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/In the house as/), { target: { value: "carer" } });
+    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: "Ryan" } });
+    fireEvent.click(screen.getByRole("button", { name: "Mon" }));
+    fireEvent.click(screen.getByRole("button", { name: "Fri" }));
+    fireEvent.change(screen.getByLabelText(/^From/), { target: { value: "10:00" } });
+    fireEvent.change(screen.getByLabelText(/^Until/), { target: { value: "12:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add to the house" }));
+
+    await waitFor(() =>
+      expect(onSaveMember).toHaveBeenCalledWith("ryan", {
+        displayName: "Ryan",
+        role: "carer",
+        note: null,
+        daysOfWeek: [1, 5],
+        startsAt: "10:00",
+        endsAt: "12:00",
+      })
+    );
+  });
+
+  it("shows a carer's agreed hours on their row", () => {
+    // What a shift gets measured against later is this line, not anybody's
+    // recollection of what was agreed.
+    render(
+      <TheHousehold
+        household={base({
+          members: [
+            { memberId: "kimmie", displayName: "Kimmie", role: "carer", note: null, daysOfWeek: [2, 3, 4], startsAt: "09:00", endsAt: "13:00" },
+          ],
+        })}
+        {...props}
+      />
+    );
+    expect(screen.getByText("Tue, Wed, Thu · 09:00–13:00")).toBeInTheDocument();
   });
 
   it("marks out a job nobody has taken", () => {

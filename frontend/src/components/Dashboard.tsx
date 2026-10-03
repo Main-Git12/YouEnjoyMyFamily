@@ -58,6 +58,8 @@ const WHEN_IT_IS: Record<Exclude<DueWindow, "anytime">, string> = {
 import MorningRoutine from "./MorningRoutine";
 import MorningLaunch from "./MorningLaunch";
 import { planRoutine, appliesOn, isRoutineDue, type PlannedStep } from "../lib/routinePlan";
+import { planCareShift, overlapWithMorning } from "../lib/carePlan";
+import CareShift from "./CareShift";
 import FocusDay from "./FocusDay";
 import FocusSession from "./FocusSession";
 import { suggestBlockLength } from "../lib/focusRhythm";
@@ -110,6 +112,9 @@ const MORNING_CELEBRATION_MS = 90_000;
  * survives a re-render, a background sync, or another screen in the house
  * writing the same row.
  */
+const shortClock = (date: Date): string =>
+  date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
 function justFinishedRecently(run: RoutineRun | null, now: Date): boolean {
   if (!run?.finishedAt) return false;
   return now.getTime() - Date.parse(run.finishedAt) < MORNING_CELEBRATION_MS;
@@ -577,6 +582,26 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   const morningPlan = planOfKind("morning");
   const bedtimeRoutine = routineOfKind("bedtime");
   const bedtimePlan = planOfKind("bedtime");
+
+  /**
+   * Today's care shift, and whether it actually lands on the school
+   * morning. The overlap is computed rather than assumed: a bus at 07:52
+   * and a shift at 10:00 do not compete for anything however busy both
+   * are, and a household reorganising itself around a clash it only
+   * believes in will move things that did not need moving.
+   */
+  const careRoutine = routineOfKind("care");
+  const carePlan = planCareShift({
+    routine: careRoutine,
+    runs: routineRuns.filter((run) => run.routineId === careRoutine?.routineId),
+    members: roster.members,
+    isoDate: today,
+    now: clock,
+  });
+  const careOverlap = overlapWithMorning(
+    { shiftStart: carePlan?.shiftStart ?? null, shiftEnd: carePlan?.shiftEnd ?? null },
+    morningPlan ? { anchorAt: morningPlan.anchorAt, totalExpectedMinutes: morningPlan.totalExpectedMinutes } : null
+  );
   // The launch screen takes over when the morning is actually due — or
   // when someone asked for it. Dismissal is per-day, so waving it away to
   // check the calendar doesn't switch the feature off for good.
@@ -860,6 +885,7 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
     statedPreferenceCount: preferences.length,
     schoolNotesNow: schoolDayNotes(schoolProfiles, clock, schoolPrep).length,
     tomorrowSignals: tomorrow?.signals.length ?? 0,
+    careStepsToday: carePlan?.steps.length ?? 0,
   };
   const panelPlan = planPanels(panelSignals);
 
@@ -1417,6 +1443,17 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
           }}
         />
       ),
+    },
+    care: {
+      title: "Today's shift",
+      // Who and when, from the rota that was agreed. The hours on the
+      // heading are the agreed ones, not a guess at how today will go.
+      subtitle: carePlan?.carer
+        ? carePlan.shiftStart && carePlan.shiftEnd
+          ? `${carePlan.carer.displayName} · ${shortClock(carePlan.shiftStart)}–${shortClock(carePlan.shiftEnd)}`
+          : carePlan.carer.displayName
+        : "nobody down for today",
+      body: <CareShift plan={carePlan} overlap={careOverlap} />,
     },
     "school-setup": {
       title: "Setup",

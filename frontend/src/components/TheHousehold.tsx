@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { Household, HouseholdJob, HouseholdMember, HouseholdRole, JobKind } from "../types";
 import { JOB_CATALOG, tallyJobs, readTheLoad } from "../lib/houseJobs";
+import { describeRota } from "../lib/careCatalog";
 
 interface TheHouseholdProps {
   household: Household;
@@ -12,6 +13,7 @@ interface TheHouseholdProps {
 
 const ROLE_LABELS: Record<HouseholdRole, string> = { adult: "Adult", child: "Child", carer: "Carer" };
 const KIND_LABELS: Record<JobKind, string> = { doing: "hands-on", arranging: "noticing & booking" };
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /** A stable id from a name or title, so the same job typed twice is one row. */
 const slug = (text: string): string =>
@@ -43,6 +45,11 @@ export default function TheHousehold({
   const [name, setName] = useState("");
   const [role, setRole] = useState<HouseholdRole>("adult");
   const [note, setNote] = useState("");
+  // Only asked for when the answer means something: a rota is what you
+  // agree with somebody who comes in, and nobody who lives here has one.
+  const [days, setDays] = useState<number[]>([]);
+  const [startsAt, setStartsAt] = useState("");
+  const [endsAt, setEndsAt] = useState("");
   const [busy, setBusy] = useState(false);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
 
@@ -58,13 +65,28 @@ export default function TheHousehold({
     if (!displayName || busy) return;
     setBusy(true);
     try {
-      await onSaveMember(slug(displayName), { displayName, role, note: note.trim() || null });
+      await onSaveMember(slug(displayName), {
+        displayName,
+        role,
+        note: note.trim() || null,
+        // Explicitly null off a rota, never omitted: somebody who lives
+        // here does not have blank hours, they have no hours.
+        daysOfWeek: role === "carer" && days.length > 0 ? [...days].sort((a, b) => a - b) : null,
+        startsAt: role === "carer" ? startsAt || null : null,
+        endsAt: role === "carer" ? endsAt || null : null,
+      });
       setName("");
       setNote("");
+      setDays([]);
+      setStartsAt("");
+      setEndsAt("");
     } finally {
       setBusy(false);
     }
   }
+
+  const toggleDay = (day: number) =>
+    setDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
 
   return (
     <div className="space-y-8">
@@ -87,6 +109,11 @@ export default function TheHousehold({
                   {ROLE_LABELS[member.role]}
                   {member.note ? ` · ${member.note}` : ""}
                 </span>
+                {/* The hours as agreed. What the shift is measured against
+                    later is this line, not anybody's recollection of it. */}
+                {describeRota(member) && (
+                  <span className="block text-xs text-olive-700">{describeRota(member)}</span>
+                )}
               </span>
               <button
                 type="button"
@@ -119,6 +146,11 @@ export default function TheHousehold({
             >
               <option value="adult">Adult</option>
               <option value="child">Child</option>
+              {/* Without this there was no way to put a carer in the app at
+                  all, which made the whole care rota unreachable. A carer
+                  is not family and not staff-with-a-gem-balance: they get
+                  a rota and a shift, and nothing from the children's game. */}
+              <option value="carer">Carer</option>
             </select>
           </label>
           <label className="flex-1 min-w-[12rem] text-sm text-olive-700">
@@ -137,6 +169,55 @@ export default function TheHousehold({
           >
             Add to the house
           </button>
+
+          {role === "carer" && (
+            <div className="w-full rounded-lg bg-olive-50 px-3 py-3">
+              <p className="text-sm text-olive-700 mb-2">
+                The days and hours as agreed. The shift on the wall is laid out from these, and anybody
+                can see what was agreed without having to ask.
+              </p>
+              <fieldset className="mb-2">
+                <legend className="text-sm text-olive-700 mb-1">Days</legend>
+                <div className="flex flex-wrap gap-2">
+                  {DAY_LABELS.map((label, day) => (
+                    <button
+                      key={label}
+                      type="button"
+                      aria-pressed={days.includes(day)}
+                      onClick={() => toggleDay(day)}
+                      className={`min-h-11 min-w-11 rounded-full border px-3 text-sm ${
+                        days.includes(day)
+                          ? "border-olive-600 bg-olive-600 text-white"
+                          : "border-olive-300 text-olive-800"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+              <div className="flex flex-wrap gap-3">
+                <label className="text-sm text-olive-700">
+                  From
+                  <input
+                    type="time"
+                    value={startsAt}
+                    onChange={(event) => setStartsAt(event.target.value)}
+                    className="mt-1 block min-h-11 rounded-lg border border-olive-300 px-3"
+                  />
+                </label>
+                <label className="text-sm text-olive-700">
+                  Until
+                  <input
+                    type="time"
+                    value={endsAt}
+                    onChange={(event) => setEndsAt(event.target.value)}
+                    className="mt-1 block min-h-11 rounded-lg border border-olive-300 px-3"
+                  />
+                </label>
+              </div>
+            </div>
+          )}
         </form>
       </section>
 
