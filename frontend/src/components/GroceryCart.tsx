@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { CartItem } from "../types";
+import { groceryLineNote } from "../lib/groceryLine";
 
 interface GroceryCartProps {
   items: CartItem[];
@@ -111,15 +112,19 @@ export default function GroceryCart({ items, onAdd, onMarkUnavailable, onConfirm
         <p className="text-olive-700 italic mb-4">Nothing in the cart yet.</p>
       ) : (
         <ul className="space-y-2 mb-4">
-          {outstanding.map((item) => (
+          {outstanding.map((item) => {
+            const note = groceryLineNote(item);
+            return (
             <li key={item.itemId} className="bg-olive-50 rounded-lg px-4 py-2">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-2">
                 <span>
                   {item.status === "substituted" && item.substituteDescription ? item.substituteDescription : item.description}
-                  {item.quantity > 1 &&
-                    // A meal-plan item's quantity is how many of the week's
-                    // meals call for it, not how many to buy — saying "×3" in
-                    // an aisle would have someone buy three packs of tortillas.
+                  {item.quantity > 1 && !note.because &&
+                    // A meal-plan row's amount lives in its description now
+                    // ("1.5 kg Ground beef"), and `quantity` is one line. An
+                    // older row written before that still counts meals in
+                    // `quantity`, and saying "×3" about it in an aisle would
+                    // have someone buy three packs of tortillas.
                     (item.source === "meal_plan" ? (
                       <span className="text-olive-600"> · for {item.quantity} meals</span>
                     ) : (
@@ -181,8 +186,14 @@ export default function GroceryCart({ items, onAdd, onMarkUnavailable, onConfirm
               {suggestions[item.itemId] && (
                 <p className="text-xs text-clay-700 italic mt-1">Last time: {suggestions[item.itemId]}</p>
               )}
+              {/* Where the number came from. A merged amount is the app's
+                  arithmetic, and an aisle is the worst place to start
+                  wondering about it. */}
+              {note.because && <p className="text-xs text-olive-600 mt-0.5">{note.because}</p>}
+              {note.check && <p className="text-xs text-clay-700 mt-0.5">{note.check}</p>}
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 

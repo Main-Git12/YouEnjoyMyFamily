@@ -100,6 +100,24 @@ export interface CartItem {
   // "meal_plan" items came from generateGroceryListFromMealPlan (see
   // backend/models/schema.md), never typed in directly.
   source: "manual" | "meal_plan";
+  /**
+   * The merged amount and its unit — 1.5 kg of mince summed across three
+   * meals. Separate from `quantity`, which means "how many of this line".
+   * Null when nobody wrote an amount anywhere; never guessed at.
+   */
+  amount?: number | null;
+  unit?: string | null;
+  /** True when at least one meal's amount couldn't be read. Worth a look. */
+  needsCheck?: boolean;
+  /**
+   * Which meals asked for this, in the family's own words. This is the
+   * `because` rule (see lib/insights.ts) applied to the shop: a row reading
+   * "1.5 kg Ground beef" has to be able to show the three meals it came
+   * from, or it is a number the family can only take on trust.
+   */
+  contributions?: { date: string; slot: string; mealName: string; raw: string }[];
+  /** The planned dates this row covers, used to keep regeneration honest. */
+  mealPlanDates?: string[];
 }
 
 export type MealSlot = "breakfast" | "lunch" | "dinner";

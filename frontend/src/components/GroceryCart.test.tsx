@@ -29,6 +29,97 @@ function cartProps(overrides: Partial<CartProps> = {}): CartProps {
 }
 
 describe("GroceryCart", () => {
+  it("shows a merged row's working, so nobody has to trust the number in an aisle", () => {
+    const items: CartItem[] = [
+      {
+        itemId: "i1",
+        description: "1.5 kg Ground beef",
+        quantity: 1,
+        status: "pending",
+        substituteDescription: null,
+        orderedAt: null,
+        source: "meal_plan",
+        amount: 1.5,
+        unit: "kg",
+        contributions: [
+          { date: "2025-01-17", slot: "dinner", mealName: "Tacos", raw: "1 kg ground beef" },
+          { date: "2025-01-19", slot: "dinner", mealName: "Chilli", raw: "500 g ground beef" },
+        ],
+      },
+    ];
+    render(<GroceryCart {...cartProps({ items })} />);
+
+    expect(screen.getByText("1.5 kg Ground beef")).toBeInTheDocument();
+    expect(screen.getByText("Tacos (Friday) · Chilli (Sunday)")).toBeInTheDocument();
+  });
+
+  it("asks how much rather than inventing an amount, and quotes what was written", () => {
+    const items: CartItem[] = [
+      {
+        itemId: "i1",
+        description: "Rice",
+        quantity: 1,
+        status: "pending",
+        substituteDescription: null,
+        orderedAt: null,
+        source: "meal_plan",
+        amount: null,
+        needsCheck: true,
+        contributions: [{ date: "2025-01-17", slot: "dinner", mealName: "Tacos", raw: "some rice" }],
+      },
+    ];
+    render(<GroceryCart {...cartProps({ items })} />);
+
+    expect(screen.getByText(/No amount given/)).toBeInTheDocument();
+    expect(screen.getByText(/“some rice”/)).toBeInTheDocument();
+    // No invented number anywhere on the row.
+    expect(screen.queryByText(/×\d/)).not.toBeInTheDocument();
+  });
+
+  it("drops the old meal count once a row can name its meals", () => {
+    // "for 3 meals" came from `quantity`, which a merged row no longer uses
+    // that way. A row that can list its meals says those instead.
+    const items: CartItem[] = [
+      {
+        itemId: "i1",
+        description: "6 Tortillas",
+        quantity: 3,
+        status: "pending",
+        substituteDescription: null,
+        orderedAt: null,
+        source: "meal_plan",
+        amount: 6,
+        contributions: [
+          { date: "2025-01-17", slot: "dinner", mealName: "Tacos", raw: "6 tortillas" },
+        ],
+      },
+    ];
+    render(<GroceryCart {...cartProps({ items })} />);
+
+    expect(screen.queryByText(/for 3 meals/)).not.toBeInTheDocument();
+    expect(screen.getByText("Tacos (Friday)")).toBeInTheDocument();
+  });
+
+  it("never puts a family member's name on a grocery row", () => {
+    const items: CartItem[] = [
+      {
+        itemId: "i1",
+        description: "Rice",
+        quantity: 1,
+        status: "pending",
+        substituteDescription: null,
+        orderedAt: null,
+        source: "meal_plan",
+        needsCheck: true,
+        contributions: [{ date: "2025-01-17", slot: "dinner", mealName: "Tacos", raw: "rice" }],
+      },
+    ];
+    const { container } = render(<GroceryCart {...cartProps({ items })} />);
+    for (const name of ["Paige", "Parker", "Isla", "Sheliah", "Andrew"]) {
+      expect(container.textContent).not.toContain(name);
+    }
+  });
+
   it("shows a calm empty state when the cart is empty", () => {
     render(<GroceryCart {...cartProps()} />);
     expect(screen.getByText(/nothing in the cart yet/i)).toBeInTheDocument();
