@@ -210,6 +210,44 @@ describe("Dashboard", () => {
     expect(document.body.textContent ?? "").not.toMatch(banned);
   });
 
+  it("records a shift from when it was signed in, not from when it was signed out", async () => {
+    // The bug this is here for: a shift signs in before any step is
+    // ticked, so deriving the start from the first step stamped the
+    // finish time over it and every shift came out zero minutes long —
+    // which is exactly the number somebody would have been confronted
+    // with.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    await renderWithCare();
+    await openPanel(/Today's shift/);
+
+    vi.mocked(api.saveRoutineRun).mockResolvedValue(undefined as never);
+    fireEvent.click(await screen.findByRole("button", { name: "I'm here" }));
+    await waitFor(() => expect(api.saveRoutineRun).toHaveBeenCalled());
+    const signedIn = vi.mocked(api.saveRoutineRun).mock.calls[0]?.[2];
+
+    // Seventy minutes later, the carer taps out.
+    vi.setSystemTime(new Date(WEDNESDAY.getTime() + 70 * 60_000));
+    fireEvent.click(await screen.findByRole("button", { name: "That's me done" }));
+    await waitFor(() => expect(api.saveRoutineRun).toHaveBeenCalledTimes(2));
+
+    const signedOut = vi.mocked(api.saveRoutineRun).mock.calls[1]?.[2];
+    expect(signedOut?.startedAt).toBe(signedIn?.startedAt);
+    expect(signedOut?.finishedAt).not.toBeNull();
+    const minutes =
+      (new Date(signedOut?.finishedAt as string).getTime() - new Date(signedOut?.startedAt as string).getTime()) / 60_000;
+    expect(Math.round(minutes)).toBe(70);
+  });
+
+  it("doesn't offer to sign a shift in on a day nobody is down to come in", async () => {
+    // A sign-in button on an empty day is an invitation to record a
+    // shift that didn't happen.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    await renderWithCare({ members: [] });
+    await openPanel(/Today's shift/);
+    await screen.findByText("Coffee");
+    expect(screen.queryByRole("button", { name: "I'm here" })).not.toBeInTheDocument();
+  });
+
   it("renders fetched tasks and schedule entries", async () => {
     vi.mocked(api.listTasks).mockResolvedValue([
       { taskId: "t1", title: "Pack soccer bag", assignedTo: null, dueDate: null, gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 , createdAt: "2020-01-01T00:00:00.000Z"},

@@ -59,6 +59,7 @@ import MorningRoutine from "./MorningRoutine";
 import MorningLaunch from "./MorningLaunch";
 import { planRoutine, appliesOn, isRoutineDue, type PlannedStep } from "../lib/routinePlan";
 import { planCareShift, overlapWithMorning } from "../lib/carePlan";
+import { readShiftLog } from "../lib/shiftLog";
 import CareShift from "./CareShift";
 import FocusDay from "./FocusDay";
 import FocusSession from "./FocusSession";
@@ -598,6 +599,22 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
     isoDate: today,
     now: clock,
   });
+  /** Today's shift as recorded: signed in when it began, out when it ended. */
+  const careRun =
+    routineRuns.find((run) => run.date === today && run.routineId === careRoutine?.routineId) ?? null;
+  /**
+   * The shifts behind today, against the hours agreed. Only for a carer
+   * who is actually on the rota — without agreed hours there is nothing to
+   * compare against, and inventing a number to measure somebody by is the
+   * last thing this screen should do.
+   */
+  const careLog = carePlan?.carer
+    ? readShiftLog({
+        carer: carePlan.carer,
+        runs: routineRuns.filter((run) => run.routineId === careRoutine?.routineId),
+        today,
+      })
+    : null;
   const careOverlap = overlapWithMorning(
     { shiftStart: carePlan?.shiftStart ?? null, shiftEnd: carePlan?.shiftEnd ?? null },
     morningPlan ? { anchorAt: morningPlan.anchorAt, totalExpectedMinutes: morningPlan.totalExpectedMinutes } : null
@@ -626,7 +643,13 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
    * tapping quickly.
    */
   async function saveRun(routineId: string, steps: RoutineRun["steps"], finished: boolean) {
-    const startedAt = steps[0]?.startedAt ?? new Date().toISOString();
+    // The first step's own start, then whatever this run already had, and
+    // only then now. That middle fallback is what makes a care shift's
+    // sign-out honest: a shift signs in before any step is ticked, so
+    // reaching straight for `now` here stamped the finish time over the
+    // start and every shift came out as zero minutes long.
+    const existing = routineRuns.find((run) => run.date === today && run.routineId === routineId) ?? null;
+    const startedAt = steps[0]?.startedAt ?? existing?.startedAt ?? new Date().toISOString();
     const run: Omit<RoutineRun, "routineId"> = {
       date: today,
       startedAt,
@@ -1453,7 +1476,24 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
           ? `${carePlan.carer.displayName} · ${shortClock(carePlan.shiftStart)}–${shortClock(carePlan.shiftEnd)}`
           : carePlan.carer.displayName
         : "nobody down for today",
-      body: <CareShift plan={carePlan} overlap={careOverlap} />,
+      body: (
+        <CareShift
+          plan={carePlan}
+          overlap={careOverlap}
+          log={careLog}
+          signedInAt={careRun?.startedAt ? new Date(careRun.startedAt) : null}
+          signedOutAt={careRun?.finishedAt ? new Date(careRun.finishedAt) : null}
+          // Only offered on a day somebody is actually down to come in;
+          // a sign-in button on an empty Sunday is an invitation to
+          // record a shift that didn't happen.
+          onSignIn={careRoutine && carePlan?.carer ? () => void saveRun(careRoutine.routineId, [], false) : undefined}
+          onSignOut={
+            careRoutine && carePlan?.carer
+              ? () => void saveRun(careRoutine.routineId, careRun?.steps ?? [], true)
+              : undefined
+          }
+        />
+      ),
     },
     "school-setup": {
       title: "Setup",

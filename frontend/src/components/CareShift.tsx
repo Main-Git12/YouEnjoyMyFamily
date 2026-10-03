@@ -1,9 +1,18 @@
 import type { CarePlan, Overlap } from "../lib/carePlan";
+import { describeMinutes, type ShiftLog } from "../lib/shiftLog";
 
 interface CareShiftProps {
   plan: CarePlan | null;
   /** Whether today's shift lands on the school morning. Null when there's nothing to compare. */
   overlap: Overlap | null;
+  /** The shifts so far against the hours agreed. Null before a carer is on the rota. */
+  log?: ShiftLog | null;
+  /** When today's shift was signed in and out. Null at either end until it is. */
+  signedInAt?: Date | null;
+  signedOutAt?: Date | null;
+  /** The carer taps these themselves. Nobody has to stand there noticing. */
+  onSignIn?: () => void;
+  onSignOut?: () => void;
 }
 
 const clock = (date: Date): string =>
@@ -24,7 +33,15 @@ const clock = (date: Date): string =>
  * plan that can only be obeyed, and this one is handed to somebody who
  * wasn't in the room when it was written.
  */
-export default function CareShift({ plan, overlap }: CareShiftProps) {
+export default function CareShift({
+  plan,
+  overlap,
+  log = null,
+  signedInAt = null,
+  signedOutAt = null,
+  onSignIn,
+  onSignOut,
+}: CareShiftProps) {
   if (!plan) return <p className="text-olive-700 italic">Nobody is down to come in today.</p>;
 
   const { carer, shiftStart, shiftEnd, steps, paused, roomMinutes, totalExpectedMinutes } = plan;
@@ -106,6 +123,60 @@ export default function CareShift({ plan, overlap }: CareShiftProps) {
       {/* Shown whichever way it comes out. "They don't run into each other"
           is the more useful answer and the one nobody expects. */}
       {overlap && <p className="text-xs text-olive-600">{overlap.because}</p>}
+
+      {/* The shift signs itself in and out.
+          Knowing whether the agreed hours were worked should not itself be
+          a job, and it is the kind of job that lands on whoever is already
+          carrying the most invisible work in the house. The carer taps
+          these; nobody has to stand there noticing, and nobody has to open
+          the conversation from memory. */}
+      {(onSignIn || onSignOut) && (
+        <section className="border-t border-olive-100 pt-3">
+          {!signedInAt ? (
+            <button
+              type="button"
+              onClick={onSignIn}
+              className="min-h-11 rounded-lg bg-olive-600 px-4 text-white"
+            >
+              I'm here
+            </button>
+          ) : !signedOutAt ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={onSignOut}
+                className="min-h-11 rounded-lg bg-olive-600 px-4 text-white"
+              >
+                That's me done
+              </button>
+              <span className="text-xs text-olive-600">Started {clock(signedInAt)}</span>
+            </div>
+          ) : (
+            <p className="text-sm text-olive-800">
+              {clock(signedInAt)}–{clock(signedOutAt)}
+              <span className="text-xs text-olive-600">
+                {" "}
+                · {describeMinutes((signedOutAt.getTime() - signedInAt.getTime()) / 60000)} today
+              </span>
+            </p>
+          )}
+        </section>
+      )}
+
+      {/* The record, open to everyone including the carer. A timeclock
+          everybody can read is fair; one person quietly keeping score is
+          not, and the same arithmetic that shows a short shift shows a
+          long one. */}
+      {log && log.countedShifts > 0 && (
+        <section className="border-t border-olive-100 pt-3">
+          <h4 className="text-xs uppercase tracking-wide text-olive-600 mb-1">Shifts so far</h4>
+          <p className="text-olive-900">
+            {describeMinutes(log.recordedMinutes)} worked of {describeMinutes(log.agreedMinutes)} agreed
+          </p>
+          <p className="text-xs text-olive-600">{log.because}</p>
+          {log.question && <p className="text-sm text-olive-800 mt-1">{log.question}</p>}
+        </section>
+      )}
     </div>
   );
 }
