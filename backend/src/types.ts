@@ -322,6 +322,25 @@ export interface CartItem {
    * before this field existed — those cover no particular date.
    */
   mealPlanDates?: string[];
+  /**
+   * The merged amount, and the unit it is in. Separate from `quantity`,
+   * which has always meant "how many of this line" and is what Instacart's
+   * deprecated field expected. A row reading "1.5 kg" is one line with
+   * `unit: "kg"` and `amount: 1.5`, not one-and-a-half lines.
+   */
+  amount?: number | null;
+  unit?: string | null;
+  /** True when some meal's amount could not be read and nobody guessed one. */
+  needsCheck?: boolean;
+  /**
+   * Which meal asked for what, in the family's own words.
+   *
+   * This is the `because` rule as a data structure: a merged row reading
+   * "Onions — 3" can be opened to show "2 onions — Tuesday's chilli" and
+   * "1 onion — Thursday's soup", so nobody has to take the number on
+   * trust, and swapping one meal out subtracts only its share.
+   */
+  contributions?: { date: string; slot: string; mealName: string; raw: string }[];
   addedAt: string;
   updatedAt: string;
 }

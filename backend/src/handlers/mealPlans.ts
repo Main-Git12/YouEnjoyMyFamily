@@ -2,6 +2,7 @@ import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "
 import { UpdateCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import { docClient, TABLE_NAME } from "../lib/dynamoClient";
 import { queryAll } from "../lib/queryAll";
+import { mergeIngredients, foodKey, parseIngredient } from "../lib/ingredients";
 import { ok, badRequest, serverError } from "../lib/response";
 import { parseBody, ValidationError } from "../lib/validation";
 import { authenticateFamily } from "../lib/auth";
@@ -13,7 +14,6 @@ const mealPlanKey = (familyId: string, date: string, slot: MealSlot) => ({
   SK: `MEALPLAN#${date}#${slot}`,
 });
 
-const normalizeIngredient = (ingredient: string) => ingredient.trim().toLowerCase();
 
 const isValidDate = (value: string | undefined): value is string => !!value && /^\d{4}-\d{2}-\d{2}$/.test(value);
 
@@ -117,21 +117,22 @@ export async function generateGroceryListFromMealPlan(
 ): Promise<GenerateGroceryListResult> {
   const entries = await listMealPlan(familyId, start, end);
 
-  // One date per time the ingredient is planned — "rice" at Monday lunch and
-  // Monday dinner is two portions, both needed for Monday.
-  const needs = new Map<string, { description: string; dates: string[] }>();
-  for (const entry of entries) {
-    for (const ingredient of entry.ingredients) {
-      const key = normalizeIngredient(ingredient);
-      const current = needs.get(key);
-      needs.set(key, {
-        description: current?.description ?? ingredient.trim(),
-        dates: [...(current?.dates ?? []), entry.date],
-      });
-    }
-  }
+  // Merged by food and measurement dimension, with the amounts actually
+  // added up. This used to key on the whole lowercased string, so "2 onions"
+  // on Tuesday and "1 onion" on Thursday were two different things and
+  // arrived as two rows — and the quantity written to each row was the
+  // number of *dates* it appeared on rather than how much anyone needed.
+  // See lib/ingredients.ts for why nothing here invents an amount.
+  const merged = mergeIngredients(
+    entries.map((entry) => ({
+      date: entry.date,
+      slot: entry.slot,
+      mealName: entry.mealName,
+      ingredients: entry.ingredients,
+    }))
+  );
 
-  if (needs.size === 0) return { added: 0, skipped: 0 };
+  if (merged.length === 0) return { added: 0, skipped: 0 };
 
   // Anything still on the list — pending or substituted, whether a previous
   // generation put it there (mealPlanSourceKey) or someone typed it in
@@ -145,10 +146,20 @@ export async function generateGroceryListFromMealPlan(
   // someone regenerates midweek, an unavailable "Saffron" doesn't sprout a
   // second line beside it, yet next week's tacos still get their tortillas.
   const cart = await listCartItems(familyId);
+  // Three spellings of the same row, because a description is not a key.
+  // `mealPlanSourceKey` carries the dimension ("tortilla::count") and so can
+  // only ever match `line.key`; a description does not, and a generated one
+  // now leads with the amount ("1.5 kg mince"), so it has to be read back
+  // through the same parser that wrote it rather than merely lowercased —
+  // `foodKey("1.5 kg mince")` is "1.5 kg mince", which matches nothing and
+  // would quietly put a second mince on the list every time anyone
+  // regenerated. The plain `foodKey` stays as well, for descriptions the
+  // parser declines to take an amount off.
   const coveredOutright = new Set(
     outstandingCartItems(cart).flatMap((item) => [
       ...(item.mealPlanSourceKey ? [item.mealPlanSourceKey] : []),
-      normalizeIngredient(item.description),
+      parseIngredient(item.description).food,
+      foodKey(item.description),
     ])
   );
   const coveredDates = new Map<string, Set<string>>();
@@ -162,16 +173,35 @@ export async function generateGroceryListFromMealPlan(
 
   let added = 0;
   let skipped = 0;
-  for (const [key, { description, dates }] of needs) {
+  for (const line of merged) {
+    const key = line.key;
     const alreadyBought = coveredDates.get(key);
-    const stillNeeded = coveredOutright.has(key) ? [] : dates.filter((date) => !alreadyBought?.has(date));
+    const stillNeeded = coveredOutright.has(line.key) || coveredOutright.has(line.food)
+      ? []
+      : line.dates.filter((date) => !alreadyBought?.has(date));
     if (stillNeeded.length === 0) {
       skipped++;
       continue;
     }
-    const coveringDates = [...new Set(stillNeeded)].sort();
+
+    // Only the contributions for dates still needed: regenerating midweek
+    // after Tuesday's shop must not re-buy Tuesday's share.
+    const stillNeededSet = new Set(stillNeeded);
+    const contributions = line.contributions.filter((c) => stillNeededSet.has(c.date));
+
+    // The description carries the amount so a human reading the list sees
+    // "1.5 kg mince" rather than "mince" and a number in another column.
+    const description = line.quantity !== null
+      ? `${line.quantity}${line.unit ? ` ${line.unit}` : ""} ${line.foodLabel}`.trim()
+      : line.foodLabel;
+
     // null: a concurrent generation already wrote this exact line.
-    const item = await addMealPlanCartItem(familyId, description, stillNeeded.length, key, coveringDates);
+    const item = await addMealPlanCartItem(familyId, description, 1, key, [...stillNeededSet].sort(), {
+      amount: line.quantity,
+      unit: line.unit,
+      needsCheck: line.needsCheck,
+      contributions,
+    });
     if (item) added++;
     else skipped++;
   }

@@ -131,12 +131,20 @@ export function mealPlanCartItemId(mealPlanSourceKey: string, mealPlanDates: str
  * generation idempotent. Returns null when an identical line already exists
  * — another generation over the same plan got there first.
  */
+export interface MealPlanLineDetail {
+  amount?: number | null;
+  unit?: string | null;
+  needsCheck?: boolean;
+  contributions?: { date: string; slot: string; mealName: string; raw: string }[];
+}
+
 export async function addMealPlanCartItem(
   familyId: string,
   description: string,
   quantity: number,
   mealPlanSourceKey: string,
-  mealPlanDates: string[]
+  mealPlanDates: string[],
+  detail: MealPlanLineDetail = {}
 ): Promise<CartItem | null> {
   const itemId = mealPlanCartItemId(mealPlanSourceKey, mealPlanDates);
   const now = new Date().toISOString();
@@ -154,6 +162,10 @@ export async function addMealPlanCartItem(
     source: "meal_plan",
     mealPlanSourceKey,
     mealPlanDates,
+    amount: detail.amount ?? null,
+    unit: detail.unit ?? null,
+    needsCheck: detail.needsCheck ?? false,
+    contributions: detail.contributions ?? [],
     addedAt: now,
     updatedAt: now,
   };

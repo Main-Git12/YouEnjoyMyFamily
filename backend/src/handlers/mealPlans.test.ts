@@ -7,6 +7,7 @@ import type { APIGatewayProxyEventV2 } from "aws-lambda";
 import { handler, routeMealPlans, generateGroceryListFromMealPlan } from "./mealPlans";
 import type { MealPlanEntryItem, CartItem } from "../types";
 import { mockFamilyAuth } from "../lib/authTestSupport";
+import { foodKey } from "../lib/ingredients";
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
 
@@ -238,7 +239,7 @@ test("generate-grocery-list route adds new cart items from planned ingredients",
   assert.equal(cartPuts.length, 3);
   const spaghettiItem = cartPuts.find((item) => item.description === "Spaghetti");
   assert.equal(spaghettiItem?.source, "meal_plan");
-  assert.equal(spaghettiItem?.mealPlanSourceKey, "spaghetti");
+  assert.equal(spaghettiItem?.mealPlanSourceKey, "spaghetti::count");
   assert.deepEqual(spaghettiItem?.mealPlanDates, ["2025-01-15"]);
 });
 
@@ -248,7 +249,7 @@ test("generateGroceryListFromMealPlan is idempotent — never duplicates an ingr
   ddbMock.on(QueryCommand, { ExpressionAttributeValues: { ":pk": "FAMILY#fam_1", ":prefix": "CARTITEM#" } })
     .resolves({
       Items: [
-        cartItem({ itemId: "i1", description: "Spaghetti", source: "meal_plan", mealPlanSourceKey: "spaghetti" }),
+        cartItem({ itemId: "i1", description: "Spaghetti", source: "meal_plan", mealPlanSourceKey: "spaghetti::count" }),
       ],
     });
   ddbMock.on(PutCommand).resolves({});
@@ -304,7 +305,12 @@ test("generateGroceryListFromMealPlan aggregates a repeated ingredient across me
     .map((call) => call.args[0].input.Item as Record<string, unknown>)
     .filter((item) => item.entityType === "CART_ITEM");
   assert.equal(cartPuts.length, 1);
-  assert.equal(cartPuts[0]?.quantity, 2);
+  // One row, and no invented amount: nobody said how much rice, twice over.
+  // The old behaviour wrote quantity 2 here, which did not mean two of
+  // anything — it was the number of dates the word appeared on.
+  assert.equal(cartPuts[0]?.amount, null);
+  assert.equal(cartPuts[0]?.needsCheck, true);
+  assert.equal((cartPuts[0]?.contributions as unknown[])?.length, 2);
 });
 
 test("generateGroceryListFromMealPlan is a no-op when the meal plan has no ingredients", async () => {
@@ -323,7 +329,7 @@ test("generation puts an ingredient back on the list once last week's shop has g
     const prefix = input.ExpressionAttributeValues?.[":prefix"];
     if (prefix === "CARTITEM#") {
       return {
-        Items: [cartItem({ itemId: "i1", description: "Tortillas", status: "ordered", orderedAt: "2025-01-01T00:00:00Z", source: "meal_plan", mealPlanSourceKey: "tortillas" })],
+        Items: [cartItem({ itemId: "i1", description: "Tortillas", status: "ordered", orderedAt: "2025-01-01T00:00:00Z", source: "meal_plan", mealPlanSourceKey: `${foodKey("Tortillas")}::count` })],
       };
     }
     return {
@@ -394,7 +400,11 @@ test("regenerating midweek doesn't re-add ingredients already ordered for the sa
       status: "ordered",
       orderedAt: "2025-01-12T15:00:00Z",
       source: "meal_plan",
-      mealPlanSourceKey: description.toLowerCase(),
+      // Spelled the way a previous generation would have stored it, not by
+      // hand: the key is the singularised food plus the measurement
+      // dimension, so a food bought by weight and by the packet cannot
+      // collide into one row id — and "Tortillas" is stored as "tortilla".
+      mealPlanSourceKey: `${foodKey(description)}::count`,
       mealPlanDates: ["2025-01-17"],
     });
   mockPlanAndCart(
@@ -457,7 +467,7 @@ test("regenerating the same week doesn't add a second line beside one marked una
         description: "Saffron",
         status: "unavailable",
         source: "meal_plan",
-        mealPlanSourceKey: "saffron",
+        mealPlanSourceKey: "saffron::count",
         mealPlanDates: ["2025-01-15"],
       }),
       cartItem({
@@ -467,7 +477,7 @@ test("regenerating the same week doesn't add a second line beside one marked una
         status: "substituted",
         substituteDescription: "Arborio rice",
         source: "meal_plan",
-        mealPlanSourceKey: "rice",
+        mealPlanSourceKey: "rice::count",
         mealPlanDates: ["2025-01-15"],
       }),
     ]
@@ -478,6 +488,48 @@ test("regenerating the same week doesn't add a second line beside one marked una
 
   assert.deepEqual(result, { added: 0, skipped: 2 });
   assert.equal(generatedCartPuts().length, 0);
+});
+
+test("a pending line whose description leads with an amount isn't bought twice", async () => {
+  // Generation writes the amount into the description — "1.5 kg Ground
+  // beef" reads better on a kitchen screen than a number in another
+  // column. That makes the description unusable as an identity: matching
+  // it by lowercasing alone finds nothing, and the row gets written again
+  // on every regeneration until there are five minces on the list.
+  mockPlanAndCart(
+    [mealPlanEntry({ mealName: "Chilli", ingredients: ["1 kg Ground beef", "500 g Ground beef"] })],
+    [
+      cartItem({
+        itemId: "p1",
+        SK: "CARTITEM#p1",
+        description: "1.5 kg Ground beef",
+        status: "pending",
+        source: "meal_plan",
+        mealPlanSourceKey: "ground beef::mass",
+        mealPlanDates: ["2025-01-15"],
+      }),
+    ]
+  );
+  ddbMock.on(PutCommand).resolves({});
+
+  const result = await generateGroceryListFromMealPlan("fam_1", "2025-01-13", "2025-01-19");
+
+  assert.deepEqual(result, { added: 0, skipped: 1 });
+  assert.equal(generatedCartPuts().length, 0);
+});
+
+test("a hand-typed line with its own amount still covers the same food", async () => {
+  // Paige wrote "2 gallons milk" on the list herself before the plan was
+  // generated. It is the same milk.
+  mockPlanAndCart(
+    [mealPlanEntry({ mealName: "Pancakes", ingredients: ["Milk"] })],
+    [cartItem({ itemId: "h1", SK: "CARTITEM#h1", description: "2 gallons milk", status: "pending", source: "manual", mealPlanSourceKey: null })]
+  );
+  ddbMock.on(PutCommand).resolves({});
+
+  const result = await generateGroceryListFromMealPlan("fam_1", "2025-01-13", "2025-01-19");
+
+  assert.deepEqual(result, { added: 0, skipped: 1 });
 });
 
 test("listMealPlan reads every page, so a planned ingredient can't vanish before the shop", async () => {
