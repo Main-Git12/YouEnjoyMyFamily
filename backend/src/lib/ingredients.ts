@@ -42,6 +42,21 @@ interface UnitSpec {
   /** How many canonical base units one of these is. */
   base: number;
   discrete: boolean;
+  /**
+   * The spelling Instacart accepts for this unit, or null when it accepts
+   * none. Their vocabulary is a closed list and an unrecognised unit makes
+   * their quantity matching fail *silently* — the line still arrives, just
+   * for the wrong amount, which is the worst way for this to go wrong.
+   *
+   * Two of the canonicals below are not on their list: "tbsp" (they take
+   * "tbs" and "tablespoon", not "tbsp") and a bare "fl oz" (they only take
+   * it qualified, as "fl oz can", "fl oz jar" and so on). A null here means
+   * `toMeasurements` converts to the dimension's base unit instead of
+   * sending a word they will quietly drop.
+   *
+   * Source: https://docs.instacart.com/developer_platform_api/api/units_of_measurement
+   */
+  instacart: string | null;
 }
 
 const GRAMS_PER_OZ = 28.349523125;
@@ -50,9 +65,16 @@ const ML_PER_FL_OZ = 29.5735295625;
 /** Every spelling the family might type, mapped to one canonical unit. */
 const UNITS: Record<string, UnitSpec> = {};
 
-function defineUnit(canonical: string, dimension: UnitDimension, base: number, discrete: boolean, spellings: string[]) {
+function defineUnit(
+  canonical: string,
+  dimension: UnitDimension,
+  base: number,
+  discrete: boolean,
+  spellings: string[],
+  instacart: string | null = canonical
+) {
   for (const spelling of [canonical, ...spellings]) {
-    UNITS[spelling] = { canonical, dimension, base, discrete };
+    UNITS[spelling] = { canonical, dimension, base, discrete, instacart };
   }
 }
 
@@ -66,8 +88,9 @@ defineUnit("lb", "mass", GRAMS_PER_OZ * 16, false, ["lbs", "pound", "pounds"]);
 defineUnit("ml", "volume", 1, false, ["millilitre", "millilitres", "milliliter", "milliliters"]);
 defineUnit("l", "volume", 1000, false, ["litre", "litres", "liter", "liters"]);
 defineUnit("tsp", "volume", 4.92892159375, false, ["teaspoon", "teaspoons"]);
-defineUnit("tbsp", "volume", 14.78676478125, false, ["tablespoon", "tablespoons", "tbs"]);
-defineUnit("fl oz", "volume", ML_PER_FL_OZ, false, ["floz", "fluid ounce", "fluid ounces"]);
+// "tbsp" is what people write and is not what Instacart takes; "tbs" is both.
+defineUnit("tbsp", "volume", 14.78676478125, false, ["tablespoon", "tablespoons", "tbs"], "tbs");
+defineUnit("fl oz", "volume", ML_PER_FL_OZ, false, ["floz", "fluid ounce", "fluid ounces"], null);
 defineUnit("cup", "volume", 236.5882365, false, ["cups"]);
 defineUnit("pint", "volume", 473.176473, false, ["pints", "pt"]);
 defineUnit("quart", "volume", 946.352946, false, ["quarts", "qt"]);
@@ -88,6 +111,13 @@ for (const [canonical, spellings] of Object.entries({
 })) {
   defineUnit(canonical, "count", 1, true, spellings);
 }
+
+/**
+ * Every spelling the parser will take an amount in. Exported so a test can
+ * walk the whole vocabulary rather than a handful of samples and prove each
+ * one leaves as something Instacart accepts.
+ */
+export const EVERY_UNIT_SPELLING: readonly string[] = Object.keys(UNITS);
 
 export interface ParsedIngredient {
   /** Exactly what the family typed, kept whatever else happens. */
@@ -349,14 +379,42 @@ export interface InstacartMeasurement {
   unit: string;
 }
 
+const GRAMS_PER_LB = GRAMS_PER_OZ * 16;
+
 /**
  * Instacart deprecated `LineItem.quantity`/`unit` in March 2026 in favour of
  * a `line_item_measurements` array, and picks whichever measurement best
  * fits real inventory. A bare count with no unit — which is what this app
- * was sending for everything — makes "2 lb mince" arrive as two of
- * something.
+ * sent for everything — makes "2 lb mince" arrive as two of something.
+ *
+ * The array takes more than one measurement on purpose: Instacart works out
+ * a product quantity for each and uses whichever fits what the shop
+ * actually stocks. So a weight goes out in metric *and* in pounds, because
+ * the shops this family uses weigh mince in pounds and the recipe that
+ * asked for it was written in grams. Nothing is invented by doing this —
+ * both numbers are the same amount of mince.
+ *
+ * A unit Instacart does not accept is converted to the dimension's base
+ * unit rather than sent and silently dropped.
  */
 export function toMeasurements(line: { quantity: number | null; unit: string | null }): InstacartMeasurement[] {
+  // No amount was readable, so there is none to send. One of the thing is
+  // what the deprecated field defaulted to, and is still the honest answer:
+  // the row is flagged for a human look either way.
   if (line.quantity === null) return [{ quantity: 1, unit: "each" }];
-  return [{ quantity: line.quantity, unit: line.unit ?? "each" }];
+
+  const spec = line.unit ? UNITS[line.unit] : undefined;
+  if (!spec) return [{ quantity: line.quantity, unit: "each" }];
+
+  if (spec.dimension === "mass") {
+    const grams = line.quantity * spec.base;
+    const metric = grams >= 1000 ? { quantity: round(grams / 1000), unit: "kg" } : { quantity: round(grams), unit: "g" };
+    const pounds = round(grams / GRAMS_PER_LB);
+    return pounds >= 0.01 ? [metric, { quantity: pounds, unit: "lb" }] : [metric];
+  }
+
+  if (spec.instacart) return [{ quantity: line.quantity, unit: spec.instacart }];
+
+  const base = spec.dimension === "volume" ? "ml" : "each";
+  return [{ quantity: round(line.quantity * spec.base), unit: base }];
 }

@@ -8,6 +8,7 @@ import { ok, created, badRequest, notFound, conflict, serverError } from "../lib
 import { parseBody, ValidationError } from "../lib/validation";
 import { authenticateFamily } from "../lib/auth";
 import { CartItemInput, CartItemPatch, type CartItem, type LearnedSubstitutionItem } from "../types";
+import { parseIngredient, toMeasurements, type InstacartMeasurement } from "../lib/ingredients";
 
 // Instacart Developer Platform ("Create shopping list page") is the real,
 // public integration point for retailers without their own developer API
@@ -28,8 +29,12 @@ const INSTACART_API_BASE_URL = process.env.INSTACART_API_BASE_URL ?? "https://co
 export const INSTACART_TIMEOUT_MS = 8000;
 
 export interface InstacartLineItem {
+  /** The search term. Just the food — an amount in here is noise to match on. */
   name: string;
-  quantity: number;
+  /** What the family sees against the match, amount and all. */
+  displayText: string;
+  /** See `toMeasurements`: one or more ways of saying the same amount. */
+  measurements: InstacartMeasurement[];
 }
 
 /** Only the one call this module makes — keeps test fakes simple. */
@@ -49,7 +54,15 @@ export function createRealInstacartClient(timeoutMs: number = INSTACART_TIMEOUT_
         signal: AbortSignal.timeout(timeoutMs),
         body: JSON.stringify({
           title,
-          line_items: lineItems.map((item) => ({ name: item.name, quantity: item.quantity })),
+          line_items: lineItems.map((item) => ({
+            name: item.name,
+            display_text: item.displayText,
+            // Not `quantity`/`unit`: Instacart deprecated those on the line
+            // item in March 2026. This app went on sending a bare
+            // `quantity` of 1 with no unit at all, so "1.5 kg Ground beef"
+            // arrived as one of whatever "1.5 kg Ground beef" matched.
+            line_item_measurements: item.measurements,
+          })),
         }),
       });
       if (!response.ok) throw new Error(`Instacart API error: ${response.status}`);
@@ -305,15 +318,52 @@ export function outstandingCartItems(items: CartItem[]): CartItem[] {
   return items.filter((item) => item.status !== "unavailable" && item.status !== "ordered");
 }
 
+/**
+ * One cart row as Instacart wants it.
+ *
+ * Two things the old version got wrong. It searched on the whole
+ * description, which now leads with the amount — "1.5 kg Ground beef" is a
+ * bad search term and a good label, so the food goes in `name` and the
+ * whole line in `display_text`. And it sent the row count as a bare
+ * `quantity` with no unit, in the field Instacart deprecated, so an amount
+ * that had been carefully added up across three meals arrived as "1".
+ *
+ * Where the amount comes from, in order:
+ *  - `amount`/`unit`, the merged total a generation worked out. This is the
+ *    real one and it beats anything re-read from text.
+ *  - whatever the description itself says, for a row somebody typed
+ *    ("2 gallons milk") or a substitution written in their own words.
+ *  - `quantity`, the row count, which is what a manual row has always used
+ *    and defaults to 1.
+ */
+export function toInstacartLineItem(item: CartItem): InstacartLineItem {
+  const substituted = item.status === "substituted" && item.substituteDescription;
+  const text = substituted ? (item.substituteDescription as string) : item.description;
+  const parsed = parseIngredient(text);
+
+  // A substitution replaces the row's amount as well as its name: "Arborio
+  // rice" in place of "500 g rice" is a different thing in a different
+  // packet, and carrying the old 500 g onto it would be inventing one.
+  const amount = substituted
+    ? { quantity: parsed.quantity, unit: parsed.unit }
+    : { quantity: item.amount ?? parsed.quantity, unit: item.amount != null ? (item.unit ?? null) : parsed.unit };
+
+  return {
+    name: parsed.foodLabel || text,
+    displayText: text,
+    measurements:
+      amount.quantity === null && item.quantity > 1
+        ? [{ quantity: item.quantity, unit: "each" }]
+        : toMeasurements(amount),
+  };
+}
+
 async function checkout(familyId: string, instacart: InstacartClient): Promise<string> {
   const items = await listCartItems(familyId);
   const shoppable = outstandingCartItems(items);
   if (!shoppable.length) throw new ValidationError("The cart has no shoppable items");
 
-  const lineItems: InstacartLineItem[] = shoppable.map((item) => ({
-    name: item.status === "substituted" && item.substituteDescription ? item.substituteDescription : item.description,
-    quantity: item.quantity,
-  }));
+  const lineItems = shoppable.map(toInstacartLineItem);
 
   const productsLinkUrl = await instacart.createShoppingListLink("YouEnjoyMyFamily grocery list", lineItems);
 

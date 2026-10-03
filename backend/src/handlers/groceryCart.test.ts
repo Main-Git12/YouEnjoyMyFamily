@@ -11,7 +11,13 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
-import { handler, routeGroceryCart, createRealInstacartClient, type InstacartClient } from "./groceryCart";
+import {
+  handler,
+  routeGroceryCart,
+  createRealInstacartClient,
+  toInstacartLineItem,
+  type InstacartClient,
+} from "./groceryCart";
 import type { CartItem, LearnedSubstitutionItem } from "../types";
 import { mockFamilyAuth } from "../lib/authTestSupport";
 
@@ -56,6 +62,74 @@ const cartItem = (overrides: Partial<CartItem> = {}): CartItem => ({
   addedAt: "2025-01-01T00:00:00Z",
   updatedAt: "2025-01-01T00:00:00Z",
   ...overrides,
+});
+
+// --- What actually reaches Instacart ------------------------------------
+//
+// Their quantity matching fails silently on anything it doesn't recognise,
+// so a wrong line here doesn't look like a bug — it looks like the shop
+// delivering one onion.
+
+test("a merged meal-plan row sends the amount it added up, not the row count", () => {
+  // Three meals asked for mince; generation added them to 1.5 kg and wrote
+  // that into the description. `quantity` stayed 1, because it has always
+  // meant "one line", and the deprecated field this used to go out in made
+  // that 1 the order.
+  const line = toInstacartLineItem(
+    cartItem({
+      description: "1.5 kg Ground beef",
+      quantity: 1,
+      amount: 1.5,
+      unit: "kg",
+      source: "meal_plan",
+      mealPlanSourceKey: "ground beef::mass",
+    })
+  );
+
+  // The search term is the food. Searching "1.5 kg Ground beef" matches
+  // nothing and leaves a line to sort out in the shop.
+  assert.equal(line.name, "Ground beef");
+  assert.equal(line.displayText, "1.5 kg Ground beef");
+  assert.deepEqual(line.measurements, [
+    { quantity: 1.5, unit: "kg" },
+    { quantity: 3.31, unit: "lb" },
+  ]);
+});
+
+test("a hand-typed row keeps its own count", () => {
+  const line = toInstacartLineItem(cartItem({ description: "Milk", quantity: 3 }));
+  assert.deepEqual(line.measurements, [{ quantity: 3, unit: "each" }]);
+});
+
+test("a hand-typed row that says its own amount uses that", () => {
+  const line = toInstacartLineItem(cartItem({ description: "2 gallons milk", quantity: 1 }));
+  assert.equal(line.name, "milk");
+  assert.deepEqual(line.measurements, [{ quantity: 2, unit: "gallon" }]);
+});
+
+test("a substitution brings its own amount and doesn't inherit the old one", () => {
+  // "500 g rice" became "Arborio rice" — a named packet, not 500 g of it.
+  // Carrying the 500 g across would be the app inventing an amount for
+  // something nobody weighed.
+  const line = toInstacartLineItem(
+    cartItem({
+      description: "500 g Rice",
+      amount: 500,
+      unit: "g",
+      status: "substituted",
+      substituteDescription: "Arborio rice",
+    })
+  );
+  assert.equal(line.name, "Arborio rice");
+  assert.equal(line.displayText, "Arborio rice");
+  assert.deepEqual(line.measurements, [{ quantity: 1, unit: "each" }]);
+});
+
+test("a row nobody could put a number on goes over as one of it, flagged", () => {
+  const line = toInstacartLineItem(
+    cartItem({ description: "Parsley", amount: null, unit: null, needsCheck: true, source: "meal_plan" })
+  );
+  assert.deepEqual(line.measurements, [{ quantity: 1, unit: "each" }]);
 });
 
 test("rejects a request with no Authorization header", async () => {
@@ -238,8 +312,10 @@ test("checkout builds Instacart line items, using the substitute description whe
     {
       title: "YouEnjoyMyFamily grocery list",
       lineItems: [
-        { name: "Penne", quantity: 1 },
-        { name: "Milk", quantity: 2 },
+        // The substitute's own words, not the row it replaced.
+        { name: "Penne", displayText: "Penne", measurements: [{ quantity: 1, unit: "each" }] },
+        // A manual row's count still travels; it just travels with a unit.
+        { name: "Milk", displayText: "Milk", measurements: [{ quantity: 2, unit: "each" }] },
       ],
     },
   ]);
@@ -335,7 +411,7 @@ test("checkout doesn't send last week's shop to Instacart all over again", async
     }
   );
 
-  assert.deepEqual(sent, [{ name: "Milk", quantity: 1 }]);
+  assert.deepEqual(sent, [{ name: "Milk", displayText: "Milk", measurements: [{ quantity: 1, unit: "each" }] }]);
 });
 
 test("checkout leaves the list alone when Instacart fails, so it can be retried", async () => {
@@ -443,7 +519,7 @@ test("checkout sends outstanding items that live past the first page", async () 
   });
 
   assert.equal(result.statusCode, 200);
-  assert.deepEqual(sent, [{ name: "Bread", quantity: 1 }]);
+  assert.deepEqual(sent, [{ name: "Bread", displayText: "Bread", measurements: [{ quantity: 1, unit: "each" }] }]);
 });
 
 test("checkout still hands back the Instacart link when stamping an item fails", async () => {
@@ -534,7 +610,7 @@ test("the real Instacart client gives up on a hung request instead of riding out
   try {
     const outcome = await Promise.race([
       createRealInstacartClient(20)
-        .createShoppingListLink("list", [{ name: "Milk", quantity: 1 }])
+        .createShoppingListLink("list", [{ name: "Milk", displayText: "Milk", measurements: [{ quantity: 1, unit: "each" }] }])
         .then(
           () => "resolved" as const,
           () => "rejected" as const

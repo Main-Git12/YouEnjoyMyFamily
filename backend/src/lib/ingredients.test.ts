@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseIngredient, singularise, foodKey, mergeIngredients, toMeasurements } from "./ingredients";
+import {
+  parseIngredient,
+  singularise,
+  foodKey,
+  mergeIngredients,
+  toMeasurements,
+  EVERY_UNIT_SPELLING,
+} from "./ingredients";
 
 test("reads a plain amount, a unit and a food", () => {
   const parsed = parseIngredient("2 lb mince");
@@ -155,25 +162,93 @@ test("records every date a line covers, de-duplicated and sorted", () => {
 test("Instacart is sent a measurement array, not the field they deprecated", () => {
   // They deprecated LineItem.quantity/unit in March 2026. A bare count with
   // no unit makes "2 lb mince" arrive as two of something.
-  assert.deepEqual(toMeasurements({ quantity: 1.5, unit: "kg" }), [{ quantity: 1.5, unit: "kg" }]);
   assert.deepEqual(toMeasurements({ quantity: 3, unit: null }), [{ quantity: 3, unit: "each" }]);
+  assert.deepEqual(toMeasurements({ quantity: 2, unit: "can" }), [{ quantity: 2, unit: "can" }]);
+});
+
+test("a weight goes over in metric and in pounds, because the shop weighs in pounds", () => {
+  // The array exists so Instacart can pick whichever measurement matches
+  // real inventory. The recipe says 1.5 kg; Giant Eagle sells mince by the
+  // pound. Both are the same mince, so both are sent and nothing is guessed.
+  assert.deepEqual(toMeasurements({ quantity: 1.5, unit: "kg" }), [
+    { quantity: 1.5, unit: "kg" },
+    { quantity: 3.31, unit: "lb" },
+  ]);
+  assert.deepEqual(toMeasurements({ quantity: 500, unit: "g" }), [
+    { quantity: 500, unit: "g" },
+    { quantity: 1.1, unit: "lb" },
+  ]);
+});
+
+test("a unit Instacart does not accept is converted, not sent and silently dropped", () => {
+  // Their vocabulary has "tbs" and "tablespoon" but not "tbsp", and takes a
+  // fluid ounce only qualified ("fl oz jar"), never bare. Sending either
+  // word makes their quantity matching fail without saying so.
+  assert.deepEqual(toMeasurements({ quantity: 2, unit: "tbsp" }), [{ quantity: 2, unit: "tbs" }]);
+  assert.deepEqual(toMeasurements({ quantity: 4, unit: "fl oz" }), [{ quantity: 118.29, unit: "ml" }]);
 });
 
 test("a line with no readable amount still goes over as one of something", () => {
   assert.deepEqual(toMeasurements({ quantity: null, unit: null }), [{ quantity: 1, unit: "each" }]);
 });
 
+/**
+ * Instacart's published vocabulary, transcribed from
+ * https://docs.instacart.com/developer_platform_api/api/units_of_measurement
+ * rather than from memory. The earlier version of this list was written from
+ * what seemed reasonable and wrongly contained "tbsp" and a bare "fl oz",
+ * so it passed while the app was sending two words Instacart drops.
+ */
+const INSTACART_UNITS = new Set([
+  // Volume
+  "cup", "cups", "c",
+  "fl oz can", "fl oz container", "fl oz jar", "fl oz pouch", "fl oz ounce",
+  "gallon", "gallons", "gal", "gals",
+  "milliliter", "millilitre", "milliliters", "millilitres", "ml", "mls",
+  "liter", "litre", "liters", "litres", "l",
+  "pint", "pints", "pt", "pts", "pt container",
+  "quart", "quarts", "qt", "qts",
+  "tablespoon", "tablespoons", "tb", "tbs",
+  "teaspoon", "teaspoons", "ts", "tsp", "tspn",
+  // Mass
+  "gram", "grams", "g", "gs",
+  "kilogram", "kilograms", "kg", "kgs",
+  "lb bag", "lb can", "lb container", "lb", "per lb",
+  "ounce", "ounces", "oz",
+  "ounces bag", "oz bag", "ounces can", "oz can", "ounces container", "oz container",
+  "pound", "pounds", "lbs",
+  // Count
+  "bunch", "bunches", "can", "cans", "each", "ears", "head", "heads",
+  "large", "lrg", "lge", "lg", "medium", "med", "md",
+  "package", "packages", "packet", "small", "sm", "small ears", "small head", "small heads",
+]);
+
 test("every unit sent to Instacart is one from their closed vocabulary", () => {
   // An unrecognised unit makes their quantity matching fail silently.
-  const INSTACART_UNITS = new Set([
-    "each", "package", "packet", "bunch", "can", "head", "large", "medium", "small",
-    "g", "kg", "oz", "lb", "ml", "l", "tsp", "tbsp", "fl oz", "cup", "pint", "quart", "gallon",
-  ]);
-  const samples = ["2 lb mince", "500 g rice", "1 cup milk", "3 cans tomatoes", "2 bunches kale", "4 onions", "1 gallon water"];
+  const samples = [
+    "2 lb mince", "500 g rice", "1 cup milk", "3 cans tomatoes", "2 bunches kale",
+    "4 onions", "1 gallon water", "2 tbsp olive oil", "3 tsp vanilla", "8 fl oz cream",
+    "1 pint cream", "2 packets yeast", "1 head lettuce", "3 large eggs", "some parsley",
+  ];
   for (const sample of samples) {
     const [line] = mergeIngredients([meal("2026-10-06", "A", [sample])]);
     for (const measurement of toMeasurements(line as never)) {
       assert.ok(INSTACART_UNITS.has(measurement.unit), `${measurement.unit} is not an Instacart unit (from "${sample}")`);
+    }
+  }
+});
+
+test("every unit this app can name is one Instacart takes, or is converted away", () => {
+  // Walks the whole parser vocabulary rather than a handful of samples, so
+  // a unit added later cannot quietly ship a word Instacart drops.
+  for (const spelling of EVERY_UNIT_SPELLING) {
+    const [line] = mergeIngredients([meal("2026-10-06", "A", [`2 ${spelling} thing`])]);
+    assert.ok(line, `"2 ${spelling} thing" parsed to nothing`);
+    for (const measurement of toMeasurements(line as never)) {
+      assert.ok(
+        INSTACART_UNITS.has(measurement.unit),
+        `"${spelling}" sends "${measurement.unit}", which is not an Instacart unit`
+      );
     }
   }
 });
