@@ -446,8 +446,12 @@ already spent on a prize (see "Guard a spend" above).
   "orderedAt": null, // stamped by checkout once the Instacart link exists; null until then
   "addedBy": "member_456",
   "source": "manual", // "manual" | "meal_plan" — "meal_plan" items came from generateGroceryListFromMealPlan
-  "mealPlanSourceKey": null, // the ingredient's normalized text, set only on a "meal_plan" item — makes regeneration idempotent
+  "mealPlanSourceKey": null, // "<food>::<mass|volume|count>" (see lib/ingredients.ts), set only on a "meal_plan" item — makes regeneration idempotent. The dimension is part of the key on purpose: a food bought by weight and by the packet are two lines, not one row that collides.
   // "mealPlanDates": ["2025-01-15", "2025-01-17"], // "meal_plan" items only: the plan dates this line covers — still counted as covered after it's ordered/unavailable
+  // "amount": 1.5, "unit": "kg",   // the merged total, summed across every meal that asked for it. Distinct from `quantity`, which has always meant "how many of this line". null when no meal gave a readable amount — never guessed.
+  // "needsCheck": true,            // at least one contribution's amount couldn't be read, so the row is flagged rather than quietly standing in for one
+  // "contributions": [{ "date": "2025-01-17", "slot": "dinner", "mealName": "Tacos", "raw": "1 kg ground beef" }],
+  //   ^ the `because` rule as data: a merged row has to be able to name the meals it came from, in the family's own words, or it is a number that can only be trusted. Rendered on the cart row (frontend/src/lib/groceryLine.ts).
   "addedAt": "2025-01-10T12:00:00Z",
   "updatedAt": "2025-01-10T12:00:00Z"
 }

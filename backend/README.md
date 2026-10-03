@@ -25,12 +25,21 @@ src/handlers/                (every handler below has a matching *.test.ts)
   groceryCart.ts          CRUD-ish: /families/{familyId}/grocery-cart[/items[/{itemId}]], /checkout;
                            checkout calls the Instacart Developer Platform via an injectable
                            `InstacartClient` (Giant Eagle/Aldi don't have their own developer APIs);
+                           sends `line_item_measurements`, not the `quantity`/`unit` they deprecated
+                           in March 2026, and searches on the food while the whole line goes in
+                           `display_text` — see `toInstacartLineItem`. Their unit vocabulary is a
+                           closed list and an unrecognised unit fails their matching *silently*, so
+                           lib/ingredients.ts converts anything outside it rather than sending it;
                            tests cover the explicit "mark unavailable → confirm substitute" learning flow
   statedPreferences.ts    CRUD: /families/{familyId}/stated-preferences[/{preferenceId}] — things a
                            family member explicitly *said*, never inferred from behaviour
   mealPlans.ts            /families/{familyId}/meal-plan[/{date}/{slot}] plus
                            POST /meal-plan/generate-grocery-list — turns planned ingredients into
-                           cart items idempotently (see schema.md on `mealPlanSourceKey`)
+                           cart items idempotently (see schema.md on `mealPlanSourceKey`), merging
+                           by food *and measurement dimension* via lib/ingredients.ts so "2 onions"
+                           on Tuesday and "1 onion" on Thursday are one line of three onions. An
+                           amount that can't be read is never guessed: the row keeps the family's
+                           own words and is flagged `needsCheck`
   rewardGoals.ts          /families/{familyId}/reward-goals[/{memberId}[/claim]] and
                            GET /gem-balances — balances are derived on read (earned minus claimed),
                            never stored; claiming is a TransactWrite so two taps can't both charge

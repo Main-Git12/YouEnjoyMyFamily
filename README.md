@@ -61,6 +61,30 @@ Amazon Echo Show devices.
   and coat usually takes 4 minutes", never "Parker is slow" on a screen
   Parker can read. Every figure says where it came from. See the
   conventions in `CLAUDE.md`; there are tests asserting both rules.
+- **A care shift is planned forwards, and keeps its own record.** Every
+  other routine here runs backwards from a deadline; a carer arrives at ten
+  and there is no bus, so forcing that shape would mean inventing a
+  finishing time nobody agreed to. The shift signs itself in and out, and
+  the hours it comes to are compared against the hours agreed — because
+  knowing whether a shift was worked should not itself be a job that lands
+  on whoever already carries the most invisible work in the house. The
+  record is open to everyone the carer included, it stays quiet until there
+  are three shifts to talk about, and it asks rather than concludes: a run
+  of short shifts might mean the hours aren't being worked, or that the
+  hours were never right. See `frontend/src/lib/shiftLog.ts`.
+- **A step that can't be done is paused, never deleted.** Four weeks in a
+  cast is a month, not a change of plan — deleting the step throws away the
+  job and everything it has learned about how long it takes. A paused step
+  keeps its place, says when it's back, and shows plainly whether anybody
+  has picked it up.
+- **The shopping list adds up, and shows its working.** Ingredients merge by
+  food *and* measurement dimension, so "2 onions" and "1 onion" are one line
+  of three while 300 g of beef and 2 packs of beef stay two — there is no
+  honest number of grams in a pack. An amount nobody wrote is never guessed
+  at: the row keeps the family's words and is flagged. And every merged row
+  names the meals it came from, because an aisle is the worst place to start
+  wondering where a number came from. See `backend/src/lib/ingredients.ts`
+  and `frontend/src/lib/groceryLine.ts`.
 
 ## Getting started
 
