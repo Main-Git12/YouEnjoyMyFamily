@@ -248,6 +248,55 @@ describe("Dashboard", () => {
     expect(screen.queryByRole("button", { name: "I'm here" })).not.toBeInTheDocument();
   });
 
+  it("repeats last week, ingredients and all", async () => {
+    // "Last week again" that brings back the names but none of the
+    // shopping is worse than no button: the list looks planned and the
+    // trolley comes home empty.
+    const today = toLocalIsoDate(new Date());
+    const weekBefore = new Date();
+    weekBefore.setDate(weekBefore.getDate() - 7);
+    const lastWeek = toLocalIsoDate(weekBefore);
+
+    vi.mocked(api.listTasks).mockResolvedValue([]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+    vi.mocked(api.listMealPlan).mockResolvedValue([
+      { date: lastWeek, slot: "dinner", mealName: "Chilli", ingredients: ["1 kg mince", "2 cans kidney beans"] },
+    ]);
+    vi.mocked(api.upsertMealPlanEntry).mockResolvedValue({
+      date: today,
+      slot: "dinner",
+      mealName: "Chilli",
+      ingredients: ["1 kg mince", "2 cans kidney beans"],
+    });
+
+    render(<Dashboard />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Today's chores" })).toBeInTheDocument());
+    await openKitchenTab("This week");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Last week again" }));
+    expect(await screen.findByText(/Same as last/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Pencil in 1 dinner/ }));
+
+    await waitFor(() => expect(api.upsertMealPlanEntry).toHaveBeenCalled());
+    expect(api.upsertMealPlanEntry).toHaveBeenCalledWith(expect.any(String), today, "dinner", {
+      mealName: "Chilli",
+      ingredients: ["1 kg mince", "2 cans kidney beans"],
+    });
+  });
+
+  it("doesn't offer last week again when there wasn't one", async () => {
+    vi.mocked(api.listTasks).mockResolvedValue([]);
+    vi.mocked(api.listSchedules).mockResolvedValue([]);
+    vi.mocked(api.listStatedPreferences).mockResolvedValue([]);
+    vi.mocked(api.listMealPlan).mockResolvedValue([]);
+
+    render(<Dashboard />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Today's chores" })).toBeInTheDocument());
+    await openKitchenTab("This week");
+    expect(screen.queryByRole("button", { name: "Last week again" })).not.toBeInTheDocument();
+  });
+
   it("renders fetched tasks and schedule entries", async () => {
     vi.mocked(api.listTasks).mockResolvedValue([
       { taskId: "t1", title: "Pack soccer bag", assignedTo: null, dueDate: null, gemValue: 10, dueWindow: "anytime", date: "2026-09-23", recurrence: "daily", completedOn: null, status: "pending", gemsAwarded: 0 , createdAt: "2020-01-01T00:00:00.000Z"},

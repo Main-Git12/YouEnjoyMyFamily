@@ -21,6 +21,9 @@ interface MealPlanProps {
   eveningRoom?: EveningRoom[];
   /** Dinners this family has itself put on evenings that already had something on. */
   standbys?: EveningStandby[];
+  /** True when the week before this one has dinners worth repeating. */
+  canRepeatLastWeek?: boolean;
+  onRepeatLastWeek?: () => void;
   /**
    * Everything the family has planned or eaten, not just the week on
    * screen. A swap suggestion built from one week of history would offer
@@ -66,6 +69,8 @@ export default function MealPlan({
   standbys = [],
   history,
   today,
+  canRepeatLastWeek = false,
+  onRepeatLastWeek,
 }: MealPlanProps) {
   // Falls back to the week on screen, so the component still works on its
   // own; Dashboard passes the lot.
@@ -155,6 +160,19 @@ export default function MealPlan({
           Next →
         </button>
       </div>
+
+      {/* Some weeks nobody wants to make seven decisions. Offered, not
+          applied — it proposes the week below and waits to be accepted,
+          the same as any other draft. */}
+      {canRepeatLastWeek && onRepeatLastWeek && (
+        <button
+          type="button"
+          onClick={onRepeatLastWeek}
+          className="mb-3 rounded-lg bg-olive-100 px-4 py-2 text-sm text-olive-800 hover:bg-olive-200"
+        >
+          Last week again
+        </button>
+      )}
 
       {standbys.length > 0 && (
         <p className="text-xs text-olive-600 mb-3">

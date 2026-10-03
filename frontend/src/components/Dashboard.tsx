@@ -22,7 +22,7 @@ import { buildAwareness } from "../lib/awareness";
 import Insights from "./Insights";
 import RetimeChore from "./RetimeChore";
 import DraftWeek from "./DraftWeek";
-import { draftWeek, type DraftedMeal } from "../lib/routines";
+import { draftWeek, lastWeekAgain, type DraftedMeal } from "../lib/routines";
 import { getFamilyId, linkDevice } from "../lib/familyKey";
 import GroceryCart from "./GroceryCart";
 import Kitchen from "./Kitchen";
@@ -159,6 +159,8 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
   const [defending, setDefending] = useState(false);
   // 0 = the coming 7 days; the family can page forward to plan ahead.
   const [weekOffset, setWeekOffset] = useState(0);
+  /** Whether the family asked to see last week again, rather than a fresh draft. */
+  const [repeatOffered, setRepeatOffered] = useState(false);
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [routineRuns, setRoutineRuns] = useState<RoutineRun[]>([]);
   // Set when someone taps "back to the dashboard", so the launch screen
@@ -785,13 +787,24 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
    * built only from meals this family has actually cooked.
    */
   const weekDraft = draftWeek(mealPlan, weekDays);
+  // Offered, never applied. The least glamorous button in any meal
+  // planner and reliably the most used: some weeks nobody wants to make
+  // seven decisions, they want the week they already decided.
+  const repeatDraft = lastWeekAgain(mealPlan, weekDays);
 
   async function handleAcceptDraft(meals: DraftedMeal[]) {
     // One at a time rather than in parallel: they all write to the same
     // family, and a half-applied week is easier to understand than a
     // scatter of races.
     for (const meal of meals) {
-      await handleSaveMealPlanEntry(meal.date, "dinner", { mealName: meal.mealName, ingredients: [] });
+      // A repeated week brings its ingredients; a draft from the rotation
+      // has none, because which version of a dish is meant is the
+      // family's to say. Dropping them here is how "last week again"
+      // quietly became "last week's names and none of its shopping".
+      await handleSaveMealPlanEntry(meal.date, "dinner", {
+        mealName: meal.mealName,
+        ingredients: meal.ingredients ?? [],
+      });
     }
   }
 
@@ -1361,8 +1374,16 @@ export default function Dashboard({ onSignedOut }: DashboardProps = {}) {
                 standbys={weekStandbys}
                 history={mealPlan}
                 today={today}
+                canRepeatLastWeek={repeatDraft.length > 0}
+                onRepeatLastWeek={() => setRepeatOffered(true)}
               />
-              <DraftWeek draft={weekDraft} onAccept={handleAcceptDraft} />
+              <DraftWeek
+                draft={repeatOffered ? repeatDraft : weekDraft}
+                onAccept={async (meals) => {
+                  await handleAcceptDraft(meals);
+                  setRepeatOffered(false);
+                }}
+              />
             </>
           }
           groceries={

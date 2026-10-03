@@ -271,6 +271,13 @@ export interface DraftedMeal {
   mealName: string;
   /** Why this one landed on this day. */
   because: string;
+  /**
+   * What it needs, where that's known. Repeating a week brings the
+   * ingredients with it — it is the same meal — while a draft built from
+   * the rotation leaves this off, because which version of a dish is
+   * meant is the family's to say.
+   */
+  ingredients?: string[];
 }
 
 /** Nobody wants the same dinner twice in four days. */
@@ -348,4 +355,53 @@ export function draftWeek(history: MealPlanEntry[], days: string[]): DraftedMeal
   }
 
   return drafted;
+}
+
+/**
+ * Last week, again.
+ *
+ * The least glamorous button in any meal planner and reliably the most
+ * used one. Some weeks nobody wants to make seven decisions; they want
+ * the week they already decided, and the thing standing between them and
+ * it is seven lots of typing.
+ *
+ * This is not a suggestion engine and deliberately does nothing clever:
+ * each day gets whatever was on that same weekday seven days earlier, and
+ * days that already have a dinner are left alone. The ingredients come
+ * with it, because they are the same meal.
+ *
+ * Nothing is saved until somebody says so, and the week it offers back is
+ * the family's own. If last week had a gap, this week has the same gap —
+ * filling it in would be the app quietly adding a meal nobody chose.
+ */
+export function lastWeekAgain(history: MealPlanEntry[], days: string[]): DraftedMeal[] {
+  const dinners = new Map<string, MealPlanEntry>();
+  for (const entry of history) {
+    if (entry.slot !== "dinner" || !entry.mealName.trim()) continue;
+    dinners.set(entry.date, entry);
+  }
+
+  const drafted: DraftedMeal[] = [];
+  for (const date of days) {
+    if (dinners.has(date)) continue;
+    const weekBefore = shiftDays(date, -7);
+    const source = weekBefore ? dinners.get(weekBefore) : undefined;
+    if (!source) continue;
+    drafted.push({
+      date,
+      mealName: source.mealName.trim(),
+      because: `Same as last ${weekdayName(date)}.`,
+      ingredients: [...source.ingredients],
+    });
+  }
+  return drafted;
+}
+
+/** `date` moved by whole days, as an ISO date. Null if the date can't be read. */
+function shiftDays(isoDate: string, by: number): string | null {
+  const [year, month, day] = isoDate.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  const moved = new Date(year, month - 1, day + by);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${moved.getFullYear()}-${pad(moved.getMonth() + 1)}-${pad(moved.getDate())}`;
 }

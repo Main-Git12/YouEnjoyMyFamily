@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
-import { mealRhythms, groceryCadences, dayLoads, busiestDay, draftWeek, weekdayName } from "./routines";
+import { mealRhythms, groceryCadences, dayLoads, busiestDay, draftWeek, lastWeekAgain, weekdayName } from "./routines";
 import type { MealPlanEntry, CartItem, ScheduleEntry, Task, TaskCompletion } from "../types";
 
 const dinner = (date: string, mealName: string): MealPlanEntry => ({ date, slot: "dinner", mealName, ingredients: [] });
@@ -366,5 +366,68 @@ describe("drafting a week from the family's own rotation", () => {
     const draft = draftWeek(history, ["2026-09-28"]);
 
     expect(draft[0]?.mealName).toBe("Tacos");
+  });
+});
+
+describe("lastWeekAgain", () => {
+  const meal = (date: string, mealName: string, ingredients: string[] = []): MealPlanEntry => ({
+    date,
+    slot: "dinner",
+    mealName,
+    ingredients,
+  });
+
+  // 2026-10-05 is a Monday; 2026-09-28 the Monday before.
+  const THIS_WEEK = ["2026-10-05", "2026-10-06", "2026-10-07"];
+
+  it("gives each day what was on that weekday a week earlier", () => {
+    const history = [
+      meal("2026-09-28", "Chilli"),
+      meal("2026-09-29", "Tacos"),
+      meal("2026-09-30", "Pasta bake"),
+    ];
+    expect(lastWeekAgain(history, THIS_WEEK)).toEqual([
+      { date: "2026-10-05", mealName: "Chilli", because: "Same as last Monday.", ingredients: [] },
+      { date: "2026-10-06", mealName: "Tacos", because: "Same as last Tuesday.", ingredients: [] },
+      { date: "2026-10-07", mealName: "Pasta bake", because: "Same as last Wednesday.", ingredients: [] },
+    ]);
+  });
+
+  it("brings the ingredients with it, because it's the same meal", () => {
+    const history = [meal("2026-09-28", "Chilli", ["1 kg mince", "2 cans kidney beans"])];
+    expect(lastWeekAgain(history, THIS_WEEK)[0]?.ingredients).toEqual(["1 kg mince", "2 cans kidney beans"]);
+  });
+
+  it("leaves alone a day that already has a dinner", () => {
+    const history = [meal("2026-09-28", "Chilli"), meal("2026-10-05", "Something else")];
+    expect(lastWeekAgain(history, THIS_WEEK)).toEqual([]);
+  });
+
+  it("keeps last week's gaps rather than filling them in", () => {
+    // Filling a gap would be the app quietly adding a meal nobody chose.
+    const history = [meal("2026-09-28", "Chilli"), meal("2026-09-30", "Pasta bake")];
+    expect(lastWeekAgain(history, THIS_WEEK).map((meal) => meal.date)).toEqual(["2026-10-05", "2026-10-07"]);
+  });
+
+  it("has nothing to offer when there was no last week", () => {
+    expect(lastWeekAgain([], THIS_WEEK)).toEqual([]);
+  });
+
+  it("ignores breakfast and lunch", () => {
+    const history: MealPlanEntry[] = [
+      { date: "2026-09-28", slot: "lunch", mealName: "Sandwiches", ingredients: [] },
+    ];
+    expect(lastWeekAgain(history, THIS_WEEK)).toEqual([]);
+  });
+
+  it("hands back a copy of the ingredients, so editing can't rewrite history", () => {
+    const history = [meal("2026-09-28", "Chilli", ["Mince"])];
+    lastWeekAgain(history, THIS_WEEK)[0]?.ingredients?.push("Nobody asked for this");
+    expect(history[0]?.ingredients).toEqual(["Mince"]);
+  });
+
+  it("crosses a month boundary without losing the day", () => {
+    const history = [meal("2026-09-28", "Chilli")];
+    expect(lastWeekAgain(history, ["2026-10-05"])[0]?.mealName).toBe("Chilli");
   });
 });
